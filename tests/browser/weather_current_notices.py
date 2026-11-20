@@ -47,6 +47,8 @@ class CurrentFixtures(OfficialFeedFixtures):
         self.history_failure = False
         self.history_extra = []
         self.grid_forecast_history = True
+        self.condition_text='Mostly Cloudy'
+        self.condition_icon=None
 
     def alert(self, identity, event, *, action="Alert", expired=False):
         bulletin = API + "/alerts/urn:oid:TEST-FIXTURE-" + identity
@@ -72,13 +74,14 @@ class CurrentFixtures(OfficialFeedFixtures):
             "windGust": {"value": self.gust, "unitCode": "wmoUnit:mi_h-1"},
             "windDirection": {"value": 315, "unitCode": "wmoUnit:degree_(angle)"},
             "visibility": {"value": 9656.064, "unitCode": "wmoUnit:m"},
-            "textDescription": "Mostly Cloudy"})
+            "textDescription": self.condition_text})
+        if self.condition_icon: p['icon']=self.condition_icon
         day_start = self.now.astimezone(ZoneInfo("America/Chicago")).replace(hour=0, minute=0)
         self.history_samples = [(day_start - timedelta(minutes=30), 99),
             (day_start + timedelta(minutes=30), -12),
             (day_start + timedelta(minutes=60), 5),
-            (day_start + timedelta(hours=4), 45),
-            (day_start + timedelta(hours=4, minutes=30), 45),
+            (day_start + timedelta(hours=4), 44.8),
+            (day_start + timedelta(hours=4, minutes=30), 44.8),
             (day_start + timedelta(hours=5), -12),
             (self.now - timedelta(minutes=36), 20), (self.now - timedelta(minutes=6), 10)] + self.history_extra
         history = result["resources"]["history"]
@@ -153,6 +156,51 @@ async def refresh(frame):
 
 async def observed_extremes(frame):
     return await frame.locator('#liveTemperature .wv-dial-marker[data-kind="observed"]').evaluate_all("""elements=>Object.fromEntries(elements.map(el=>[el.dataset.extreme,{time:el.dataset.sampleTime,value:Number(el.dataset.airTemperature)}]))""")
+
+
+async def dial_reference_layout(frame):
+    result=await frame.evaluate("""()=>{
+      const current=document.querySelector('#liveTemperature .wv-current-dial'),center=current.querySelector('.wv-dial-center'),face=current.querySelector('.wv-dial-face').getBoundingClientRect();
+      const rect=el=>{const r=el.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,width:r.width,height:r.height};};
+      const currentItems=Array.from(center.children).filter(el=>el.getBoundingClientRect().height>0).map(el=>({id:el.id||el.className,box:rect(el)}));
+      const icon=current.querySelector('.wv-condition'),iconBox=rect(icon),temp=current.querySelector('.wv-temperature-value');
+      const badges=Array.from(current.querySelectorAll('.wv-dial-extreme-value')).map(el=>{
+        const range=document.createRange();range.selectNodeContents(el);const r=range.getBoundingClientRect(),before=getComputedStyle(el,'::before');
+        return {text:el.textContent,left:r.left-parseFloat(before.width)-parseFloat(before.marginRight),right:r.right,top:r.top,bottom:r.bottom};
+      });
+      const exclusions=Array.from(current.querySelectorAll('.wv-dial-marker,.wv-dial-clock')).filter(el=>el.matches('.wv-dial-marker')||['00','24','12 AM'].includes(el.textContent)).map(el=>({label:el.matches('.wv-dial-marker')?el.dataset.kind+':'+el.dataset.extreme:el.textContent,...rect(el)}));
+      const collisions=badges.flatMap(badge=>exclusions.filter(other=>badge.left<other.right+1&&badge.right>other.left-1&&badge.top<other.bottom+1&&badge.bottom>other.top-1).map(other=>({badge,other})));
+      const clippedText=Array.from(current.querySelectorAll('.wv-dial-description,.wx-caption')).filter(el=>!el.hidden&&el.getBoundingClientRect().height>0).flatMap(el=>{
+        const style=getComputedStyle(el),range=document.createRange();range.selectNodeContents(el);
+        const lines=Math.min(parseInt(style.webkitLineClamp)||Infinity,range.getClientRects().length),needed=lines*parseFloat(style.lineHeight),height=el.getBoundingClientRect().height;
+        return style.overflowY==='hidden'&&Number.isFinite(needed)&&height<needed-.6?[{text:el.textContent,height,needed,lines}]:[];
+      });
+      return {currentItems,iconWidth:iconBox.width,tempFont:parseFloat(getComputedStyle(temp).fontSize),
+        centerOffset:Math.abs(iconBox.left+iconBox.width/2-face.left-face.width/2),face:rect(current.querySelector('.wv-dial-face')),
+        currentBadgeColumns:getComputedStyle(current.querySelector('.wv-dial-extrema')).gridTemplateColumns.split(' ').length,badges,collisions,clippedText,
+        days:Array.from(document.querySelectorAll('.daily-forecast-card')).map(card=>{
+          const center=card.querySelector('.wv-dial-center'),icon=card.querySelector('.wv-condition'),values=Array.from(card.querySelectorAll('.wv-dial-extreme-value'));
+          return {iconWidth:rect(icon).width,columns:getComputedStyle(card.querySelector('.wv-dial-extrema')).gridTemplateColumns.split(' ').length,
+            items:Array.from(center.children).filter(el=>el.getBoundingClientRect().height>0).map(rect),values:values.map(rect),
+            fonts:values.map(el=>parseFloat(getComputedStyle(el).fontSize))};})};
+    }""")
+    require(result['iconWidth']>=63.5 and result['tempFont']>=43.5 and result['centerOffset']<3,
+            'Current icon/temperature did not use the larger centered reference layout: '+str(result))
+    items=result['currentItems']
+    require(all(items[index]['box']['top']>=items[index-1]['box']['bottom']-.5 for index in range(1,len(items)))
+            and all(item['box']['top']>=result['face']['top'] and item['box']['bottom']<=result['face']['bottom']+.5 for item in items),
+            'Vertical Current metrics overlap or leave the dial: '+str(result))
+    require(result['currentBadgeColumns']==2,'Current forecast/observed four badges lost their2×2 layout')
+    require(len(result['badges'])==4 and not result['collisions'],
+            'Current inner H/L text or color dots overlap a ring marker or lower clock tick: '+str(result['collisions']))
+    require(not result['clippedText'],'Current condition/event text is clipped inside a visible line: '+str(result['clippedText']))
+    for day in result['days']:
+        require(day['iconWidth']>=69.5 and day['columns']==1 and all(font>=10.5 for font in day['fonts'])
+                and all(day['items'][index]['top']>=day['items'][index-1]['bottom']-.5 for index in range(1,len(day['items'])))
+                and day['values'][1]['top']>=day['values'][0]['bottom']+1,
+                'Extended icon, vertical H/L, or inside content legibility regressed: '+str(day))
+    return {'largeCurrentIconAndTemperature':True,'verticalCurrentMetricsNoOverlap':True,'currentBadgesTwoByTwo':True,'markersAndTicksClearOfBadgeTextAndDots':True,
+        'largeDailyIconsAndVerticalHighLow':True,'currentIconWidth':result['iconWidth'],'currentTemperatureFont':result['tempFont']}
 
 
 async def forecast_graphs(frame, feed, chief):
@@ -264,7 +312,7 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
         extrema = await observed_extremes(frame)
         expected_high = feed.now.astimezone(ZoneInfo('America/Chicago')).replace(hour=4, minute=0)
         expected_low = expected_high.replace(hour=0, minute=30)
-        require(extrema['H']['value'] == 45 and extrema['L']['value'] == -12,
+        require(extrema['H']['value'] == 44.8 and extrema['L']['value'] == -12,
                 'Observed extrema used the 99-degree pre-midnight anchor or missed actual same-day extremes')
         require(datetime.fromisoformat(extrema['H']['time'].replace('Z','+00:00')) == expected_high
                 and datetime.fromisoformat(extrema['L']['time'].replace('Z','+00:00')) == expected_low,
@@ -355,6 +403,7 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
                 and stops[63] == '#9bff54' and stops[85] == '#ff8900' and stops[106] == '#e92b95',
                 'The fixed reference palette changed')
         evidence['alignedForecastGraphs'] = await forecast_graphs(frame, feed, chief)
+        evidence['referenceDialLayout']=await dial_reference_layout(frame)
         await frame.locator('#extendedForecast').scroll_into_view_if_needed()
         await page.screenshot(path=str(output / ('daily-inside-wheel-' + suffix + '.png')), full_page=True)
         await frame.locator('#hourlyForecast').scroll_into_view_if_needed()
@@ -362,6 +411,20 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
         await frame.evaluate("document.getElementById('windowBody').scrollTo(0,0)")
         await page.screenshot(path=str(output / ('current-observed-and-forecast-' + suffix + '.png')), full_page=True)
         initial = await observed_extremes(frame)
+        feed.condition_text='Partly Cloudy with Variable Cloudiness Overnight'
+        feed.condition_icon=API+'/icons/land/night/few'
+        await refresh(frame)
+        require(await frame.locator('#liveConditionIcon .wv-moon').count()>0,
+                'Long night condition failed to keep its moon icon')
+        feed.observation_failure=True
+        await refresh(frame)
+        await dial_reference_layout(frame)
+        require('STALE' in await frame.locator('#liveConditionsBadge').inner_text()
+                and await frame.locator('#liveGusts').count()==1,
+                'Stale long-condition layout dropped its gust or source status')
+        await frame.evaluate("document.getElementById('windowBody').scrollTo(0,0)")
+        await page.screenshot(path=str(output/('current-long-moon-stale-'+suffix+'.png')),full_page=True)
+        feed.observation_failure=False
         feed.grid_forecast_history=False
         await refresh(frame)
         starts=await frame.locator('#liveTemperature .wv-dial-segment').evaluate_all("els=>els.map(el=>el.dataset.startTime)")
@@ -391,7 +454,7 @@ async def observation_and_visuals(browser, base, output, width, height, role="ch
         await frame.locator('#extendedForecast').scroll_into_view_if_needed()
         await page.screenshot(path=str(output/('daily-observed-fallback-'+suffix+'.png')),full_page=True)
         feed.grid_forecast_history=True
-        feed.history_extra.append((feed.now-timedelta(minutes=5),45))
+        feed.history_extra.append((feed.now-timedelta(minutes=5),44.8))
         await refresh(frame)
         require(await observed_extremes(frame) == initial, 'Equal high report changed an already established observed extreme timestamp')
         feed.history_extra.append((feed.now-timedelta(minutes=4),46))

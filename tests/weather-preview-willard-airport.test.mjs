@@ -6,25 +6,37 @@ import { JSDOM, ResourceLoader } from 'jsdom';
 const source = readFileSync(new URL('../public/previews/weather/willard-airport.js', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../public/previews/weather/willard-airport.css', import.meta.url), 'utf8');
 const clockSource = readFileSync(new URL('../public/previews/weather/weather-clock.js', import.meta.url), 'utf8');
-const TRACKER = 'https://avioadsb.org/embed/map?lat=40.03&lon=-88.28&zoom=9';
+const TRACKER = 'https://avioadsb.org/embed/map?lat=40.03&lon=-88.28&zoom=9&compact=1';
 const START = Date.parse('2026-11-20T20:05:00Z');
 const MINUTE = 60000;
 
-function fixture(chief = true) {
-  const requests = [], forbidden = [], errors = [], timers = new Map();
+function payload() {
+  const board = (kind, flights) => ({status:'live',sourceUrl:'https://www.avionio.com/en/airport/cmi/'+kind,
+    retrievedAt:'2026-11-20T20:05:00Z',providerDate:'2026-11-20',explicitEmpty:false,flights,error:null});
+  return {airport:'KCMI',iata:'CMI',timeZone:'America/Chicago',checkedAt:'2026-11-20T20:05:00Z',boards:{
+    arrivals:board('arrivals',[
+      {id:'a1',flight:'AA 100',airline:'American Airlines',location:'Chicago',iata:'ORD',date:'2026-11-20',time:'00:05',status:'Landed'},
+      {id:'a2',flight:'BA 200',airline:'British Airways',location:'Chicago',iata:'ORD',date:'2026-11-20',time:'00:05',status:'Landed'},
+      {id:'a3',flight:'AA 101',airline:'American Airlines',location:'Dallas',iata:'DFW',date:'2026-11-21',time:'14:25',status:'Delayed'},
+    ]),
+    departures:board('departures',[
+      {id:'d1',flight:'AA 102',airline:'American Airlines',location:'Chicago',iata:'ORD',date:'2026-11-20',time:'07:11',status:'Estimated 07:22'},
+    ]),
+  }};
+}
+
+function fixture(options = {}) {
+  const chief = options.chief !== false;
+  const requests = [], flightCalls = [], forbidden = [], errors = [], timers = new Map();
   class CapturedResources extends ResourceLoader {
-    fetch(url) {
-      // Record iframe navigation without loading any actual provider resource.
-      requests.push(url);
-      return null;
-    }
+    fetch(url) { requests.push(url); return null; }
   }
   const dom = new JSDOM('<!doctype html><details id="willardAirport"><summary>Willard Airport</summary></details>', {
     url: 'https://preview.example/previews/cmpri-weather-preview.html' + (chief ? '?clock=24' : ''),
     runScripts: 'outside-only', pretendToBeVisual: true, resources: new CapturedResources(),
   });
   const { window } = dom;
-  let now = START, nextTimer = 0, hidden = false;
+  let now = options.now ?? START, nextTimer = 0, hidden = false;
   Object.defineProperty(window.document, 'hidden', { configurable: true, get: () => hidden });
   const OriginalDate = window.Date;
   window.Date = class extends OriginalDate {
@@ -32,13 +44,16 @@ function fixture(chief = true) {
     static now() { return now; }
   };
   window.setTimeout = (fn, delay) => {
-    const id = ++nextTimer;
-    timers.set(id, { fn, at: now + Number(delay || 0) });
-    return id;
+    const id = ++nextTimer; timers.set(id, { fn, at: now + Number(delay || 0) }); return id;
   };
   window.clearTimeout = id => timers.delete(id);
   const reject = name => () => { forbidden.push(name); throw new Error('Willard must not use ' + name); };
-  window.fetch = reject('independent flight fetch');
+  window.fetch = async (url, init) => {
+    assert.equal(url, '/api/willard-flights', 'only the fixed same-origin flight transport is permitted');
+    assert.equal(init.method, 'GET'); assert.equal(init.cache, 'no-store'); assert.equal(init.credentials, 'same-origin');
+    const call = { url, init }; flightCalls.push(call);
+    return options.fetch ? options.fetch(call, flightCalls.length) : Response.json(payload());
+  };
   window.XMLHttpRequest = reject('XMLHttpRequest');
   window.WebSocket = reject('WebSocket');
   window.setInterval = reject('interval polling');
@@ -47,168 +62,219 @@ function fixture(chief = true) {
   window.Storage.prototype.setItem = reject('persistent storage');
   window.supabase = { from: reject('database'), rpc: reject('database') };
   window.addEventListener('error', event => errors.push(event.error?.message || event.message));
-  window.eval(clockSource);
-  window.eval(source);
+  window.eval(clockSource); window.eval(source);
   const details = window.document.getElementById('willardAirport');
   const api = window.cmpriWillardAirport.create(details, { use24HourTime: !window.cmpriWeatherClock.hour12 });
   const frame = () => details.querySelector('iframe');
-  function disclose(open) {
-    details.open = open;
-    details.dispatchEvent(new window.Event('toggle'));
-  }
-  function visibility(value) {
-    hidden = value;
-    window.document.dispatchEvent(new window.Event('visibilitychange'));
-  }
+  function disclose(open) { details.open = open; details.dispatchEvent(new window.Event('toggle')); }
+  function visibility(value) { hidden = value; window.document.dispatchEvent(new window.Event('visibilitychange')); }
   function advance(milliseconds) {
     const target = now + milliseconds;
     for (let count = 0; count < 100; count++) {
       const due = Array.from(timers).filter(([, timer]) => timer.at <= target).sort((a, b) => a[1].at - b[1].at)[0];
       if (!due) { now = target; return; }
-      now = due[1].at;
-      timers.delete(due[0]);
-      due[1].fn();
+      now = due[1].at; timers.delete(due[0]); due[1].fn();
     }
     throw new Error('Foreground clock timers did not settle');
   }
+  async function settle() { for (let count = 0; count < 8; count++) await new Promise(resolve => setImmediate(resolve)); }
   async function cleanup() {
-    api.destroy();
-    // jsdom queues its native details toggle separately from the fake clock.
-    await new Promise(resolve => setTimeout(resolve, 0));
-    assert.equal(timers.size, 0, 'no display clock remains after teardown');
-    assert.equal(frame(), null, 'the provider browsing context is removed');
-    assert.deepEqual(forbidden, [], 'no own feed, polling, notification, storage or database work');
-    assert.deepEqual(errors, []);
-    dom.window.close();
+    api.destroy(); await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(timers.size, 0); assert.equal(frame(), null);
+    assert.deepEqual(forbidden, [], 'no polling, notification, storage or database work');
+    assert.deepEqual(errors, []); dom.window.close();
   }
-  return { window, details, api, frame, disclose, visibility, advance, timers, requests, cleanup };
+  return { window, details, api, frame, disclose, visibility, advance, timers, requests, flightCalls, settle, cleanup };
 }
 
-test('the collapsed airport makes no request; only active expansion inserts the approved unmodified tracker', async () => {
+function rows(f, kind) { return Array.from(f.details.querySelectorAll('[data-willard-'+kind+'] tbody tr[data-flight]')); }
+
+test('collapsed and inactive airport perform no flight read; active expansion mounts one provider and reads native boards once', async () => {
   const f = fixture();
   try {
-    assert.equal(f.details.open, false);
-    assert.equal(f.frame(), null);
-    f.api.setActive(true);
-    assert.deepEqual(f.requests, []);
-    assert.equal(f.timers.size, 0);
-
-    f.api.setActive(false);
-    f.disclose(true);
-    assert.equal(f.frame(), null, 'an expanded inactive Weather view still must not load the provider');
-    f.api.setActive(true);
-    const frame = f.frame();
-    assert.ok(frame);
-    assert.deepEqual(f.requests, [TRACKER]);
-    assert.deepEqual(Object.fromEntries(Array.from(frame.attributes, attribute => [attribute.name, attribute.value])), {
-      src: TRACKER, width: '100%', height: '450', style: 'border:0;max-width:100%',
-      title: 'Live flight tracker map by AvioADSB', loading: 'lazy', referrerpolicy: 'strict-origin-when-cross-origin',
-    });
-    assert.equal(frame.hasAttribute('sandbox'), false);
-    assert.equal(f.details.querySelector('[data-willard-tracker]').children.length, 1, 'no overlay, extra key or explanatory tracker text');
-    f.api.setActive(true);
-    f.disclose(true);
-    assert.equal(f.frame(), frame);
-    assert.deepEqual(f.requests, [TRACKER], 'repeated active state does not duplicate iframe navigation');
-    assert.equal(f.timers.size, 1, 'only the foreground display clock runs');
+    f.api.setActive(true); await f.settle();
+    assert.equal(f.details.open, false); assert.equal(f.frame(), null); assert.deepEqual(f.flightCalls, []);
+    assert.deepEqual(f.requests, []); assert.equal(f.timers.size, 0);
+    f.api.setActive(false); f.disclose(true); await f.settle();
+    assert.equal(f.frame(), null); assert.equal(f.flightCalls.length, 0);
+    f.api.setActive(true); await f.settle();
+    assert.deepEqual(f.requests, [TRACKER]); assert.equal(f.flightCalls.length, 1);
+    assert.equal(f.frame().getAttribute('src'), TRACKER);
+    assert.equal(f.frame().hasAttribute('sandbox'), false);
+    assert.equal(f.details.querySelector('[data-willard-tracker]').children.length, 1);
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    assert.equal(f.flightCalls.length, 1); assert.equal(f.requests.length, 1);
+    assert.equal(f.timers.size, 1, 'only the display clock runs');
+    assert.equal(f.api.getState().boardStatus, 'live'); assert.equal(f.api.getState().backgroundPolling, false);
   } finally { await f.cleanup(); }
 });
 
-test('collapse, inactive Weather, hidden document and pagehide unload the provider and ignore old frame events', async () => {
-  const f = fixture();
-  try {
-    f.api.setActive(true); f.disclose(true);
-    const first = f.frame();
-    first.dispatchEvent(new f.window.Event('load'));
-    const lastKnown = f.api.getState().lastDocumentLoadedAt;
-    assert.ok(lastKnown);
-    assert.equal(f.api.getState().aircraftCoverageVerified, false, 'iframe load never proves actual aircraft coverage');
-
-    f.disclose(false);
-    assert.equal(first.isConnected, false);
-    assert.equal(f.frame(), null);
-    assert.equal(f.timers.size, 0);
-    f.advance(2 * MINUTE);
-    first.dispatchEvent(new f.window.Event('load'));
-    assert.equal(f.api.getState().trackerStatus, 'inactive');
-    assert.equal(f.api.getState().lastDocumentLoadedAt, lastKnown, 'last-known RAM state survives without accepting a late detached load');
-
-    f.disclose(true);
-    const pending = f.frame();
-    f.api.setActive(false);
-    assert.equal(pending.isConnected, false, 'an unfinished provider context is removed too');
-    pending.dispatchEvent(new f.window.Event('load'));
-    assert.equal(f.api.getState().trackerStatus, 'inactive');
-    assert.equal(f.timers.size, 0);
-
-    f.api.setActive(true);
-    assert.ok(f.frame());
-    f.visibility(true);
-    assert.equal(f.frame(), null);
-    assert.equal(f.timers.size, 0);
-    f.api.setActive(true);
-    assert.equal(f.frame(), null, 'hidden documents cannot resume the provider');
-    f.visibility(false);
-    assert.ok(f.frame());
-    f.window.dispatchEvent(new f.window.Event('pagehide'));
-    assert.equal(f.frame(), null);
-    assert.equal(f.timers.size, 0);
-    assert.equal(f.api.getState().active, false);
-  } finally { await f.cleanup(); }
-});
-
-test('the London board preserves unknown flight data and performs no own feed or background polling', async () => {
-  const f = fixture();
-  try {
-    f.api.setActive(true); f.disclose(true);
-    const board = f.details.querySelector('[data-willard-board]');
-    assert.equal(board.dataset.style, 'london');
-    assert.deepEqual(Array.from(board.querySelectorAll('.wa-flight-heading'), heading => heading.textContent), ['Arrivals', 'Departures']);
-    assert.deepEqual(Array.from(board.querySelectorAll('tbody td'), cell => cell.textContent), ['Flight data unavailable', 'Flight data unavailable']);
-    assert.equal(board.querySelector('input,select,button,[data-flight]'), null, 'no search, selectors or copied fictional flights');
-    assert.doesNotMatch(board.textContent, /DEMO\d|SAMPLE|no flights|0 flights/i);
-    assert.equal(f.api.getState().arrivals, null);
-    assert.equal(f.api.getState().departures, null);
-
-    f.advance(20 * MINUTE);
-    assert.deepEqual(f.requests, [TRACKER], 'the current clock does not poll flight data or reload the iframe');
-    assert.equal(f.api.getState().backgroundPolling, false);
-    assert.equal(f.api.getState().flightRequests, 0);
-    assert.equal(f.api.getState().notifications, 0);
-    f.disclose(false);
-    f.advance(30 * MINUTE);
-    assert.deepEqual(f.requests, [TRACKER]);
-    assert.equal(f.timers.size, 0);
-
-    for (const asset of [source, styles]) {
-      assert.match(asset, /Copyright \(c\) 2026 P-M Nilsson/);
-      assert.match(asset, /Permission is hereby granted, free of charge/);
-      assert.match(asset, /The above copyright notice and this permission notice shall be included/);
-      assert.match(asset, /THE SOFTWARE IS PROVIDED "AS IS"/);
-    }
-  } finally { await f.cleanup(); }
-});
-
-test('the foreground Central clock follows the shared Chief24-hour or ordinary12-hour preference and stops on destroy', async () => {
+test('native London boards preserve every codeshare, published status and wall time without inventing timing semantics', async () => {
   for (const chief of [true, false]) {
-    const f = fixture(chief);
+    const f = fixture({ chief });
     try {
-      f.api.setActive(true); f.disclose(true);
-      const clock = f.details.querySelector('[data-willard-clock]');
-      assert.equal(clock.textContent, chief ? '14:05 CST' : '2:05 PM CST');
-      assert.match(clock.getAttribute('aria-label'), /^Current Central time:/);
-      assert.equal(f.api.getState().timeFormat, chief ? '24-hour' : '12-hour');
-      assert.equal(f.api.getState().timeZone, 'America/Chicago');
-      f.advance(MINUTE + 50);
-      assert.equal(clock.textContent, chief ? '14:06 CST' : '2:06 PM CST');
-      assert.equal(f.timers.size, 1);
-      f.api.destroy();
-      assert.equal(f.timers.size, 0);
-      assert.equal(f.frame(), null);
-      assert.equal(f.details.querySelector('[data-willard-airport]'), null);
-      f.advance(10 * MINUTE);
-      assert.equal(f.timers.size, 0);
-      assert.deepEqual(f.requests, [TRACKER]);
+      f.api.setActive(true); f.disclose(true); await f.settle();
+      assert.equal(f.details.querySelector('[data-willard-board]').dataset.style, 'london');
+      assert.deepEqual(rows(f,'arrivals').map(row => row.querySelector('.wa-flight-number').textContent), ['AA 100','BA 200','AA 101']);
+      assert.deepEqual(rows(f,'arrivals').map(row => row.querySelector('.wa-flight-time').textContent), chief ? ['00:05','00:05','14:25'] : ['12:05 AM','12:05 AM','2:25 PM']);
+      assert.equal(rows(f,'departures')[0].querySelector('.wa-flight-time').textContent, chief ? '07:11' : '7:11 AM');
+      assert.equal(rows(f,'departures')[0].querySelector('td:last-child').textContent, chief ? 'Estimated 07:22' : 'Estimated 7:22 AM');
+      assert.equal(rows(f,'arrivals')[2].querySelector('td:last-child').textContent, 'Delayed');
+      assert.equal(rows(f,'arrivals')[2].querySelector('time').getAttribute('datetime'), '2026-11-21T14:25');
+      assert.equal(rows(f,'arrivals')[2].querySelector('.wa-flight-date').textContent, 'Nov 21');
+      const board = f.details.querySelector('[data-willard-board]');
+      assert.doesNotMatch(board.textContent, /actual|scheduled|\d+\s*min(?:ute)?s?\s*(?:late|delay)|last updated/i);
+      assert.equal(f.details.querySelectorAll('iframe').length, 1, 'the timetable is native DOM, not a provider board iframe');
+      assert.equal(f.details.querySelector('.wa-source a').textContent, 'Avionio');
+      assert.match(f.details.querySelector('.wa-source').textContent, chief ? /Retrieved:.*14:05 CST/ : /Retrieved:.*2:05 PM CST/);
+      assert.equal(board.querySelector('input,select,button,img'), null, 'no style controls or provider logo');
     } finally { await f.cleanup(); }
+  }
+});
+
+test('one failed board remains unknown without erasing its successful sibling; empty arrays are not a no-flight claim', async () => {
+  const data = payload();
+  data.boards.arrivals = { status:'unavailable',sourceUrl:'https://www.avionio.com/en/airport/cmi/arrivals',flights:[],explicitEmpty:false,error:'Source unavailable' };
+  const f = fixture({fetch:async()=>Response.json(data)});
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    assert.equal(f.api.getState().boardStatus, 'partial');
+    assert.equal(f.api.getState().arrivals.status, 'unavailable'); assert.equal(f.api.getState().departures.status, 'live');
+    assert.equal(rows(f,'arrivals').length,0); assert.equal(rows(f,'departures').length,1);
+    assert.match(f.details.querySelector('[data-willard-arrivals]').textContent,/Flight data unavailable/);
+    assert.doesNotMatch(f.details.querySelector('[data-willard-arrivals]').textContent,/No flights|0 flights/i);
+  } finally { await f.cleanup(); }
+  for (const explicitEmpty of [false,true]) {
+    const data = payload(); data.boards.arrivals.flights=[]; data.boards.arrivals.explicitEmpty=explicitEmpty;
+    const g = fixture({fetch:async()=>Response.json(data)});
+    try {
+      g.api.setActive(true); g.disclose(true); await g.settle();
+      assert.equal(g.api.getState().arrivals.status,explicitEmpty?'live':'unavailable');
+      assert.equal(g.details.querySelector('[data-willard-arrivals] tbody td').textContent,explicitEmpty?'No flights listed by source':'Flight data unavailable');
+    } finally { await g.cleanup(); }
+  }
+});
+
+test('RAM cache survives quick reopen, expires after60seconds, and display clocks never poll flight data', async () => {
+  const f = fixture();
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    f.advance(30*MINUTE); await f.settle();
+    assert.equal(f.flightCalls.length,1,'even a long visible session has no flight polling');
+    f.disclose(false); f.disclose(true); await f.settle();
+    assert.equal(f.flightCalls.length,2,'reopening after expiry checks once');
+    f.disclose(false); f.advance(59000); f.disclose(true); await f.settle();
+    assert.equal(f.flightCalls.length,2,'cache younger than60s is reused');
+    f.disclose(false); f.advance(1001); f.disclose(true); await f.settle();
+    assert.equal(f.flightCalls.length,3);
+    assert.equal(f.api.getState().flightRequests,3); assert.equal(f.api.getState().notifications,0);
+  } finally { await f.cleanup(); }
+});
+
+test('failed refresh retains prior rows as last known and unverified with original retrieval time', async () => {
+  const f = fixture({fetch:async(_call,count)=>count===1?Response.json(payload()):new Response('Unavailable',{status:503})});
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    const source = f.details.querySelector('.wa-source').textContent;
+    f.disclose(false); f.advance(MINUTE+1); f.disclose(true); await f.settle();
+    assert.equal(rows(f,'arrivals').length,3); assert.equal(rows(f,'departures').length,1);
+    assert.equal(f.api.getState().boardStatus,'stale');
+    assert.equal(f.api.getState().arrivals.status,'stale');
+    assert.equal(f.details.querySelector('[data-willard-arrivals] .wa-board-status').textContent,'Last known · unverified');
+    assert.equal(f.details.querySelector('.wa-source').textContent,source);
+    assert.match(f.api.getState().arrivals.error,/HTTP 503/);
+  } finally { await f.cleanup(); }
+});
+
+test('crossing Central midnight invalidates a younger-than60second cache without a background check', async () => {
+  const f = fixture({ now: Date.parse('2026-11-21T05:59:40Z') });
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    f.disclose(false); f.advance(30000); await f.settle();
+    assert.equal(f.flightCalls.length,1,'crossing midnight while closed does not poll');
+    f.disclose(true); await f.settle();
+    assert.equal(f.flightCalls.length,2,'the new Central calendar day invalidates the old board');
+  } finally { await f.cleanup(); }
+});
+
+test('pending requests dedupe and abort on collapse, hide, inactive Weather, removal and destroy; late results are ignored', async () => {
+  for (const stop of ['collapse','hidden','inactive','remove','destroy']) {
+    let resolve;
+    const f = fixture({fetch:()=>new Promise(done=>{resolve=done;})});
+    try {
+      f.api.setActive(true); f.disclose(true); await f.settle();
+      f.api.setActive(true); f.disclose(true); await f.settle();
+      assert.equal(f.flightCalls.length,1); assert.equal(f.api.getState().flightPending,true);
+      const firstFrame=f.frame();
+      if(stop==='collapse')f.disclose(false);
+      if(stop==='hidden')f.visibility(true);
+      if(stop==='inactive')f.api.setActive(false);
+      if(stop==='remove')f.details.remove();
+      if(stop==='destroy')f.api.destroy();
+      await f.settle();
+      assert.equal(f.flightCalls[0].init.signal.aborted,true,stop+' must abort');
+      assert.equal(firstFrame.isConnected,false); assert.equal(f.timers.size,0);
+      resolve(Response.json(payload())); await f.settle();
+      assert.equal(rows(f,'arrivals').length,0,'late data must not render after '+stop);
+      assert.equal(f.api.getState().arrivals?.status==='live',false);
+    } finally { await f.cleanup(); }
+  }
+});
+
+test('shared page request and cache serve multiple native consumers without aborting the remaining visible board', async () => {
+  let resolve;
+  const f = fixture({fetch:()=>new Promise(done=>{resolve=done;})});
+  let second;
+  try {
+    const detail=f.window.document.createElement('details');f.window.document.body.append(detail);
+    second=f.window.cmpriWillardAirport.create(detail,{use24HourTime:false});
+    f.api.setActive(true);f.disclose(true);
+    second.setActive(true);detail.open=true;detail.dispatchEvent(new f.window.Event('toggle'));await f.settle();
+    assert.equal(f.flightCalls.length,1);
+    f.disclose(false);assert.equal(f.flightCalls[0].init.signal.aborted,false,'the other active consumer still needs the shared result');
+    resolve(Response.json(payload()));await f.settle();
+    assert.equal(second.getState().boardStatus,'live');
+    assert.equal(detail.querySelector('.wa-flight-time').textContent,'12:05 AM');
+    second.setActive(false);f.disclose(true);await f.settle();assert.equal(f.flightCalls.length,1,'shared RAM result is reused');
+  } finally { second?.destroy();await f.cleanup(); }
+});
+
+test('unavailable or unverified responses remain unknown and all provider text is rendered safely', async () => {
+  for (const response of [new Response('error',{status:502}),Response.json({airport:'OTHER',boards:{}})]) {
+    const f=fixture({fetch:async()=>response});
+    try {f.api.setActive(true);f.disclose(true);await f.settle();assert.equal(f.api.getState().boardStatus,'unavailable');assert.equal(rows(f,'arrivals').length,0);}
+    finally {await f.cleanup();}
+  }
+  const data=payload();data.boards.arrivals.flights[0].location='<img src=x onerror=alert(1)>';
+  data.boards.arrivals.sourceUrl='javascript:alert(1)';
+  const f=fixture({fetch:async()=>Response.json(data)});
+  try {
+    f.api.setActive(true);f.disclose(true);await f.settle();
+    assert.equal(f.details.querySelector('img'),null);assert.match(rows(f,'arrivals')[0].textContent,/<img src=x/);
+    assert.equal(f.details.querySelector('.wa-source a').href,'https://www.avionio.com/en/airport/cmi/arrivals');
+  } finally {await f.cleanup();}
+});
+
+test('the Central clock follows the shared role preference and provider unload ignores detached load events', async () => {
+  for (const chief of [true,false]) {
+    const f=fixture({chief});
+    try {
+      f.api.setActive(true);f.disclose(true);await f.settle();
+      const frame=f.frame();frame.dispatchEvent(new f.window.Event('load'));
+      const at=f.api.getState().lastDocumentLoadedAt;
+      assert.ok(at);assert.equal(f.api.getState().aircraftCoverageVerified,false);
+      const clock=f.details.querySelector('[data-willard-clock]');
+      assert.equal(clock.textContent,chief?'14:05 CST':'2:05 PM CST');
+      f.advance(MINUTE+50);assert.equal(clock.textContent,chief?'14:06 CST':'2:06 PM CST');
+      f.window.dispatchEvent(new f.window.Event('pagehide'));
+      assert.equal(f.frame(),null);assert.equal(f.timers.size,0);assert.equal(f.api.getState().active,false);
+      frame.dispatchEvent(new f.window.Event('load'));assert.equal(f.api.getState().lastDocumentLoadedAt,at);
+    } finally {await f.cleanup();}
+  }
+  for(const asset of [source,styles]) {
+    assert.match(asset,/Copyright \(c\) 2026 P-M Nilsson/);
+    assert.match(asset,/Permission is hereby granted, free of charge/);
+    assert.match(asset,/The above copyright notice and this permission notice shall be included/);
+    assert.match(asset,/THE SOFTWARE IS PROVIDED "AS IS"/);
   }
 });

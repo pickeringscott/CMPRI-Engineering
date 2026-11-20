@@ -38,10 +38,23 @@
 .wa-boards { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .wa-flight-panel { min-width: 0; overflow: hidden; border: 1px solid #333; border-radius: 4px; }
 .wa-flight-heading { margin: 0; padding: 8px 10px; background: #2b2b2b; color: var(--wa-yellow); font-size: 15px; font-weight: 700; letter-spacing: .025em; }
+.wa-board-status { margin: 0; padding: 7px 8px 0; color: #aaa; font: 11px/1.4 Arial, sans-serif; }
+.wa-flight-panel[data-availability="stale"] .wa-board-status { color: #ffcc00; }
 .wa-flight-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .wa-flight-table th { padding: 7px 8px; text-align: left; color: #bfbfbf; font: 600 10px/1.3 Arial, sans-serif; border-bottom: 1px solid #333; }
-.wa-flight-table td { padding: 13px 8px; border-bottom: 0; }
+.wa-flight-table th:nth-child(1) { width: 24%; }
+.wa-flight-table th:nth-child(2) { width: 24%; }
+.wa-flight-table th:nth-child(3) { width: 29%; }
+.wa-flight-table th:nth-child(4) { width: 23%; }
+.wa-flight-table td { padding: 10px 8px; border-bottom: 1px solid #242424; vertical-align: top; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+.wa-flight-table tbody tr:last-child td { border-bottom: 0; }
+.wa-flight-time { color: var(--wa-yellow); white-space: nowrap; }
+.wa-flight-number { color: #fff; font-weight: 600; }
+.wa-airline, .wa-airport-iata, .wa-flight-date { display: block; margin-top: 2px; color: #aaa; font: 10px/1.4 Arial, sans-serif; }
 .wa-flight-table .wa-unavailable { color: #b8b8b8; font: 12px/1.5 Arial, sans-serif; text-align: center; }
+.wa-source { margin: 0; padding: 8px; color: #999; border-top: 1px solid #333; font: 10px/1.5 Arial, sans-serif; overflow-wrap: anywhere; }
+.wa-source a { color: #bbb; text-decoration: underline; text-underline-offset: 2px; }
+.wa-source a:focus-visible { outline: 2px solid #ffcc00; outline-offset: 2px; }
 .wa-tracker { margin-top: 12px; min-width: 0; }
 .wa-tracker:empty { margin-top: 0; }
 .wa-tracker > iframe { display: block; }
@@ -55,6 +68,6 @@
   .wa-clock-label { font-size: 9px; }
   .wa-clock { font-size: 14px; }
   .wa-flight-heading { font-size: 14px; padding: 7px 9px; }
-  .wa-flight-table th { padding: 6px 8px; }
-  .wa-flight-table td { padding: 10px 8px; }
+  .wa-flight-table th { padding: 6px; }
+  .wa-flight-table td { padding: 9px 6px; font-size: 12px; }
 }
