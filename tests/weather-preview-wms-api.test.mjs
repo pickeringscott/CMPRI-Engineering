@@ -5,6 +5,8 @@ import {loadTs} from './helpers/load-ts.mjs';
 const velocity='https://opengeo.ncep.noaa.gov/geoserver/kilx/ows';
 const precipitation='https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows';
 const reflectivity='https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows';
+const satellite='https://nowcoast.noaa.gov/geoserver/observations/satellite/ows';
+const lightning='https://nowcoast.noaa.gov/geoserver/observations/lightning_detection/ows';
 // Deliberately different from conventional guessed names: only metadata counts.
 const actualLayer='kilx:ACTUAL_SOURCE_VELOCITY';
 const actualStyle='SourceVelocityStyle';
@@ -98,12 +100,55 @@ test('capabilities preserve source XML and exact advertised names, inherited CRS
 });
 
 test('other products use their own fixed official services without guessed layer names',async()=>{
- for(const [product,source,name] of [['precipitation',precipitation,'conus:SOURCE_PRECIPITATION_TYPE'],['reflectivity',reflectivity,'conus:SOURCE_REFLECTIVITY']]) {
+ for(const [product,source,name] of [
+  ['precipitation',precipitation,'conus:SOURCE_PRECIPITATION_TYPE'],
+  ['reflectivity',reflectivity,'conus:SOURCE_REFLECTIVITY'],
+  ['satellite',satellite,'satellite:SOURCE_ONLY_LAYER'],
+  ['lightning',lightning,'lightning:SOURCE_ONLY_LAYER'],
+ ]) {
   let seen;
   const response=await fixture(async(url)=>{seen=url;return xmlResponse(xml.replaceAll(actualLayer,name));})
    .GET(request({product,op:'capabilities'}));
   assert.equal(response.status,200);assert.equal(new URL(seen).origin+new URL(seen).pathname,source);
   assert.equal((await response.json()).layers[0].name,name);
+ }
+});
+
+test('nowCOAST products retain advertised map, legend and time validation at their fixed service',async()=>{
+ for(const [product,source] of [['satellite',satellite],['lightning',lightning]]) {
+  const name=product+':ACTUAL_FIXTURE_LAYER',style=product+'FixtureStyle';
+  const advertised=xml.replaceAll(actualLayer,name).replaceAll(actualStyle,style).replaceAll(velocity,source);
+  const calls=[];
+  const api=fixture(async(url,options)=>{
+   const parsed=new URL(url),query=parsed.searchParams;calls.push(url);
+   assert.equal(parsed.origin+parsed.pathname,source);
+   assert.equal(options.method,'GET');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
+   assert.equal(options.headers.Authorization,undefined);assert.equal(options.headers.Cookie,undefined);
+   if(query.get('request')==='GetCapabilities')return xmlResponse(advertised);
+   assert.equal(query.get('FORMAT'),'image/png');
+   if(query.get('REQUEST')==='GetMap') {
+    assert.equal(query.get('LAYERS'),name);assert.equal(query.get('STYLES'),style);
+    assert.equal(query.get('TIME'),latest);assert.equal(query.get('CRS'),'EPSG:3857');
+    assert.equal(query.get('BBOX'),base.bbox);assert.equal(query.get('TRANSPARENT'),'TRUE');
+   } else {
+    assert.equal(query.get('REQUEST'),'GetLegendGraphic');assert.equal(query.get('LAYER'),name);assert.equal(query.get('STYLE'),style);
+    assert.equal(query.has('TIME'),false);assert.equal(query.has('url'),false);
+   }
+   return new Response(png,{headers:{'Content-Type':'image/png'}});
+  },{VERCEL_ENV:'production'});
+  const params={...base,product,layer:name,style,time:latest};
+  for(const invalid of [{...params,layer:'unadvertised'}, {...params,style:'unadvertised'}, {...params,time:'2026-11-19T06:03:00Z'}]) {
+   assert.equal((await api.GET(request(invalid))).status,400);
+  }
+  assert.equal(calls.length,1,'Rejected source choices must not request imagery');
+  const map=await api.GET(request(params));
+  assert.equal(map.status,200);assert.equal(map.headers.get('X-Weather-Time'),latest);
+  assert.equal(map.headers.get('X-Weather-Layer'),name);
+  assert.equal(new URL(map.headers.get('X-Weather-Source')).origin+new URL(map.headers.get('X-Weather-Source')).pathname,source);
+  assert.deepEqual(new Uint8Array(await map.arrayBuffer()),png);
+  const legend=await api.GET(request({product,op:'legend',layer:name,style}));
+  assert.equal(legend.status,200);assert.equal(legend.headers.get('Content-Type'),'image/png');
+  assert.equal(calls.length,3,'Capabilities are cached separately for the selected product');
  }
 });
 

@@ -31,7 +31,7 @@
 @media(max-width:800px){.priority-row.has-active-alerts{grid-template-columns:minmax(0,1fr)}}
 
 /* A single Weather surface, with forecast charts sharing the card scroll lane. */
-:root{--current-weather-width:440px}
+:root{--current-weather-width:520px}
 #panel-weather{margin-top:12px}
 .current-conditions-graphs{width:100%;max-width:var(--current-weather-width);margin:4px auto 0;min-width:0}
 .hourly-forecast-scroll{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:#917024 #181612;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y;scroll-snap-type:x proximity;padding:2px 1px 9px}

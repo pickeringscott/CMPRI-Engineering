@@ -8,6 +8,7 @@ const source = readFileSync(new URL('../public/previews/weather/weather-map.js',
 const buttons = {
   reflectivity: 'mapLayerRadar', velocity: 'mapLayerVelocity', ptype: 'mapLayerPtype',
   roads: 'mapLayerRoads', impacts: 'mapLayerImpacts', alerts: 'mapLayerAlerts',
+  satellite: 'mapLayerSatellite', lightning: 'mapLayerLightning',
 };
 
 function fixture() {
@@ -84,6 +85,35 @@ for (const order of [['roads', 'impacts'], ['impacts', 'roads']]) {
     } finally { await f.cleanup(); }
   });
 }
+
+test('cloud imagery and lightning density toggle independently without reading feeds before Weather opens', async () => {
+  const f = fixture();
+  try {
+    const { document } = f.window;
+    for (const [name, label] of [['satellite', 'Clouds · satellite'], ['lightning', 'Lightning density']]) {
+      const control = document.getElementById(buttons[name]);
+      assert.equal(control.disabled, false, name + ' is a working layer selection');
+      assert.equal(control.textContent.trim(), label);
+    }
+    f.click('velocity');
+    f.click('ptype');
+    f.click('roads');
+    f.click('impacts');
+    const original = { reflectivity: true, velocity: true, ptype: true, alerts: true, roads: true, impacts: true };
+    f.selected({ ...original, satellite: false, lightning: false });
+    f.click('satellite');
+    f.selected({ ...original, satellite: true, lightning: false });
+    f.click('lightning');
+    f.selected({ ...original, satellite: true, lightning: true });
+    f.click('satellite');
+    f.selected({ ...original, satellite: false, lightning: true });
+    f.click('satellite');
+    f.click('lightning');
+    f.selected({ ...original, satellite: true, lightning: false });
+    assert.equal(document.querySelector('#mapLegend img'), null,
+      'selecting a feed before opening must not synthesize imagery or its legend');
+  } finally { await f.cleanup(); }
+});
 
 test('the real legend accordion starts closed and preserves user disclosure state across control updates', async () => {
   const f = fixture();

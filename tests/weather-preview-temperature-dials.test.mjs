@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 
 const clockSource = readFileSync(new URL('../public/previews/weather/weather-clock.js', import.meta.url), 'utf8');
 const visualsSource = readFileSync(new URL('../public/previews/weather/weather-visuals.js', import.meta.url), 'utf8');
+const astronomySource = readFileSync(new URL('../public/previews/weather/weather-astronomy.js', import.meta.url), 'utf8');
 const viewSource = readFileSync(new URL('../public/previews/weather/nws-live-view.js', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../public/previews/weather/weather-visuals.css', import.meta.url), 'utf8');
 const HOUR = 3600000;
@@ -94,6 +95,54 @@ test('a complete Central day maps times around the dial and uses only actual sup
       colors: Array.from(wheel.querySelector(arc.getAttribute('stroke').slice(4, -1)).querySelectorAll('stop'), (stop) => [stop.getAttribute('offset'), stop.getAttribute('stop-color')]),
     }));
     assert.deepEqual(fill(dial), fill(current), 'Extended label simplification preserves today’s supplied forecast ring fill');
+  } finally { f.close(); }
+});
+
+test('reference-style wheels keep a crisp vertical Current stack, inside extrema, and the working moon/details trigger', () => {
+  const f = fixture();
+  try {
+    const style = f.window.document.createElement('style'); style.textContent = styles; f.window.document.head.append(style);
+    const [day] = f.visuals.forecastDays(hours('2026-11-20T00:00:00-06:00', [32, 40, 50]));
+    const observed = f.visuals.observationDay([{ timestamp: '2026-11-20T11:53:00-06:00', fahrenheit: 45 }], NOW);
+    const current = f.visuals.temperatureDial(day, { current: true, observedDay: observed, observedTemperature: 45,
+      conditionText: 'Mostly clear', icon: 'https://api.weather.gov/icons/land/night/few', isDaytime: false,
+      windSpeed: '12 MPH', windDirection: 'NW', gustText: '20', visibility: '10', feelsLike: 41 });
+    f.window.document.getElementById('liveTemperature').replaceChildren(current);
+    const center = current.querySelector('.wv-dial-center');
+    assert.equal(current.querySelector('.wv-dial-ring').getAttribute('viewBox'), '6 0 188 190', 'Current enlarges the true vector circle without scaling text or data coordinates');
+    assert.deepEqual(Array.from(center.children, (child) => child.id || child.className), [
+      'liveConditionIcon', 'wv-dial-current-value', 'liveConditionText', 'liveFeelsLike', 'wv-dial-current-wind', 'liveVisibility', 'wv-dial-extrema',
+    ]);
+    assert.equal(f.window.getComputedStyle(center).display, 'flex');
+    assert.equal(f.window.getComputedStyle(center).flexDirection, 'column');
+    assert.equal(f.window.getComputedStyle(current.querySelector('.wv-temperature-value')).textShadow, 'none', 'actual temperature uses crisp text, not a blurred shadow');
+    assert.equal(center.querySelectorAll('.wv-dial-extreme').length, 4);
+    assert.equal(current.querySelector('.wv-dial-face>.wv-dial-extrema'), null, 'extrema flow at the bottom of the centered contents');
+    assert.equal(center.querySelectorAll('img,canvas').length, 0, 'condition and wind visuals remain scalable SVGs');
+    f.window.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+    f.window.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); this.dispatchEvent(new f.window.Event('close')); };
+    Object.defineProperty(f.window.document, 'hidden', { configurable: true, value: false });
+    f.window.eval(astronomySource);
+    const decoration = f.window.cmpriWeatherAstronomy.decorateCurrentIcon(current.querySelector('#liveConditionIcon'), {
+      now: NOW, moonPhase: { label: 'Waxing Crescent', angle: 45, illumination: .15, calculatedAt: new Date(NOW).toISOString(), sourceUrl: 'https://github.com/cosinekitty/astronomy' }, events: [],
+    });
+    const trigger = current.querySelector('[data-weather-astronomy-trigger]');
+    assert.ok(trigger.querySelector('.wv-condition'));
+    assert.equal(trigger.querySelector('.wx-caption').textContent, 'Waxing Crescent');
+    trigger.click();
+    assert.equal(f.window.document.querySelector('[data-weather-astronomy-dialog]').open, true, 'stack rearrangement preserves the native details flow');
+    f.window.document.querySelector('[data-weather-astronomy-close]').click();
+    assert.equal(f.window.document.querySelector('[data-weather-astronomy-dialog]').open, false);
+    decoration.destroy();
+    const daily = f.visuals.temperatureDial(day, { conditionText: 'Sunny', isDaytime: true, windSpeed: '8 MPH', windDirection: 'S' });
+    const dailyCard = f.window.document.createElement('article'); dailyCard.className = 'forecast-card daily-forecast-card'; dailyCard.append(daily); f.window.document.body.append(dailyCard);
+    const dailyCenter = daily.querySelector('.wv-dial-center');
+    assert.equal(daily.querySelector('.wv-dial-ring').getAttribute('viewBox'), '0 0 200 190', 'Extended retains its own circle geometry');
+    assert.deepEqual(Array.from(dailyCenter.children, (child) => child.classList.contains('wv-condition') ? 'icon' : child.className), ['icon', 'wv-dial-wind', 'wv-dial-description', 'wv-dial-extrema']);
+    assert.deepEqual(Array.from(daily.querySelectorAll('.wv-dial-marker text'), (label) => label.textContent), ['H', 'L']);
+    assert.equal(f.window.getComputedStyle(daily.querySelector('.wv-dial-extrema')).gridTemplateColumns, '1fr', 'daily H/L rows follow the reference vertically');
+    assert.equal(f.window.getComputedStyle(current.querySelector('.wv-dial-extrema')).gridTemplateColumns, '1fr 1fr', 'Current retains its separate forecast/observed2×2 grid');
+    assert.deepEqual(Array.from(current.querySelectorAll('.wv-dial-marker[data-kind="forecast"] text'), (label) => label.textContent), ['FH', 'FL']);
   } finally { f.close(); }
 });
 

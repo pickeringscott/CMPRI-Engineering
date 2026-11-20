@@ -221,7 +221,7 @@
     root.dataset.coverageHours = String(day?.coverageHours || 0);
     root.dataset.expectedHours = String(day?.expectedHours || 24);
     const svg = document.createElementNS(SVG, 'svg'), id = ++nextDial;
-    svg.setAttribute('viewBox', '0 0 200 190');
+    svg.setAttribute('viewBox', current ? '6 0 188 190' : '0 0 200 190');
     svg.setAttribute('class', 'wv-dial-ring');
     svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('focusable', 'false');
     const defs = shape(svg, 'defs', {});
@@ -291,18 +291,19 @@
     });
     const face = node('div', 'wv-dial-face'); face.append(svg);
     const center = node('div', 'wv-dial-center');
+    let visibilityHost = null, feels = null;
+    const description = node('span', 'wv-dial-description', conditionText); if (current) description.id = 'liveConditionText';
     if (current) {
       const known = finite(observedTemperature);
       const value = node('strong', 'wv-temperature-value', known ? formatNumber.format(observedTemperature) + '°' : '—');
       value.dataset.airTemperature = known ? String(observedTemperature) : 'unknown';
       if (known) value.style.setProperty('--wv-temperature-color', colorAt(observedTemperature));
       const iconHost = node('span', 'wv-dial-condition wv-current-icon-slot'); iconHost.id = 'liveConditionIcon'; iconHost.setAttribute('data-current-condition-icon', ''); iconHost.append(condition(conditionText, { icon, isDaytime }));
-      const visibilityHost = node('span', 'wv-dial-visibility', visibility === null ? 'Visibility unavailable' : visibility + ' mi visibility'); visibilityHost.id = 'liveVisibility';
+      visibilityHost = node('span', 'wv-dial-visibility', visibility === null ? 'Visibility unavailable' : visibility + ' mi visibility'); visibilityHost.id = 'liveVisibility';
       const temp = node('div', 'wv-dial-current-value'); temp.append(value);
-      const feels = node('span', 'wv-dial-feels', 'Feels Like ' + (finite(feelsLike) ? formatNumber.format(feelsLike) + '°' : '—'));
-      feels.id = 'liveFeelsLike'; temp.append(feels);
-      temp.append(visibilityHost);
-      center.append(iconHost, temp);
+      feels = node('span', 'wv-dial-feels', 'Feels Like ' + (finite(feelsLike) ? formatNumber.format(feelsLike) + '°' : '—'));
+      feels.id = 'liveFeelsLike';
+      center.append(iconHost, temp, description, feels);
     } else {
       center.append(condition(conditionText, { icon, isDaytime }));
     }
@@ -310,10 +311,10 @@
     const windGroup = current ? node('div', 'wv-dial-current-wind') : center;
     windHost.append(wind(typeof windSpeed === 'string' ? windSpeed.replace(/\bmph\b/gi, 'MPH') : windSpeed, windDirection)); windGroup.append(windHost);
     if (current && gustText) { const gust = node('span', 'wv-dial-gust', 'G ' + gustText + ' MPH'); gust.id = 'liveGusts'; windGroup.append(gust); }
-    if (current) center.append(windGroup);
-    const description = node('span', 'wv-dial-description', conditionText); if (current) description.id = 'liveConditionText';
-    center.append(description);
-    face.append(center, extrema); root.append(face);
+    if (current) center.append(windGroup, visibilityHost);
+    else center.append(description);
+    center.append(extrema);
+    face.append(center); root.append(face);
     const hasData = Boolean(day?.segments.length);
     const coverage = pending && !hasData ? 'Hourly forecast loading' : !hasData ? 'Hourly timeline unavailable' : (stale ? 'STALE · ' : '') + (day.partial ? 'Partial · ' : '') + formatNumber.format(day.coverageHours) + '/' + day.expectedHours + ' h supplied';
     if (!current && !hasData) center.append(node('span', 'wv-dial-unavailable', pending ? 'Hourly forecast loading' : 'Hourly timeline unavailable'));
