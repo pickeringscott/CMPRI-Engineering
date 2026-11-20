@@ -5,8 +5,7 @@ import {loadTs} from './helpers/load-ts.mjs';
 const velocity='https://opengeo.ncep.noaa.gov/geoserver/kilx/ows';
 const precipitation='https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows';
 const reflectivity='https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows';
-const satellite='https://nowcoast.noaa.gov/geoserver/observations/satellite/ows';
-const lightning='https://nowcoast.noaa.gov/geoserver/observations/lightning_detection/ows';
+const cloudCover='https://digital.weather.gov/ndfd.conus/wms';
 // Deliberately different from conventional guessed names: only metadata counts.
 const actualLayer='kilx:ACTUAL_SOURCE_VELOCITY';
 const actualStyle='SourceVelocityStyle';
@@ -103,8 +102,7 @@ test('other products use their own fixed official services without guessed layer
  for(const [product,source,name] of [
   ['precipitation',precipitation,'conus:SOURCE_PRECIPITATION_TYPE'],
   ['reflectivity',reflectivity,'conus:SOURCE_REFLECTIVITY'],
-  ['satellite',satellite,'satellite:SOURCE_ONLY_LAYER'],
-  ['lightning',lightning,'lightning:SOURCE_ONLY_LAYER'],
+  ['cloudCover',cloudCover,'official:SOURCE_ONLY_LAYER'],
  ]) {
   let seen;
   const response=await fixture(async(url)=>{seen=url;return xmlResponse(xml.replaceAll(actualLayer,name));})
@@ -114,42 +112,28 @@ test('other products use their own fixed official services without guessed layer
  }
 });
 
-test('nowCOAST products retain advertised map, legend and time validation at their fixed service',async()=>{
- for(const [product,source] of [['satellite',satellite],['lightning',lightning]]) {
-  const name=product+':ACTUAL_FIXTURE_LAYER',style=product+'FixtureStyle';
-  const advertised=xml.replaceAll(actualLayer,name).replaceAll(actualStyle,style).replaceAll(velocity,source);
-  const calls=[];
-  const api=fixture(async(url,options)=>{
-   const parsed=new URL(url),query=parsed.searchParams;calls.push(url);
-   assert.equal(parsed.origin+parsed.pathname,source);
-   assert.equal(options.method,'GET');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
-   assert.equal(options.headers.Authorization,undefined);assert.equal(options.headers.Cookie,undefined);
-   if(query.get('request')==='GetCapabilities')return xmlResponse(advertised);
-   assert.equal(query.get('FORMAT'),'image/png');
-   if(query.get('REQUEST')==='GetMap') {
-    assert.equal(query.get('LAYERS'),name);assert.equal(query.get('STYLES'),style);
-    assert.equal(query.get('TIME'),latest);assert.equal(query.get('CRS'),'EPSG:3857');
-    assert.equal(query.get('BBOX'),base.bbox);assert.equal(query.get('TRANSPARENT'),'TRUE');
-   } else {
-    assert.equal(query.get('REQUEST'),'GetLegendGraphic');assert.equal(query.get('LAYER'),name);assert.equal(query.get('STYLE'),style);
-    assert.equal(query.has('TIME'),false);assert.equal(query.has('url'),false);
-   }
-   return new Response(png,{headers:{'Content-Type':'image/png'}});
-  },{VERCEL_ENV:'production'});
-  const params={...base,product,layer:name,style,time:latest};
-  for(const invalid of [{...params,layer:'unadvertised'}, {...params,style:'unadvertised'}, {...params,time:'2026-11-19T06:03:00Z'}]) {
-   assert.equal((await api.GET(request(invalid))).status,400);
-  }
-  assert.equal(calls.length,1,'Rejected source choices must not request imagery');
-  const map=await api.GET(request(params));
-  assert.equal(map.status,200);assert.equal(map.headers.get('X-Weather-Time'),latest);
-  assert.equal(map.headers.get('X-Weather-Layer'),name);
-  assert.equal(new URL(map.headers.get('X-Weather-Source')).origin+new URL(map.headers.get('X-Weather-Source')).pathname,source);
-  assert.deepEqual(new Uint8Array(await map.arrayBuffer()),png);
-  const legend=await api.GET(request({product,op:'legend',layer:name,style}));
-  assert.equal(legend.status,200);assert.equal(legend.headers.get('Content-Type'),'image/png');
-  assert.equal(calls.length,3,'Capabilities are cached separately for the selected product');
+test('cloud-cover discovery uses only documented fixed NDFD capabilities and preserves VTIT metadata',async()=>{
+ const name='ndfd:ADVERTISED_SOURCE_ONLY',valid='2026-11-20T15:00';
+ const advertised=xml.replaceAll(actualLayer,name).replace('Actual source radial velocity','Sky Cover (%)')
+  .replace('<Title>Actual source radial velocity</Title>', '<Title>Sky Cover (%)</Title>')
+  .replace('<Layer queryable="1">', `<Layer queryable="1"><Abstract>Forecast opaque cloud percentage</Abstract><Dimension name="VTIT" units="ISO8601" default="${valid}">${valid}</Dimension>`);
+ let calls=0;
+ const api=fixture(async(url)=>{
+  calls++;const parsed=new URL(url);assert.equal(parsed.origin+parsed.pathname,cloudCover);
+  assert.deepEqual([...parsed.searchParams.keys()].sort(),['request','service','version']);
+  return xmlResponse(advertised);
+ });
+ const response=await api.GET(request({product:'cloudCover',op:'capabilities'}));
+ assert.equal(response.status,200);const metadata=await response.json();
+ assert.equal(metadata.layers[0].name,name);assert.equal(metadata.layers[0].abstract,'Forecast opaque cloud percentage');
+ assert.deepEqual(metadata.layers[0].dimensions.VTIT,{units:'ISO8601',default:valid,current:false,values:valid});
+ assert.equal(metadata.xml,advertised);
+ for(const op of ['map','legend']) {
+  const blocked=await api.GET(request({...base,product:'cloudCover',op,layer:name}));
+  assert.equal(blocked.status,502);assert.match((await blocked.json()).error.message,/valid time.*verified/);
  }
+ assert.equal(calls,1,'Unverified cloud imagery must not be requested');
+ for(const product of ['satellite','lightning']) assert.equal((await api.GET(request({product,op:'capabilities'}))).status,400);
 });
 
 test('map requests require advertised layer/style/time and fix WMS PNG Web Mercator parameters',async()=>{

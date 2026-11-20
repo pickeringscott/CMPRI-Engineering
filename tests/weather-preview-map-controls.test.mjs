@@ -5,10 +5,11 @@ import { JSDOM } from 'jsdom';
 
 const html = readFileSync(new URL('../public/previews/cmpri-weather-preview.html', import.meta.url), 'utf8');
 const source = readFileSync(new URL('../public/previews/weather/weather-map.js', import.meta.url), 'utf8');
+const css = readFileSync(new URL('../public/previews/weather/weather-map.css', import.meta.url), 'utf8');
 const buttons = {
   reflectivity: 'mapLayerRadar', velocity: 'mapLayerVelocity', ptype: 'mapLayerPtype',
   roads: 'mapLayerRoads', impacts: 'mapLayerImpacts', alerts: 'mapLayerAlerts',
-  satellite: 'mapLayerSatellite', lightning: 'mapLayerLightning',
+  cloudCover: 'mapLayerCloudCover',
 };
 
 function fixture() {
@@ -26,7 +27,15 @@ function fixture() {
   window.Notification = { requestPermission: reject('notification permission') };
   window.supabase = { from: reject('database'), rpc: reject('database') };
   window.HTMLCanvasElement.prototype.getContext = reject('canvas initialization');
-  window.eval(source);
+  const style = window.document.createElement('style'); style.textContent = css; window.document.head.append(style);
+  const marker = '  window.cmpriWeatherMap = {';
+  window.eval(source.replace(marker, `  window.compactLegendProbe = () => {
+    state.enabled.velocity = true; state.enabled.ptype = true;
+    wmsLayers.velocity.legendUrl = 'blob:official-velocity-png';
+    wmsLayers.ptype.legendUrl = 'blob:official-ptype-png';
+    reflectivityLegendUrl = 'blob:official-reflectivity-png'; updateUI();
+  };
+${marker}`));
   const api = window.cmpriWeatherMap;
   api.init();
 
@@ -86,32 +95,27 @@ for (const order of [['roads', 'impacts'], ['impacts', 'roads']]) {
   });
 }
 
-test('cloud imagery and lightning density toggle independently without reading feeds before Weather opens', async () => {
+test('cloud-cover unavailable control never substitutes imagery or changes selected layers', async () => {
   const f = fixture();
   try {
     const { document } = f.window;
-    for (const [name, label] of [['satellite', 'Clouds · satellite'], ['lightning', 'Lightning density']]) {
-      const control = document.getElementById(buttons[name]);
-      assert.equal(control.disabled, false, name + ' is a working layer selection');
-      assert.equal(control.textContent.trim(), label);
-    }
-    f.click('velocity');
-    f.click('ptype');
-    f.click('roads');
-    f.click('impacts');
+    assert.equal(document.getElementById('mapLayerSatellite'), null);
+    assert.equal(document.getElementById('mapLayerLightning'), null);
+    const control = document.getElementById(buttons.cloudCover);
+    assert.equal(control.textContent.trim(), 'Cloud cover · unavailable');
+    f.click('velocity'); f.click('ptype'); f.click('roads'); f.click('impacts');
     const original = { reflectivity: true, velocity: true, ptype: true, alerts: true, roads: true, impacts: true };
-    f.selected({ ...original, satellite: false, lightning: false });
-    f.click('satellite');
-    f.selected({ ...original, satellite: true, lightning: false });
-    f.click('lightning');
-    f.selected({ ...original, satellite: true, lightning: true });
-    f.click('satellite');
-    f.selected({ ...original, satellite: false, lightning: true });
-    f.click('satellite');
-    f.click('lightning');
-    f.selected({ ...original, satellite: true, lightning: false });
+    f.selected({ ...original, cloudCover: false });
+    f.click('cloudCover'); f.selected({ ...original, cloudCover: true });
+    assert.match(document.getElementById('mapFeedStatus').textContent, /Cloud cover unavailable.*forecast cloud percentage/i);
+    assert.match(document.querySelector('[data-legend=cloudCover]').textContent, /Cloud cover.*UNAVAILABLE.*NWS forecast cloud %/i);
+    assert.equal(document.querySelector('[data-legend=cloudCover] img'), null);
     assert.equal(document.querySelector('#mapLegend img'), null,
-      'selecting a feed before opening must not synthesize imagery or its legend');
+      'selecting unavailable cloud cover cannot synthesize imagery or its legend');
+    f.click('cloudCover'); f.selected({ ...original, cloudCover: false });
+    assert.equal(document.querySelector('[data-legend=cloudCover]'), null);
+    assert.equal('satellite' in f.api.getState().layers, false);
+    assert.equal('lightning' in f.api.getState().layers, false);
   } finally { await f.cleanup(); }
 });
 
@@ -149,5 +153,37 @@ test('the real legend accordion starts closed and preserves user disclosure stat
     f.opacity('65');
     f.click('ptype');
     assert.equal(accordion().open, false, 'later updates retain the closed key');
+  } finally { await f.cleanup(); }
+});
+
+
+test('official PNG keys share a compact borderless scale with readable units and unchanged source glyphs', async () => {
+  const f = fixture();
+  try {
+    const { document } = f.window;
+    f.window.compactLegendProbe();
+    const rows = [...document.querySelectorAll('#mapLegend .cmpri-map-legend-row')];
+    assert.equal(rows.length, 3);
+    for (const row of rows) {
+      assert.equal(row.firstElementChild.tagName, 'STRONG');
+      assert.equal(row.children[1].classList.contains('cmpri-reflectivity-scale'), true);
+      assert.equal(f.window.getComputedStyle(row).width, '180px');
+      assert.equal(f.window.getComputedStyle(row).borderTopWidth, '0px');
+      assert.equal(f.window.getComputedStyle(row.querySelector('.cmpri-reflectivity-ticks')).fontSize, '9px');
+      const image = row.querySelector('.cmpri-reflectivity-ramp img');
+      assert.match(image.src, /^blob:official-/);
+      assert.equal(image.style.filter, '', 'source colors are not recolored');
+    }
+    assert.match(document.querySelector('[data-legend=velocity] strong').textContent, /KILX.*knots/);
+    assert.deepEqual([...document.querySelectorAll('.cmpri-velocity-ticks span')].map(node => node.textContent),
+      ['RF', '−100', '−80', '−60', '−45', '−20', '+0', '20', '45', '60', '80', '100']);
+    const categoryGlyphs = [...document.querySelectorAll('.cmpri-source-code-tick')];
+    assert.equal(categoryGlyphs.length, 7);
+    for (const glyph of categoryGlyphs) {
+      assert.match(glyph.style.backgroundImage, /blob:official-ptype-png/);
+      assert.equal(f.window.getComputedStyle(glyph).backgroundSize, '750px 45px');
+      assert.equal(glyph.textContent, '', 'source abbreviations are preserved as source pixels, without guessed expansions');
+    }
+    assert.equal(document.querySelector('.cmpri-map-source-legend'), null, 'native-size scrolling keys are removed');
   } finally { await f.cleanup(); }
 });

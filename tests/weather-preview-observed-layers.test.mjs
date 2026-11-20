@@ -6,10 +6,10 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('../public/previews/weather/weather-map.js', import.meta.url), 'utf8');
 const NOW = Date.parse('2026-11-20T12:25:00Z');
 const PRODUCTS = {
-  satellite: { layer: 'goes_longwave_imagery', style: 'goes-lir', time: '2026-11-20T12:13:00Z',
-    source: 'https://nowcoast.noaa.gov/geoserver/observations/satellite/ows' },
-  lightning: { layer: 'ldn_lightning_strike_density', style: 'lightning_density', time: '2026-11-20T12:00:00Z',
-    source: 'https://nowcoast.noaa.gov/geoserver/observations/lightning_detection/ows' },
+  velocity: { product: 'velocity', layer: 'kilx_sr_bvel', style: 'radar_velocity', time: '2026-11-20T12:13:00Z',
+    source: 'https://opengeo.ncep.noaa.gov/geoserver/kilx/ows' },
+  ptype: { product: 'precipitation', layer: 'conus_pcpn_typ', style: 'radar_precip_type', time: '2026-11-20T12:00:00Z',
+    source: 'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows' },
 };
 
 // The real WMS loaders and canvas renderer run with explicit local responses.
@@ -61,9 +61,9 @@ function fixture() {
       const url = new URL(path, 'https://fixture.example'), query = url.searchParams;
       assert.equal(url.origin, 'https://fixture.example');
       assert.equal(url.pathname, '/api/weather-preview/wms');
-      const product = query.get('product'), op = query.get('op'), expected = products[product];
+      const product = query.get('product'), op = query.get('op'), name = Object.keys(products).find(key => products[key].product === product), expected = products[name];
       assert.ok(expected, 'only selected observed fixture products can request data');
-      calls.push({ product, op, time: query.get('time') });
+      calls.push({ product: name, op, time: query.get('time') });
       if (op === 'capabilities') return { ok: true, json: async () => ({
         source: expected.source, mapFormats: ['image/png'], legendSupported: true,
         layers: [{ name: expected.layer, crs: ['EPSG:3857'], styles: [{ name: expected.style }],
@@ -75,15 +75,15 @@ function fixture() {
       const time = query.get('time');
       if (op === 'map') {
         assert.equal(Date.parse(time), Date.parse(expected.time), 'maps use the exact advertised observation');
-        if (held === product) await new Promise((resolve, reject) => {
+        if (held === name) await new Promise((resolve, reject) => {
           releaseHeld = resolve;
           options.signal.addEventListener('abort', () => reject(new DOMException('Stopped', 'AbortError')), { once: true });
         });
       }
       return {
         ok: true, headers: { get: name => name === 'X-Weather-Time' ? time : expected.source },
-        blob: async () => ({ type: 'image/png', product, time,
-          width: Number(query.get('width')) || 180, height: Number(query.get('height')) || 24 }),
+        blob: async () => ({ type: 'image/png', product: name, time,
+          width: Number(query.get('width')) || expected.legendWidth || 500, height: Number(query.get('height')) || 30 }),
       };
     },
   };
@@ -92,7 +92,7 @@ function fixture() {
   const instrumented = source.replace(marker, `  window.observedLayerProbe = {
     setup() { canvas = globalThis.fixtureCanvas; context = globalThis.fixtureContext;
       state.opened = true; state.active = true; state.showRadar = false;
-      state.enabled.satellite = true; state.enabled.lightning = true; },
+      state.enabled.velocity = true; state.enabled.ptype = true; },
     load(name, refresh) { return loadWmsProduct(name, refresh); },
     draw() { draw(); },
     seedRadar() { state.showRadar = true; displayedRaster = {
@@ -129,10 +129,10 @@ ${marker}`);
   };
 }
 
-test('cloud and lightning use separate advertised images, times and legends in the geographic drawing order', async () => {
+test('velocity and precipitation type use separate advertised images, times and legends in the geographic drawing order', async () => {
   const f = fixture();
   try {
-    await Promise.all([f.load('satellite'), f.load('lightning')]);
+    await Promise.all([f.load('velocity'), f.load('ptype')]);
     const state = f.state();
     for (const [name, expected] of Object.entries(PRODUCTS)) {
       const layer = state.wmsLayers[name];
@@ -144,13 +144,13 @@ test('cloud and lightning use separate advertised images, times and legends in t
       assert.equal(f.calls.filter(call => call.product === name && call.op === 'legend').length, 1);
     }
     f.seedRadar(); f.seedImpacts();
-    assert.deepEqual(f.draw(), ['ground', 'satellite', 'wssi', 'reflectivity', 'lightning', 'roads']);
+    assert.deepEqual(f.draw(), ['ground', 'wssi', 'reflectivity', 'ptype', 'velocity', 'roads']);
     const count = f.calls.length;
     f.advance(60);
     for (const name of Object.keys(PRODUCTS)) {
       const layer = f.state().wmsLayers[name];
-      assert.equal(layer.stale, true, 'the displayed observation becomes stale as its own timestamp ages');
-      assert.ok(layer.ageMinutes > layer.staleAfterMinutes);
+      assert.ok(layer.ageMinutes > 60);
+      assert.equal(layer.staleAfterMinutes, null, 'no unverified source freshness guarantee is introduced');
       assert.equal(Date.parse(layer.displayedTime), Date.parse(PRODUCTS[name].time));
     }
     assert.equal(f.calls.length, count, 'display freshness does not create a background read');
@@ -183,19 +183,33 @@ for (const name of Object.keys(PRODUCTS)) {
 test('hiding and closing abort observed layer requests while retaining cached images without new work', async () => {
   const f = fixture();
   try {
-    await Promise.all([f.load('satellite'), f.load('lightning')]);
-    f.products.lightning.time = '2026-11-20T12:18:00Z';
-    f.hold('lightning'); const pending = f.load('lightning', true);
+    await Promise.all([f.load('velocity'), f.load('ptype')]);
+    f.products.ptype.time = '2026-11-20T12:18:00Z';
+    f.hold('ptype'); const pending = f.load('ptype', true);
     await f.until(f.hasHeld);
     f.document.hidden = true; f.api.pause(); await pending;
     const paused = f.state(), count = f.calls.length;
     assert.equal(paused.active, false); assert.equal(paused.pendingRequests, 0);
     assert.ok(Object.values(paused.wmsLayers).every(layer => layer.pending === 0));
-    assert.equal(paused.wmsLayers.satellite.imageLoaded, true);
-    assert.equal(paused.wmsLayers.lightning.imageLoaded, true);
-    assert.equal(Date.parse(paused.wmsLayers.lightning.displayedTime), Date.parse(PRODUCTS.lightning.time));
-    await f.load('satellite', true); f.api.close(); await f.load('lightning', true);
+    assert.equal(paused.wmsLayers.velocity.imageLoaded, true);
+    assert.equal(paused.wmsLayers.ptype.imageLoaded, true);
+    assert.equal(Date.parse(paused.wmsLayers.ptype.displayedTime), Date.parse(PRODUCTS.ptype.time));
+    await f.load('velocity', true); f.api.close(); await f.load('ptype', true);
     assert.equal(f.calls.length, count, 'hidden and closed map states cannot start requests');
     assert.equal(f.state().databaseCalls, 0); assert.equal(f.state().pushes, 0);
   } finally { f.release(); await f.cleanup(); }
+});
+
+
+test('changed official legend dimensions fail explicitly while retaining the independent weather image', async () => {
+  const f = fixture();
+  try {
+    f.products.velocity.legendWidth = 180;
+    await f.load('velocity');
+    const state = f.state().wmsLayers.velocity;
+    assert.equal(state.imageLoaded, true);
+    assert.equal(state.legendLoaded, false);
+    assert.match(state.legendStatus, /Unavailable.*layout changed.*compact source key unavailable/);
+    assert.ok(f.draw().includes('velocity'));
+  } finally { await f.cleanup(); }
 });

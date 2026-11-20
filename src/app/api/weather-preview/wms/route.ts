@@ -9,13 +9,14 @@ const SOURCES = {
   reflectivity: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows",
   velocity: "https://opengeo.ncep.noaa.gov/geoserver/kilx/ows",
   precipitation: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows",
-  satellite: "https://nowcoast.noaa.gov/geoserver/observations/satellite/ows",
-  lightning: "https://nowcoast.noaa.gov/geoserver/observations/lightning_detection/ows",
+  // Official NDFD WMS endpoint documented by digital.weather.gov/staticpages/mapservices.php.
+  // Metadata discovery only until its forecast layer/style/VTIT contract is verified.
+  cloudCover: "https://digital.weather.gov/ndfd.conus/wms",
 } as const;
 type Product = keyof typeof SOURCES;
 type Dimension = { units: string | null; default: string | null; current: boolean; values: string };
 type Style = { name: string; title: string; legendUrl: string | null };
-type Layer = { name: string; title: string; crs: string[]; time: Dimension | null; styles: Style[] };
+type Layer = { name: string; title: string; abstract: string; crs: string[]; time: Dimension | null; dimensions: Record<string, Dimension>; styles: Style[] };
 type Capabilities = {
   product: Product; source: string; checkedAt: string; version: string;
   layers: Layer[]; mapFormats: string[]; legendSupported: boolean; xml: string;
@@ -81,8 +82,15 @@ function parseCapabilities(product: Product, source: string, xml: string): Capab
   const request = capability && child(capability, "Request");
   const map = request && child(request, "GetMap");
   const layers: Layer[] = [];
-  function walk(layer: XmlNode, parent: { crs: string[]; time: Dimension | null; styles: Style[] }) {
+  function walk(layer: XmlNode, parent: { crs: string[]; time: Dimension | null; dimensions: Record<string, Dimension>; styles: Style[] }) {
     const crs = Array.from(new Set(parent.crs.concat(children(layer, "CRS").map(content)))).filter(Boolean);
+    const dimensions = { ...parent.dimensions };
+    children(layer, "Dimension").forEach((dimension) => {
+      const name = dimension.attributes.name; if (!name) return;
+      const extent = children(layer, "Extent").find((value) => value.attributes.name === name);
+      dimensions[name] = { units: dimension.attributes.units || null, default: extent?.attributes.default || dimension.attributes.default || null,
+        current: extent?.attributes.current === "1" || dimension.attributes.current === "1", values: content(extent || dimension) };
+    });
     let time = parent.time;
     const timeDimension = children(layer, "Dimension").find((dimension) => dimension.attributes.name?.toLowerCase() === "time");
     const timeExtent = children(layer, "Extent").find((extent) => extent.attributes.name?.toLowerCase() === "time");
@@ -100,13 +108,13 @@ function parseCapabilities(product: Product, source: string, xml: string): Capab
       styles.set(name, { name, title: content(child(style, "Title")),
         legendUrl: online?.attributes["xlink:href"] || online?.attributes.href || null });
     });
-    const inherited = { crs, time, styles: Array.from(styles.values()) };
+    const inherited = { crs, time, dimensions, styles: Array.from(styles.values()) };
     const name = content(child(layer, "Name"));
-    if (name) layers.push({ name, title: content(child(layer, "Title")), ...inherited });
+    if (name) layers.push({ name, title: content(child(layer, "Title")), abstract: content(child(layer, "Abstract")), ...inherited });
     if (layers.length > 200) throw new Error("WMS service returned too many named layers");
     children(layer, "Layer").forEach((nested) => walk(nested, inherited));
   }
-  if (capability) children(capability, "Layer").forEach((layer) => walk(layer, { crs: [], time: null, styles: [] }));
+  if (capability) children(capability, "Layer").forEach((layer) => walk(layer, { crs: [], time: null, dimensions: {}, styles: [] }));
   if (!layers.length || !map) throw new Error("No named WMS map layers were advertised");
   return { product, source, checkedAt: new Date().toISOString(), version: "1.3.0", layers,
     mapFormats: children(map, "Format").map(content),
@@ -184,6 +192,8 @@ export async function GET(request: Request) {
   const format = query.get("format");
   if (format !== null && format !== "json" && format !== "image") return unavailable(400, "Choose image or JSON inspection format");
   const product = productValue as Product;
+  if (product === "cloudCover" && op !== "capabilities") return unavailable(502,
+    "Cloud-cover imagery unavailable until the official forecast layer, style, valid time and key are verified");
   const bboxParts = (query.get("bbox") || "").split(",");
   const bbox = bboxParts.map(Number);
   const width = Number(query.get("width")), height = Number(query.get("height"));

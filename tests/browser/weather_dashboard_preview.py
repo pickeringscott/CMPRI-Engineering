@@ -473,7 +473,7 @@ class OfficialFeedFixtures:
                     self.wms_product_pending[product].set()
                     await self.wms_product_gates[product].wait()
             else:
-                width,height={'reflectivity':(500,30),'satellite':(46,62),'lightning':(292,46)}.get(product,(180,24))
+                width,height={'satellite':(46,62),'lightning':(292,46)}.get(product,(500,30))
                 if self.wms_legend_delay:
                     await asyncio.sleep(self.wms_legend_delay)
             color = self.wms_colors[product]
