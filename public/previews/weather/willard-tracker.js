@@ -99,7 +99,9 @@
       imageryYear.hidden = basemap !== 'imagery';
       const layoutState = effectiveLayoutStatus(); layoutButton.setAttribute('aria-pressed', String(layoutEnabled));
       layoutButton.dataset.status = layoutState; faa.hidden = !layoutEnabled;
-      layoutCopy.textContent = layoutRecord ? 'Airport Layout Pending' : layoutState === 'available' ? '' : layoutState === 'partial' ? 'Airport Layout Partial' : layoutState === 'stale' ? 'Airport Layout Stale · Unavailable' : 'Airport Layout Unavailable';
+      const kindNames = { runway: 'Runways', taxiway: 'Taxiways', apron: 'Aprons' };
+      const missingKinds = [...new Set(layoutLayers.filter((row) => row.status !== 'available' && kindNames[row.kind]).map((row) => kindNames[row.kind]))];
+      layoutCopy.textContent = layoutRecord ? 'Airport Layout Pending' : layoutState === 'available' ? '' : layoutState === 'partial' ? 'Airport Layout Partial' + (missingKinds.length ? ' · ' + missingKinds.join(', ') + ' Unavailable' : '') : layoutState === 'stale' ? 'Airport Layout Stale · Unavailable' : 'Airport Layout Unavailable';
       layoutCopy.hidden = !layoutEnabled || !layoutCopy.textContent;
       layoutCopy.title = layoutError || 'Historical Reference Geometry; Not Runway Or Taxiway Operating Status';
       banner.title = error || 'Community Reported Aircraft Positions'; buttons.get('refresh').disabled = !running || sourceRecord !== null;

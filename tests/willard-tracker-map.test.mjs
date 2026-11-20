@@ -200,6 +200,7 @@ test('partial FAA data draws only supplied verified kinds, and stale or failed l
     ] };
     f.setLayoutPayload(partial); f.api.setActive(true); await settle();
     assert.equal(f.api.getState().airportLayout.status, 'partial'); assert.ok(f.api.getState().airportLayout.rendered >= 2);
+    assert.match(f.window.document.querySelector('.wt-layout-status').textContent, /Aprons Unavailable/, 'the partial layer names its missing geometry');
     f.setLayoutPayload({ ...partial, status: 'stale' }); f.button('refresh').click(); await settle();
     assert.equal(f.api.getState().airportLayout.status, 'stale'); assert.equal(f.api.getState().airportLayout.rendered, 0);
     f.setLayout(async () => { throw new Error('TEST FAA Unavailable'); }); f.button('refresh').click(); await settle();
