@@ -33,10 +33,7 @@
   const FLIGHT_SOURCE = '/api/willard-flights';
   const CACHE_MS = 60000;
   const flightData = { value: null, at: 0, day: null, pending: null, controller: null, generation: 0, requests: 0, consumers: new Set() };
-  const TRACKER_SOURCE = 'https://avioadsb.org/embed/map?lat=40.03&lon=-88.28&zoom=9&compact=1';
-  // compact=1 is the provider builder's own setting; its bottom banner remains.
-  // https://avioadsb.org/js/widget-builder.js?v=b7f82c07f3 (verified 2026-11-20).
-  const TRACKER_MARKUP = '<iframe src="https://avioadsb.org/embed/map?lat=40.03&amp;lon=-88.28&amp;zoom=9&amp;compact=1" width="100%" height="450" style="border:0;max-width:100%" title="Live flight tracker map by AvioADSB" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+  const TRACKER_SOURCE = '/api/willard-tracker';
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -211,8 +208,7 @@
     details.append(content);
 
     let active = false, destroyed = false, timer = null, tracker = null, running = false;
-    let iframeNavigations = 0, iframeUnloads = 0, trackerStatus = 'not-requested';
-    let lastDocumentLoadedAt = null, models = { arrivals: null, departures: null };
+    let models = { arrivals: null, departures: null };
     const canRun = () => !destroyed && active && details.open && details.isConnected && !document.hidden;
 
     function renderFlights(snapshot, refreshing) {
@@ -278,34 +274,13 @@
       timer = setTimeout(() => { timer = null; if (canRun()) startClock(); }, 60000 - Date.now() % 60000 + 25);
     }
     function mountTracker() {
-      if (tracker || !canRun()) return;
-      const template = document.createElement('template');
-      template.innerHTML = TRACKER_MARKUP;
-      const frame = template.content.firstElementChild;
-      const record = { frame, load: null, error: null };
-      record.load = () => {
-        if (tracker !== record || !canRun()) return;
-        trackerStatus = 'document-loaded';
-        // A cross-origin load event does not verify live aircraft coverage.
-        lastDocumentLoadedAt = new Date().toISOString();
-      };
-      record.error = () => { if (tracker === record && canRun()) trackerStatus = 'unavailable'; };
-      frame.addEventListener('load', record.load);
-      frame.addEventListener('error', record.error);
-      tracker = record;
-      trackerStatus = 'loading';
-      iframeNavigations += 1;
-      trackerHost.append(frame);
+      if (!canRun()) return;
+      if (!tracker) tracker = window.cmpriWillardTracker?.create(trackerHost, { clockMode: use24HourTime ? '24' : '12' });
+      if (tracker) tracker.setActive(true);
+      else trackerHost.textContent = 'Flight Map Unavailable';
     }
     function unmountTracker() {
-      if (!tracker) return;
-      const record = tracker;
-      tracker = null;
-      record.frame.removeEventListener('load', record.load);
-      record.frame.removeEventListener('error', record.error);
-      record.frame.remove();
-      iframeUnloads += 1;
-      trackerStatus = 'inactive';
+      tracker?.setActive(false);
     }
     function sync() {
       if (canRun()) {
@@ -329,19 +304,21 @@
     const api = Object.freeze({
       setActive(value) { active = value === true; sync(); },
       getState() {
+        const trackerState = tracker?.getState() || null;
         return {
           active, expanded: details.open, visible: canRun(), destroyed,
           style: 'london', airport: 'KCMI', iata: 'CMI', timeZone: 'America/Chicago',
           timeFormat: use24HourTime ? '24-hour' : '12-hour', boardStatus: london.dataset.availability,
           arrivals: models.arrivals, departures: models.departures,
-          trackerSource: TRACKER_SOURCE, trackerStatus, iframeMounted: Boolean(tracker),
-          iframeNavigations, iframeUnloads, lastDocumentLoadedAt, aircraftCoverageVerified: false,
+          trackerSource: TRACKER_SOURCE, trackerStatus: trackerState?.status || 'not-requested',
+          trackerState, trackerMounted: Boolean(tracker), trackerActive: trackerState?.active || false,
           clockRunning: timer !== null, flightRequests: flightData.requests,
           flightPending: running && flightData.pending !== null, backgroundPolling: false, notifications: 0
         };
       },
       destroy() {
         active = false; destroyed = true; sync();
+        tracker?.destroy(); tracker = null;
         observer.disconnect();
         details.removeEventListener('toggle', sync);
         document.removeEventListener('visibilitychange', sync);

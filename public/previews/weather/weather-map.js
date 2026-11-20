@@ -1045,6 +1045,9 @@
     canvas = $('radarCanvas'); shell = $('mapShell');
     if (!canvas || !shell) return window.cmpriWeatherMap;
     state.initialized = true; renderControls(); renderReport();
+    Object.entries({ zoomIn: 'Zoom In', zoomOut: 'Zoom Out', recenter: 'Recenter On Hotel', fullscreen: 'Fullscreen' }).forEach(([id, label]) => {
+      if ($(id)) $(id).title = window.cmpriWeatherTooltips?.titleCase(label) || label;
+    });
     window.cmpriGroundMap?.init({ referenceEnabled: GEOGRAPHIC_REFERENCE_ENABLED, onChange: () => { updateGroundStatus(); queueDraw(); emit(); } });
     const on = (id, event, handler) => { if ($(id)) $(id).addEventListener(event, handler); };
     on('moreNoaaProducts', 'toggle', () => mark('moreNoaaProducts', 'Exercised · optional NOAA product choices ' + ($('moreNoaaProducts').open ? 'expanded' : 'collapsed') + '; no feed request'));

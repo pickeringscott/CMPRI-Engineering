@@ -27,7 +27,7 @@ test('fixed metadata probes preserve official layer records without forwarding o
 
 test('transparent reference exports use only fixed layer selections and exact bounded EPSG3857 extents',async()=>{
   for(const [dataset,service,layers] of [
-    ['roads','transportation','show:8,9,29,30'],['places','geonames','show:1,2'],
+    ['roads','transportation','show:1000'],['places','geonames','show:1,2'],
   ]) {
     const api=fixture(async(source,options)=>{
       const url=new URL(source);
@@ -36,6 +36,12 @@ test('transparent reference exports use only fixed layer selections and exact bo
       assert.equal(url.searchParams.get('bboxSR'),'3857');assert.equal(url.searchParams.get('imageSR'),'3857');
       assert.equal(url.searchParams.get('size'),'800,600');assert.equal(url.searchParams.get('format'),'png32');
       assert.equal(url.searchParams.get('transparent'),'true');assert.equal(url.searchParams.get('f'),'image');
+      if(dataset==='roads') {
+        assert.equal(url.searchParams.get('dpi'),'96');
+        assert.deepEqual(JSON.parse(url.searchParams.get('dynamicLayers')).map(layer=>layer.source.mapLayerId),[9]);
+      } else {
+        assert.equal(url.searchParams.has('dpi'),false);assert.equal(url.searchParams.has('dynamicLayers'),false);
+      }
       assert.equal(url.searchParams.get('url'),null);assert.equal(options.redirect,'error');
       return new Response(png,{headers:{'Content-Type':'image/png'}});
     });
@@ -43,6 +49,57 @@ test('transparent reference exports use only fixed layer selections and exact bo
     const body=await response.json();assert.equal(response.status,200);assert.equal(body.contentType,'image/png');
     assert.deepEqual(new Uint8Array(Buffer.from(body.base64,'base64')),png);assert.match(body.attribution,/USGS/);
   }
+});
+
+test('road exports preserve the original96dpi source scales while limiting their fixed symbol widths',async()=>{
+  for(const [scale,expected] of [[8000000,[8]],[5000001,[8]],[4999999,[9]],[500001,[9]],[499999,[29,30]],[150000,[29,30]]]) {
+    const width=800,height=600,resolution=scale*.0254/96;
+    const api=fixture(async(source,options)=>{
+      const query=new URL(source).searchParams;
+      assert.equal(query.has('mapScale'),false);
+      assert.equal(options.method,'GET');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
+      assert.equal(query.get('size'),`${width},${height}`);
+      if(expected[0]>=29) {
+        assert.equal(query.get('dpi'),'42');
+        assert.equal(query.get('layers'),'show:29,30');
+        assert.equal(query.has('dynamicLayers'),false,'immutable detailed road styles must not pretend to accept a renderer');
+      } else {
+        const layers=JSON.parse(query.get('dynamicLayers'));
+        assert.equal(query.get('dpi'),'96','generalized families retain their verified published scale visibility');
+        assert.deepEqual(layers.map(layer=>layer.source.mapLayerId),expected);
+        assert.deepEqual(layers.map(layer=>layer.id),[1000]);
+        assert.equal(query.get('layers'),'show:1000');
+        for(const layer of layers) {
+          assert.equal(layer.source.type,'mapLayer');assert.equal('minScale' in layer,false);assert.equal('maxScale' in layer,false);
+          assert.equal(layer.drawingInfo.showLabels,false);assert.equal(layer.drawingInfo.scaleSymbols,false);
+          assert.equal(layer.drawingInfo.renderer.type,'simple');
+          const symbol=layer.drawingInfo.renderer.symbol;
+          assert.equal(symbol.type,'esriSLS');assert.equal(symbol.style,'esriSLSSolid');
+          assert.equal(symbol.width,0.8);assert.ok(symbol.width*96/72<=1.5,'the fixed line is at most1.5 nominal pixels');
+          assert.deepEqual(symbol.color,[238,234,213,255],'one opaque light line avoids the source-dependent casing order');
+        }
+      }
+      return new Response(png,{headers:{'Content-Type':'image/png'}});
+    });
+    assert.equal((await api.GET(request(`op=reference&dataset=roads&bbox=0,0,${width*resolution},${height*resolution}&width=${width}&height=${height}`))).status,200);
+  }
+  let selected;
+  const api=fixture(async source=>{selected=JSON.parse(new URL(source).searchParams.get('dynamicLayers'));return new Response(png,{headers:{'Content-Type':'image/png'}});});
+  assert.equal((await api.GET(request('op=reference&dataset=roads&bbox=0,0,100,120000&width=800&height=600'))).status,200);
+  assert.deepEqual(selected.map(layer=>layer.source.mapLayerId),[9],'the taller map extent also determines the source scale');
+});
+
+test('caller road renderers, layer IDs and DPI cannot alter fixed geographic exports',async()=>{
+  const sources=[];
+  const api=fixture(async source=>{sources.push(source);return new Response(png,{headers:{'Content-Type':'image/png'}});});
+  const query='op=reference&dataset=roads&bbox=-10025000,4735000,-9625000,5035000&width=800&height=600';
+  assert.equal((await api.GET(request(query))).status,200);
+  const injected=new URLSearchParams({dynamicLayers:'[{"source":{"type":"dataLayer","dataSource":{"url":"https://evil.example"}}}]',
+    renderer:'{"symbol":{"width":1000}}',dpi:'9600',layers:'show:0,2,16',mapScale:'1',layerDefs:'0:1=1',
+    renderVersion:'thin-roads-1',url:'https://evil.example'});
+  injected.append('dpi','1');injected.append('dynamicLayers','another');
+  assert.equal((await api.GET(request(query+'&'+injected.toString()))).status,200);
+  assert.equal(sources[1],sources[0],'outer rendering and sharing parameters never reach the official source');
 });
 
 test('metadata and reference probes reject arbitrary or oversized geometry before fetching',async()=>{
