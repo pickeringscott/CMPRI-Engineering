@@ -50,8 +50,9 @@ async def main():
    assert matches(actual_text,expected['text']),(action,path,actual,expected)
    results.append({'action':action,'path':path,'background':actual_bg,'expected':expected['background'],'passed':True})
   # Keep the actual hosted title-bar dimensions and launcher/modal color contract.
-  await page.goto(BASE+'/engineering');await page.locator('.cmpri-header-v23 legend').first.wait_for()
-  await page.locator('.cmpri-header-v23').get_by_role('button',name='Work Order List',exact=True).click()
+  await page.goto(BASE+'/engineering')
+  launcher=await reveal_dashboard_launcher(page.locator('.cmpri-header-v23 [data-key="work-order-list"]'))
+  await launcher.click()
   title=page.locator('.cmpri-desktop-titlebar').last;await title.wait_for()
   actual=await title.evaluate('e=>({height:getComputedStyle(e).height,background:getComputedStyle(e).backgroundColor,color:getComputedStyle(e).color,base:getComputedStyle(e.parentElement).backgroundColor})')
   expected=expected_palette('Work Order List')
