@@ -106,7 +106,6 @@ test('other products use their own fixed official services without guessed layer
  for(const [product,source,name] of [
   ['precipitation',precipitation,'conus:SOURCE_PRECIPITATION_TYPE'],
   ['reflectivity',reflectivity,'conus:SOURCE_REFLECTIVITY'],
-  ['cloudCover',cloudCover,'official:SOURCE_ONLY_LAYER'],
  ]) {
   let seen;
   const response=await fixture(async(url)=>{seen=url;return xmlResponse(xml.replaceAll(actualLayer,name));})
@@ -117,7 +116,7 @@ test('other products use their own fixed official services without guessed layer
 });
 
 test('cloud-cover discovery uses only documented fixed NDFD capabilities and preserves VTIT metadata',async()=>{
- const name='ndfd:ADVERTISED_SOURCE_ONLY',valid='2026-11-20T15:00';
+ const name='ndfd.conus.sky',valid='2026-11-20T15:00';
  const advertised=xml.replaceAll(actualLayer,name).replace('Actual source radial velocity','Sky Cover (%)')
   .replace('<Title>Actual source radial velocity</Title>', '<Title>Sky Cover (%)</Title>')
   .replace('<Layer queryable="1">', `<Layer queryable="1"><Abstract>Forecast opaque cloud percentage</Abstract><Dimension name="VTIT" units="ISO8601" default="${valid}">${valid}</Dimension>`);
@@ -301,6 +300,7 @@ test('actual NDFD 1.1.1 contract parses only the known DOCTYPE and requests exac
   assert.equal(query.get('VERSION'),'1.1.1');assert.equal(query.get('LAYERS'),'ndfd.conus.sky');
   assert.equal(query.get('STYLES'),'');assert.equal(query.get('VTIT'),'2026-11-20T20:00');
   assert.equal(query.get('SRS'),'EPSG:3857');assert.equal(query.has('CRS'),false);assert.equal(query.has('TIME'),false);
+  assert.equal(query.get('EXCEPTIONS'),'application/vnd.ogc.se_xml','Service exceptions must be XML, never a PNG error panel');
   assert.equal(query.get('FORMAT'),'image/png');assert.equal(query.get('TRANSPARENT'),'TRUE');
   return new Response(png,{headers:{'Content-Type':'image/png'}});
  });
@@ -332,4 +332,17 @@ test('NDFD declaration exceptions never allow entities or unrecognized DTDs',asy
   const response=await api.GET(request({product:'cloudCover',op:'capabilities'}));
   assert.equal(response.status,502);assert.equal((await response.json()).diagnostic.parsed,false);assert.equal(calls,1);
  }
+});
+
+
+test('large real NDFD catalog exposes only the exact verified sky-cover raster while other products retain the layer limit',async()=>{
+ const unrelated=Array.from({length:240},(_,index)=>`<Layer><Name>ndfd.conus.UNRELATED_${index}</Name><Title>Unrelated source layer</Title></Layer>`).join('');
+ const body=cloudXml.replace('<Capability>','<Capability>').replace('</Capability>',unrelated+'</Capability>');
+ const response=await fixture(async()=>xmlResponse(body)).GET(request({product:'cloudCover',op:'capabilities'}));
+ assert.equal(response.status,200);const data=await response.json();
+ assert.deepEqual(data.layers.map(layer=>layer.name),['ndfd.conus.sky']);
+ assert.equal(data.xml,body,'Bounded raw capabilities remain inspectable for source verification');
+ const other=xml.replace('</Capability>',unrelated+'</Capability>');
+ const limited=await fixture(async()=>xmlResponse(other)).GET(request({product:'velocity',op:'capabilities'}));
+ assert.equal(limited.status,502);assert.match((await limited.json()).error.message,/too many named layers/);
 });

@@ -124,7 +124,7 @@ function parseCapabilities(product: Product, source: string, xml: string): Capab
     });
     const inherited = { crs, time, dimensions, styles: Array.from(styles.values()) };
     const name = content(child(layer, "Name"));
-    if (name) layers.push({ name, title: content(child(layer, "Title")), abstract: content(child(layer, "Abstract")), ...inherited });
+    if (name && (product !== "cloudCover" || name === "ndfd.conus.sky")) layers.push({ name, title: content(child(layer, "Title")), abstract: content(child(layer, "Abstract")), ...inherited });
     if (layers.length > 200) throw new Error("WMS service returned too many named layers");
     children(layer, "Layer").forEach((nested) => walk(nested, inherited));
   }
@@ -256,7 +256,7 @@ export async function GET(request: Request) {
     } : { SERVICE: "WMS", VERSION: "1.3.0", REQUEST: "GetLegendGraphic", LAYER: layer.name, STYLE: style, FORMAT: "image/png" };
     if (product === "cloudCover") {
       parameters.VERSION = "1.1.1"; delete parameters.CRS; parameters.SRS = "EPSG:3857";
-      parameters.VTIT = time!;
+      parameters.VTIT = time!; parameters.EXCEPTIONS = "application/vnd.ogc.se_xml";
     } else if (time) parameters.TIME = time;
     const source = sourceUrl(product, parameters);
     const image = await fetchSource(source, true, controller.signal);
