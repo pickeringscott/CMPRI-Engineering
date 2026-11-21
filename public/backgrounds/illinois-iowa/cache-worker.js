@@ -1,7 +1,7 @@
 /* Generated allowlist: cache immutable football artwork, never application data. */
 (() => {
-  const cacheName = 'cmpri-football-368b67df95bb8be6';
-  const files = ["/backgrounds/illinois-iowa/index.368b67df95bb8be6.html"];
+  const cacheName = 'cmpri-football-a96ba12d3bb907f8';
+  const files = ["/backgrounds/illinois-iowa/index.a96ba12d3bb907f8.html"];
   const allowed = new Set(files.map(path => new URL(path, self.location.origin).href));
   const pending = new Map();
   self.addEventListener('install', event => {

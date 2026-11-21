@@ -23,11 +23,13 @@ FRAME = 'iframe[title="Illinois versus Iowa football background"]'
 CONTROL = '.cmpri-football-animation-control'
 BETTING_API = '/api/football-betting-line'
 FIXTURE_LINE = 'IOWA -7.5'
+COMPACT_SCENE = '(max-width:767px) and (orientation:portrait),(max-width:1024px) and (pointer:coarse)'
 GEOMETRY = """() => {
  const box = selector => document.querySelector(selector).getBoundingClientRect().toJSON();
  const score=document.querySelector('#cmpriScorebug');
  return {width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth,
-   field:box('.field-surface'),stage:box('.stage'),scorebug:box('#cmpriScorebug'),
+   field:box('.field-surface'),stage:box('.stage'),scorebug:box('#cmpriScorebug'),tally:box('.sim-tally'),
+   tallyPosition:getComputedStyle(document.querySelector('.sim-tally')).position,
    fieldTransform:getComputedStyle(document.querySelector('.field-surface')).transform,
    scoreTransform:getComputedStyle(score).transform,scoreBottom:getComputedStyle(score).bottom,
    classes:document.body.className,version:window.cmpriTheme.version,
@@ -36,32 +38,44 @@ GEOMETRY = """() => {
    sidelines:window.cmpriTheme.sidelinePeople};
 }"""
 
-async def verify_score_anchor(page, child, role, width, height):
-    """Measure the W-L strip without relocating the simulated scoreboard."""
+async def verify_score_anchor(page, child, role, width, height, touch):
+    """Measure the full record and odds strip from the physical title bar."""
     measurements = []
+    topbar = page.locator('.cmpri-desktop-topbar:visible')
+    betting_row = child.locator('.sim-betting-line')
+    betting_line = child.locator('#liveBettingLine')
 
     async def measure(state):
+        compact = await child.evaluate('(query) => matchMedia(query).matches', COMPACT_SCENE)
+        viewport = page.viewport_size
+        score_bottom_gap = 6 if compact else 10
         for _ in range(40):
-            header = await page.locator('.cmpri-desktop-topbar:visible').first.bounding_box()
+            header = await topbar.bounding_box()
             score = await child.locator('#cmpriScorebug').bounding_box()
             stage = await child.locator('.stage').bounding_box()
             tally = await child.locator('.sim-tally').bounding_box()
             assert header and score and stage and tally, (state, header, score, stage, tally)
+            score_reference_bottom = viewport['height'] if compact else stage['y'] + stage['height']
             gaps = {
-                'scoreStageGap': stage['y'] + stage['height'] - score['y'] - score['height'],
+                'scoreBottomGap': score_reference_bottom - score['y'] - score['height'],
                 'tallyGap': tally['y'] - header['y'] - header['height'],
                 'tallyRightMargin': header['x'] + header['width'] - tally['x'] - tally['width'],
             }
             if all(abs(gaps[key] - target) <= 1 for key, target in (
-                ('scoreStageGap', 10), ('tallyGap', 4), ('tallyRightMargin', 8),
+                ('scoreBottomGap', score_bottom_gap), ('tallyGap', 4), ('tallyRightMargin', 8),
             )):
                 break
             await page.wait_for_timeout(50)
-        assert abs(gaps['scoreStageGap'] - 10) <= 1, (state, stage, score, gaps)
+        assert abs(gaps['scoreBottomGap'] - score_bottom_gap) <= 1, (state, stage, score, gaps)
         assert abs(gaps['tallyGap'] - 4) <= 1, (state, header, tally, gaps)
         assert abs(gaps['tallyRightMargin'] - 8) <= 1, (state, header, tally, gaps)
         assert score['x'] >= 0 and tally['x'] >= 0, (state, score, tally)
-        row = await child.locator('.sim-betting-line').bounding_box()
+        assert tally['x'] + tally['width'] <= viewport['width'] + 1, (state, tally, viewport)
+        assert tally['y'] + tally['height'] <= viewport['height'] + 1, (state, tally, viewport)
+        await expect(betting_row).to_be_visible()
+        await expect(betting_row).to_have_attribute('data-state', 'available')
+        await expect(betting_line).to_have_text(FIXTURE_LINE)
+        row = await betting_row.bounding_box()
         record = await child.locator('.sim-tally-record').bounding_box()
         assert row and record, (state, row, record)
         assert row['y'] >= record['y'] + record['height'] - 1, (state, record, row)
@@ -69,30 +83,33 @@ async def verify_score_anchor(page, child, role, width, height):
         assert row['y'] + row['height'] <= tally['y'] + tally['height'] + 1, (state, tally, row)
         screenshot = OUT / f'engineering-{role}-{width}-{state}.png'
         await page.screenshot(path=str(screenshot), full_page=True)
-        measurement = {'state': state, 'role': role, 'viewport': page.viewport_size,
+        measurement = {'state': state, 'role': role, 'viewport': viewport,
                        'header': header, 'scorebug': score, 'stage': stage, 'tally': tally, 'bettingRow': row,
                        **gaps, 'screenshot': str(screenshot)}
         measurements.append(measurement)
-        return measurement
 
-    initial = await measure('expanded')
-    groups = page.locator('.cmpri-desktop-topbar fieldset.group:visible')
-    if await groups.count():
-        toggle = groups.first.locator('legend')
-        await toggle.click()
-        collapsed = await measure('group-collapsed')
-        assert collapsed['header']['height'] < initial['header']['height'], (initial, collapsed)
-        await toggle.click()
-        await measure('group-expanded')
+    anchored_rail = topbar.locator('nav.cmpri-dashboard-menu-rail')
+    if await anchored_rail.count():
+        toggle = anchored_rail.get_by_role('button', name='Daily Work', exact=True)
     else:
-        # The separate menu PR uses anchored tabs instead of fieldset legends.
-        # Exercise its actual overlay without assuming it changes header height.
-        toggle = page.locator('nav.cmpri-dashboard-menu-rail').get_by_role('button', name='Daily Work', exact=True)
-        await toggle.click()
-        await measure('tab-opened')
-        await toggle.click()
-        await measure('tab-closed')
-    await page.set_viewport_size({'width': width - 160, 'height': height})
+        toggle = topbar.locator('fieldset.group legend').first
+    await expect(toggle).to_be_visible()
+    initial_expanded = await toggle.get_attribute('aria-expanded')
+    assert initial_expanded in ('true', 'false'), initial_expanded
+    changed_expanded = 'false' if initial_expanded == 'true' else 'true'
+    await measure('tab-open' if initial_expanded == 'true' else 'tab-closed')
+    activate = toggle.tap if touch else toggle.click
+    await activate()
+    await expect(toggle).to_have_attribute('aria-expanded', changed_expanded)
+    await measure('tab-opened' if changed_expanded == 'true' else 'tab-collapsed')
+    await activate()
+    await expect(toggle).to_have_attribute('aria-expanded', initial_expanded)
+    await measure('tab-restored')
+
+    # Exercise the minimum phone viewport when starting wider, and expansion
+    # when the initial viewport is already the 320px case.
+    resized_width = 390 if width == 320 else 320 if width == 390 else width - 160
+    await page.set_viewport_size({'width': resized_width, 'height': height})
     await measure('resized')
     await page.set_viewport_size({'width': width, 'height': height})
     await measure('restored')
@@ -103,9 +120,10 @@ async def verify_case(browser, authenticated, width, height, reduced_motion=Fals
     errors, failures, external = [], [], []
     betting_requests, betting_hold = [], {'next': False}
     betting_pending, betting_release = asyncio.Event(), asyncio.Event()
+    touch = width <= 1024
     context = await browser.new_context(
         viewport={'width': width, 'height': height},
-        is_mobile=width < 640, has_touch=width < 640,
+        is_mobile=touch, has_touch=touch,
         reduced_motion='reduce' if reduced_motion else 'no-preference',
     )
     if authenticated:
@@ -182,7 +200,8 @@ async def verify_case(browser, authenticated, width, height, reduced_motion=Fals
     assert 'cmpri-embedded' in geometry['classes'] and 'ambient' in geometry['classes']
     assert geometry['scrollWidth'] <= width + 1, geometry
     assert await page.evaluate('document.documentElement.scrollWidth <= innerWidth + 1')
-    if width < 768:
+    compact = await child.evaluate('(query) => matchMedia(query).matches', COMPACT_SCENE)
+    if compact:
         assert geometry['field']['height'] > geometry['field']['width'], geometry
         assert geometry['fieldTransform'].startswith('matrix(0, 1, -1, 0,'), geometry
         assert abs(height - geometry['scorebug']['bottom'] - 6) <= 1, geometry
@@ -190,23 +209,35 @@ async def verify_case(browser, authenticated, width, height, reduced_motion=Fals
         assert geometry['scoreTransform'].startswith('matrix(1, 0, 0, 1,'), geometry
         assert abs((geometry['scorebug']['left'] + geometry['scorebug']['right']) / 2 - width / 2) <= 1, geometry
         control_box = await control.bounding_box()
-        assert control_box['y'] + control_box['height'] < geometry['scorebug']['top'], (control_box, geometry)
+        assert (control_box['y'] + control_box['height'] <= geometry['scorebug']['top']
+                or control_box['x'] >= geometry['scorebug']['right']), (control_box, geometry)
     else:
         assert geometry['fieldTransform'] == 'none', geometry
         assert abs(geometry['stage']['bottom'] - geometry['scorebug']['bottom'] - 10) <= 1, geometry
     assert geometry['scorebug']['left'] >= -1 and geometry['scorebug']['right'] <= width + 1
     betting_row = child.locator('.sim-betting-line')
     betting_line = child.locator('#liveBettingLine')
-    wants_betting = authenticated and width >= 768
+    wants_betting = authenticated
     if wants_betting:
         await expect(betting_row).to_have_attribute('data-state', 'available')
         await expect(betting_line).to_have_text(FIXTURE_LINE)
         assert 'Fixture Sportsbook' in await betting_row.get_attribute('title')
         assert len(betting_requests) == 1, betting_requests
     else:
+        await expect(page.locator('.cmpri-desktop-topbar:visible')).to_have_count(0)
+        await expect(child.locator('body.cmpri-tally-header')).to_have_count(0)
         await expect(betting_row).to_be_hidden()
+        await expect(betting_row).to_have_attribute('data-state', 'unavailable')
+        tally = geometry['tally']
+        if compact:
+            assert geometry['tallyPosition'] == 'fixed', geometry
+            assert abs(tally['left'] - 8) <= 1 and abs(tally['top'] - 8) <= 1, geometry
+        else:
+            assert geometry['tallyPosition'] == 'absolute', geometry
+            assert abs(tally['left'] - geometry['stage']['left'] - 24) <= 1, geometry
+            assert abs(tally['top'] - geometry['stage']['top'] - 49) <= 1, geometry
         assert not betting_requests, betting_requests
-    anchors = await verify_score_anchor(page, child, role, width, height) if authenticated and width >= 768 else []
+    anchors = await verify_score_anchor(page, child, role, width, height, touch) if authenticated else []
     screenshot = OUT / f'{"engineering-" + role if authenticated else "sign-in"}-{width}{"-reduced" if reduced_motion else ""}.png'
     await page.screenshot(path=str(screenshot), full_page=True)
 
@@ -258,6 +289,9 @@ async def verify_case(browser, authenticated, width, height, reduced_motion=Fals
         await expect(betting_row).to_have_attribute('data-state', 'available')
         await expect(betting_line).to_have_text(FIXTURE_LINE)
     else:
+        await expect(betting_row).to_be_hidden()
+        await expect(betting_row).to_have_attribute('data-state', 'unavailable')
+        assert (await child.evaluate('window.__bettingFetchAudit.started')) == 0
         assert not betting_requests, betting_requests
     assert not errors, errors
     assert not failures, failures
@@ -266,7 +300,7 @@ async def verify_case(browser, authenticated, width, height, reduced_motion=Fals
               'scoreAnchorStates': anchors,
               'betting': {'fixtureOnly': True, 'liveFeedAvailabilityVerified': False,
                           'fixtureLine': FIXTURE_LINE, 'requests': betting_requests,
-                          'noRequestsWithoutDesktopAnchor': not wants_betting and not betting_requests,
+                          'noRequestsWithoutDashboardAnchor': not wants_betting and not betting_requests,
                           'hiddenHostStopsRequests': True, 'inFlightAbortChecked': abort_checked,
                           'fetchAudit': await child.evaluate('window.__bettingFetchAudit')},
               'passed': True, 'geometry': geometry, 'pageErrors': errors,
@@ -282,6 +316,7 @@ async def main():
         for authenticated in (False, True):
             for width, height in ((1440, 1000), (390, 844), (320, 700)):
                 results.append(await verify_case(browser, authenticated, width, height))
+        results.append(await verify_case(browser, True, 820, 1180))
         for width, height in ((1440, 1000), (390, 844)):
             results.append(await verify_case(browser, True, width, height, role='system_admin'))
         results.append(await verify_case(browser, False, 390, 844, reduced_motion=True))

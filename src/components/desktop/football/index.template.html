@@ -37,6 +37,7 @@ __SITE_PALETTE_CSS__
 #cmpriScorebug .sb-ticker-viewport{width:100%;min-width:0;overflow:hidden}#cmpriScorebug #sbTicker{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;animation:none;transform:none;padding:0}
 .sim-tally{position:absolute;z-index:4;left:24px;top:49px;display:flex;flex-direction:column;align-items:stretch;gap:2px;padding:5px 8px;border:1px solid color-mix(in srgb,var(--edge) 50.2%,transparent);border-radius:2px;background:color-mix(in srgb,var(--surface) 89.02%,transparent);color:var(--text);font-size:8px;font-weight:700;line-height:12px;letter-spacing:.2px;white-space:nowrap}
 .sim-tally-record,.sim-betting-line{display:flex;align-items:center;gap:10px}.sim-betting-line{display:none;justify-content:space-between;font-variant-numeric:tabular-nums}body.cmpri-embedded.cmpri-tally-header .sim-betting-line{display:flex}
+#liveBettingLine{min-width:0;white-space:normal;overflow-wrap:anywhere;text-align:right}
 .sim-tally .sb-tally-ill{color:var(--orange-light)}.sim-tally .sb-tally-iowa{color:var(--gold)}.sim-tally b{color:var(--cmpri-palette-white);font-weight:800}.sim-tally .sb-tally-label{color:var(--muted);font-size:7px}
 /* Only the compact record and published betting line follow the dashboard. */
 body.cmpri-embedded.cmpri-tally-header .sim-tally{position:fixed;left:auto;right:var(--cmpri-tally-right,8px);top:var(--cmpri-tally-top);max-width:calc(100vw - 16px)}
@@ -104,7 +105,6 @@ const reduced=matchMedia('(prefers-reduced-motion: reduce)');
 let artworkReady=false,gameReady=false,generating=false,sceneInView=true,hostSuspended=false;const breakSeen=new Set();const EMBEDDED_THEME=new URLSearchParams(location.search).get('theme')==='1';if(EMBEDDED_THEME){hostSuspended=true;document.body.classList.add('ambient','cmpri-embedded')}const visibleWaiters=[];let paused=reduced.matches,ready=false,raf=0,last=0,time=0,playNo=0,statusKey='',ambient=false;
 // Keep only the compact record/betting strip below the dashboard title bar.
 if(EMBEDDED_THEME&&parent!==window){
- const compactTally=matchMedia('(max-width:767px),(max-width:1024px) and (pointer:coarse)');
  let tallyHeader=null,tallyResize=null,tallyAttributes=null,tallyTree=null,tallyDocument=null,tallyFrame=0;
  const bettingNode=$('liveBettingLine'),bettingRow=bettingNode.parentElement;
  let bettingTimer=0,bettingController=null,bettingSnapshot=null,bettingAttempt=0,bettingSuspended=true,bettingDisposed=false;
@@ -155,10 +155,10 @@ if(EMBEDDED_THEME&&parent!==window){
  }
  addEventListener('message',bettingHostControl);document.addEventListener('visibilitychange',syncBettingLine);
  addEventListener('pagehide',()=>{bettingDisposed=true;clearTimeout(bettingTimer);bettingController?.abort();removeEventListener('message',bettingHostControl);document.removeEventListener('visibilitychange',syncBettingLine)},{once:true});
- function positionDesktopTally(){
+ function positionDashboardTally(){
   tallyFrame=0;
   const header=tallyHeader?.getBoundingClientRect(),frame=window.frameElement?.getBoundingClientRect();
-  const anchored=!compactTally.matches&&header&&frame&&header.width>0&&header.height>0&&frame.width>0&&frame.height>0;
+  const anchored=header&&frame&&header.width>0&&header.height>0&&frame.width>0&&frame.height>0;
   document.body.classList.toggle('cmpri-tally-header',Boolean(anchored));
   if(!anchored){syncBettingLine();return}
   const scaleX=frame.width/innerWidth,scaleY=frame.height/innerHeight;
@@ -166,7 +166,7 @@ if(EMBEDDED_THEME&&parent!==window){
   document.body.style.setProperty('--cmpri-tally-right',Math.max(8,(frame.right-header.right+8)/scaleX)+'px');
   syncBettingLine();
  }
- function scheduleTallyPosition(){if(!tallyFrame)tallyFrame=requestAnimationFrame(positionDesktopTally)}
+ function scheduleTallyPosition(){if(!tallyFrame)tallyFrame=requestAnimationFrame(positionDashboardTally)}
  function findTallyHeader(){
   const next=Array.from(tallyDocument.querySelectorAll('.cmpri-desktop-topbar')).find(node=>{const r=node.getBoundingClientRect();return r.width>0&&r.height>0})||null;
   if(next!==tallyHeader){
@@ -182,9 +182,9 @@ if(EMBEDDED_THEME&&parent!==window){
   tallyDocument=parent.document;
   tallyTree=new MutationObserver(findTallyHeader);tallyTree.observe(tallyDocument.body,{childList:true,subtree:true});
   parent.addEventListener('resize',scheduleTallyPosition);parent.addEventListener('scroll',scheduleTallyPosition,true);
-  addEventListener('resize',scheduleTallyPosition);compactTally.addEventListener('change',scheduleTallyPosition);
+  addEventListener('resize',scheduleTallyPosition);
   findTallyHeader();
-  addEventListener('pagehide',()=>{tallyResize?.disconnect();tallyAttributes?.disconnect();tallyTree?.disconnect();cancelAnimationFrame(tallyFrame);parent.removeEventListener('resize',scheduleTallyPosition);parent.removeEventListener('scroll',scheduleTallyPosition,true);removeEventListener('resize',scheduleTallyPosition);compactTally.removeEventListener('change',scheduleTallyPosition)},{once:true});
+  addEventListener('pagehide',()=>{tallyResize?.disconnect();tallyAttributes?.disconnect();tallyTree?.disconnect();cancelAnimationFrame(tallyFrame);parent.removeEventListener('resize',scheduleTallyPosition);parent.removeEventListener('scroll',scheduleTallyPosition,true);removeEventListener('resize',scheduleTallyPosition)},{once:true});
  }catch{/* A downloaded or cross-origin preview keeps its standalone placement. */}
 }
 let seed=1923;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296};
