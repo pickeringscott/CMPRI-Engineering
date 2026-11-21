@@ -46,9 +46,12 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
   const viewportRef = useRef<HTMLDivElement>(null);
   const highlightRef = useRef<HTMLSpanElement>(null);
   const arrowRef = useRef<HTMLSpanElement>(null);
-  const [actualSize, setActualSize] = useState(false);
+  const [sizePreference, setSizePreference] = useState<boolean>();
   const { screenshot, target } = action;
   const position = highlightPosition(screenshot, target);
+  // Fitting a wide strip makes its controls too small to read.
+  const isWideStrip = Boolean(target && screenshot && screenshot.width >= screenshot.height * 5);
+  const actualSize = sizePreference ?? isWideStrip;
   const arrowBelow = target && screenshot && target[1] < (screenshot.height - target[3]) / 2;
   const hotspotLabel = t("Try {step} in the sample", "Practicar {step} en el ejemplo", {
     step: t(action.title),
@@ -147,17 +150,17 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
         {screenshot && <div className={styles.exampleToolbar}>
           <span className={styles.exampleLabel}>{t("Sample screen", "Pantalla de ejemplo")}</span>
           <div className={styles.viewModes} role="group" aria-label={t("Sample display size", "Tamaño del ejemplo")}>
-            <button type="button" aria-pressed={!actualSize} onClick={() => setActualSize(false)}>
+            <button type="button" aria-pressed={!actualSize} onClick={() => setSizePreference(false)}>
               {t("Fit to width", "Ajustar al ancho")}
             </button>
-            <button type="button" aria-pressed={actualSize} onClick={() => setActualSize(true)}>
+            <button type="button" aria-pressed={actualSize} onClick={() => setSizePreference(true)}>
               {t("Actual size", "Tamaño real")}
             </button>
           </div>
           {onTry && position && <button type="button" className={styles.compactButton} aria-describedby={actionId} onClick={onTry}>
             {t("Try control", "Probar control")}
           </button>}
-          <button type="button" className={styles.compactButton} aria-controls={viewportId} onClick={() => setActualSize(value => !value)}>
+          <button type="button" className={styles.compactButton} aria-controls={viewportId} onClick={() => setSizePreference(!actualSize)}>
             {actualSize ? t("Fit width", "Ajustar al ancho") : t("Actual size", "Tamaño real")}
           </button>
         </div>}
