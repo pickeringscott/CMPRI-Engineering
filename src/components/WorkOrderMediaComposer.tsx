@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import WorkOrderMediaControl from "./WorkOrderMediaControl";
 import { createClient, getValidSession } from "@/lib/supabase/client";
@@ -13,6 +14,7 @@ export default function WorkOrderMediaComposer({ workOrderId, revision, disabled
   onUploaded: () => Promise<unknown>; onPendingChange: (pending: boolean) => void; onBusyChange: (busy: boolean) => void;
   onRecoveryActions?: (actions: MediaRecoveryActions | null) => void;
 }) {
+  const { t } = useUiLanguage();
   const [files, setFiles] = useState<Pending[]>([]), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [ready, setReady] = useState(false), [conflict, setConflict] = useState<AttachmentDraft | null>(null);
   const [recoveryAttempt, setRecoveryAttempt] = useState(0);
@@ -172,19 +174,19 @@ export default function WorkOrderMediaComposer({ workOrderId, revision, disabled
   }
   return <>
     {conflict && <div role="alert" className="rounded border border-amber-500 p-2 text-xs text-amber-100">
-      <p>This ticket changed since {conflict.files.length} attachments were selected. Your files are retained separately.</p>
+      <p>{t("This work order changed after {count} attachments were selected. Your files are retained separately.", { count: conflict.files.length })}</p>
       <p>{conflict.files.map(item => item.file.name).join(", ")}</p>
-      <button type="button" className="mt-1 underline" onClick={() => { recoveryConflict.current = null; setConflict(null); restored(conflict); void persist(); }}>Use Recovered Attachments</button>
+      <button type="button" className="mt-1 underline" onClick={() => { recoveryConflict.current = null; setConflict(null); restored(conflict); void persist(); }}>{t("Use Recovered Attachments")}</button>
       <button type="button" className="ml-3 underline" onClick={() => {
         const scope = owner.current;
-        if (!scope || !window.confirm("Discard the recovered attachments from this device?")) return;
+        if (!scope || !window.confirm(t("Discard the recovered attachments from this device?"))) return;
         void clearAttachmentDraft(scope).then(() => { if (owner.current !== scope || !active.current) return; recoveryConflict.current = null; hasStoredWork.current = false; setConflict(null); replace([], false); }, reportFailure);
-      }}>Discard Recovered Attachments</button>
+      }}>{t("Discard Recovered Attachments")}</button>
     </div>}
-    {!ready && error && <button type="button" className="my-1 text-xs underline" onClick={() => setRecoveryAttempt(value => value + 1)}>Retry Attachment Recovery</button>}
-    <div className="preview-note-actions"><div className="preview-note-thumbnails">{[...files].reverse().map(item => <span className="preview-note-thumbnail" key={item.id}>{item.file.type.startsWith("video/") ? <video src={item.url} muted preload="metadata" /> : <picture style={{ display: "contents" }}><img src={item.url} alt={item.file.name} /></picture>}<button type="button" disabled={busy || disabled} onClick={() => remove(item.id)} aria-label={"Remove " + item.file.name}>×</button></span>)}</div>
+    {!ready && error && <button type="button" className="my-1 text-xs underline" onClick={() => setRecoveryAttempt(value => value + 1)}>{t("Retry Attachment Recovery")}</button>}
+    <div className="preview-note-actions"><div className="preview-note-thumbnails">{[...files].reverse().map(item => <span className="preview-note-thumbnail" key={item.id}>{item.file.type.startsWith("video/") ? <video src={item.url} muted preload="metadata" /> : <picture style={{ display: "contents" }}><img src={item.url} alt={item.file.name} /></picture>}<button type="button" disabled={busy || disabled} onClick={() => remove(item.id)} aria-label={t("Remove {name}", { name: item.file.name })}>×</button></span>)}</div>
       <WorkOrderMediaControl disabled={busy || disabled || !ready || !!conflict} onSelect={chosen => { if (!owner.current || !ready || disabled || busy || recoveryConflict.current) return; hydrated.current = true; replace([...pending.current, ...chosen.map(file => ({ file, id: crypto.randomUUID(), url: URL.createObjectURL(file) }))]); }} />
-      <button type="button" onClick={() => void submit()} disabled={busy || disabled || !ready || !!conflict || (!hasNote && !files.length)} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">{busy ? "Saving…" : "Submit Note"}</button>
-    </div>{error && <p role="alert" className="text-xs text-amber-200">{error}</p>}
+      <button type="button" onClick={() => void submit()} disabled={busy || disabled || !ready || !!conflict || (!hasNote && !files.length)} className="rounded-lg bg-sky-700 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40">{busy ? t("Saving…") : t("Submit Note")}</button>
+    </div>{error && <p role="alert" className="text-xs text-amber-200">{t(error)}</p>}
   </>;
 }

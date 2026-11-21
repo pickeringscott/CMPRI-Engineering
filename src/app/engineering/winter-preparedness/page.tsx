@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authorizationHeaders, loadCmpriSession } from '@/lib/auth/client-session';
@@ -14,6 +15,7 @@ async function readItems(signal?: AbortSignal): Promise<{items:WinterItem[];prev
   return payload;
 }
 export default function WinterPreparednessPage() {
+  const { t } = useUiLanguage();
   const router = useRouter();
   const [items, setItems] = useState<WinterItem[] | null>(null);
   const [error, setError] = useState('');
@@ -41,5 +43,5 @@ export default function WinterPreparednessPage() {
     else router.push('/engineering');
   }
   return items ? <WinterChecklist initial={items} persist={persist} reload={async()=>{const saved=await readItems();setReadOnly(saved.preview_read_only===true);return saved.items;}} onClose={close} readOnly={readOnly} />
-    : <main className="p-6"><p role={error ? 'alert' : 'status'}>{error || 'Loading Winter Preparedness 2026…'}</p><button onClick={close}>Close</button>{error && <button onClick={() => window.location.reload()}>Retry</button>}</main>;
+    : <main className="p-6"><p role={error ? 'alert' : 'status'}>{error ? t(error) : t("Loading Winter Preparedness 2026…")}</p><button onClick={close}>{t("Close")}</button>{error && <button onClick={() => window.location.reload()}>{t("Retry")}</button>}</main>;
 }

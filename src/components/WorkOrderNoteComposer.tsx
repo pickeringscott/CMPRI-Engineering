@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { formatWorkOrder, workOrderReferences } from "@/lib/work-order-reference.js";
@@ -6,11 +7,12 @@ import { workOrderStaffMentions, workOrderMentionQuery, insertWorkOrderMention, 
 import { plainTextParts } from "@/lib/plain-text-links";
 
 export type MentionTicket = { id: string; display_id?: string | null; room?: string | null; issue?: string | null; status?: string | null };
-type Choice = { key: string; label: string; detail: string };
+type Choice = { key: string; label: string; detail: string; kind?: "staff" | "role" };
 
 export default function WorkOrderNoteComposer({ value, onChange, mentions, tickets, disabled = false, label = "Work order note", placeholder }: {
   value: string; disabled?: boolean; label?: string; placeholder?: string; onChange: (value: string) => void; mentions: readonly WorkOrderMention[]; tickets: readonly MentionTicket[];
 }) {
+  const { t } = useUiLanguage();
   const input = useRef<HTMLTextAreaElement>(null), mirror = useRef<HTMLDivElement>(null);
   const [caret, setCaret] = useState(value.length);
   const [composing, setComposing] = useState(false);
@@ -21,7 +23,7 @@ export default function WorkOrderNoteComposer({ value, onChange, mentions, ticke
   const choices: Choice[] = [];
   if (range) {
     for (const mention of mentions) if (mention.label.toLocaleLowerCase().startsWith(range.query)) {
-      choices.push({ key: `${mention.kind}:${mention.label}`, label: mention.label, detail: mention.kind === "staff" ? "Staff" : "Role" });
+      choices.push({ key: `${mention.kind}:${mention.label}`, label: mention.label, kind: mention.kind, detail: mention.kind === "staff" ? "Staff" : "Role" });
     }
     for (const ticket of tickets) {
       const label = formatWorkOrder(ticket.display_id, `WO-${ticket.id.slice(0, 8)}`);
@@ -74,8 +76,8 @@ export default function WorkOrderNoteComposer({ value, onChange, mentions, ticke
   }
   highlighted.push(value.slice(at));
   return <div className="relative mt-2">
-    <textarea id="technician-note-editor" disabled={disabled} ref={input} aria-label={label} aria-autocomplete="list" aria-controls="work-order-mention-options" aria-haspopup="listbox" aria-activedescendant={suggestions.length ? `work-order-mention-${active}` : undefined}
-      value={value} rows={1} placeholder={placeholder ?? label + " — add a note…"}
+    <textarea id="technician-note-editor" disabled={disabled} ref={input} aria-label={t(label)} aria-autocomplete="list" aria-controls="work-order-mention-options" aria-haspopup="listbox" aria-activedescendant={suggestions.length ? `work-order-mention-${active}` : undefined}
+      value={value} rows={1} placeholder={placeholder ? t(placeholder) : t("{label} — add a note…", {label: t(label)})}
       onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
       onChange={event => { onChange(event.target.value); setCaret(event.target.selectionStart); setSelected(0); setDismissed(false); }}
       onSelect={event => { setCaret(event.currentTarget.selectionStart); setDismissed(false); }} onScroll={syncMirror}
@@ -91,10 +93,10 @@ export default function WorkOrderNoteComposer({ value, onChange, mentions, ticke
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg border border-transparent">
       <div ref={mirror} className="box-border whitespace-pre-wrap break-words p-2 text-sm text-white">{highlighted}{"\u200b"}</div>
     </div>
-    {suggestions.length > 0 && <div id="work-order-mention-options" data-cmpri-dropdown="mentions" role="listbox" aria-label="Mention staff, roles or tickets" className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-1 shadow-2xl">
+    {suggestions.length > 0 && <div id="work-order-mention-options" data-cmpri-dropdown="mentions" role="listbox" aria-label={t("Mention staff, roles or tickets")} className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-600 bg-slate-900 p-1 shadow-2xl">
       {suggestions.map((choice, index) => <button id={`work-order-mention-${index}`} role="option" aria-selected={index === active} key={choice.key} type="button" tabIndex={-1}
         onPointerDown={event => event.preventDefault()} onClick={() => accept(choice)} className={`block w-full rounded-lg px-2.5 py-2 text-left hover:bg-sky-900/45 ${index === active ? "bg-sky-900/45" : ""}`}>
-        <span className="font-semibold text-sky-200">@{choice.label}</span><span className="ml-2 text-sm text-slate-400">{choice.detail}</span>
+        <span className="font-semibold text-sky-200">@{choice.label}</span><span className="ml-2 text-sm text-slate-400">{choice.kind ? t(choice.detail) : choice.detail}</span>
       </button>)}
     </div>}
   </div>;

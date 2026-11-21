@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createClient, getValidSession } from "@/lib/supabase/client";
 import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
@@ -8,7 +9,7 @@ import ModalDashboardLink from "@/components/ModalDashboardLink";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
-import { isNotificationScheduleEligibleProfile, isWebPushEligibleProfile, isStaffNotesPushEligibleProfile } from "@/lib/notifications/schedule";
+import { isNotificationScheduleEligibleProfile, isWebPushEligibleProfile, isStaffNotesPushEligibleProfile, normalizeNotificationSettings } from "@/lib/notifications/schedule";
 import PhoneNotificationRow from "@/components/PhoneNotificationRow";
 import { loadCmpriSession } from "@/lib/auth/client-session";
 import { clearPhoneScheduleRecovery, phoneScheduleKey, readPhoneScheduleRecovery, savePhoneScheduleRecovery, type PhoneScheduleRecovery, canRestoreProfileRecovery, clearProfileRecovery, profileFieldsKey, readProfileRecovery, saveProfileRecovery, type ProfileRecovery, type ProfileScope, type ProfileSettingsDraft } from "@/lib/profile-recovery";
@@ -35,9 +36,7 @@ type ChatGptConnection = { connected: boolean; status: "active" | "disconnected"
 type Payload = { profile: Profile; preferences: Preferences; profile_settings_available: boolean; can_manage_users: boolean; chatgpt_connection: ChatGptConnection; warning?: string };
 
 function applyPreferences(preferences: Preferences) {
-  window.localStorage.setItem("cmpri:work-order-language", preferences.language);
   window.localStorage.setItem("cmpri:appearance", preferences.appearance);
-  document.documentElement.lang = preferences.language;
   document.documentElement.dataset.theme = preferences.appearance;
   const message = { type: "cmpri-profile-preferences-updated", preferences };
   window.parent.postMessage(message, window.location.origin);
@@ -91,6 +90,7 @@ export default function ProfilePage() {
   const [phoneSubscribed, setPhoneSubscribed] = useState(false);
   const [phonePublicKey, setPhonePublicKey] = useState("");
   const [phoneBusy, setPhoneBusy] = useState(false);
+  const phoneOperation = useRef<{ scope: ProfileScope } | null>(null);
   const [phoneMessage, setPhoneMessage] = useState("");
   const [phoneSupported, setPhoneSupported] = useState(false);
   const [recoveryConflict, setRecoveryConflict] = useState<{ saved: ProfileRecovery; remote: ProfileSettingsDraft } | null>(null);
@@ -123,13 +123,33 @@ export default function ProfilePage() {
   useEffect(() => { persistProfileRef.current(); }, [name, preferences, phoneSettings]);
   const isSpanish = preferences?.language === "es";
   const displayedRole = accountRoleDisplayName(data?.profile || {});
-  const isHousekeeping = roleDisplayName(data?.profile.role || "") === "Lead Housekeeper";
   const isSubmitOnlyProfile = ["Front Desk", "Front Desk Manager", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""));
   const canManageChatgptConnection = !isSubmitOnlyRole(data?.profile.role);
   const profileDashboardHref = isSubmitOnlyProfile
     ? "/work-orders"
     : "/engineering";
-  const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
+  const { t: tx, tt } = useUiLanguage(preferences?.language);
+
+  function beginPhoneOperation() {
+    const editor = draft.current;
+    if (!editor || editor.stopped) return null;
+    const operation = { scope: editor.scope };
+    phoneOperation.current = operation;
+    setPhoneBusy(true); setPhoneMessage("");
+    return operation;
+  }
+
+  function currentPhoneOperation(operation: { scope: ProfileScope }) {
+    const editor = draft.current;
+    return phoneOperation.current === operation && editor && !editor.stopped
+      && editor.scope.userId === operation.scope.userId && editor.scope.hotelId === operation.scope.hotelId;
+  }
+
+  async function phoneOperationHeaders(operation: { scope: ProfileScope }) {
+    const session = await getValidSession();
+    if (!currentPhoneOperation(operation) || session?.user.id !== operation.scope.userId) return null;
+    return { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" };
+  }
 
   function closeProfileModal() {
     if (embedded && window.parent !== window) {
@@ -146,7 +166,7 @@ export default function ProfilePage() {
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {!embedded && <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Dashboard", "Panel")}</ModalDashboardLink>}
-        {embedded && <button type="button" onClick={closeProfileModal} aria-label={tx("Close Manage Profile", "Cerrar Administrar perfil")} title={tx("Close", "Cerrar")} className="grid size-10 place-items-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white">
+        {embedded && <button type="button" onClick={closeProfileModal} aria-label={tx("Close Manage Profile", "Cerrar Administrar perfil")} title={tt("Close")} className="grid size-10 place-items-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white">
           <svg aria-hidden="true" viewBox="0 0 10 10" className="size-3"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
         </button>}
       </div>
@@ -193,6 +213,10 @@ export default function ProfilePage() {
     if (generation !== loadGeneration.current || !currentSession || currentSession.user.id !== scope.userId || result.profile.id !== scope.userId) return;
     const remote = { name: result.profile.full_name || "", preferences: result.preferences };
     const saved = readProfileRecovery(localStorage, scope);
+    if (phoneOperation.current && (phoneOperation.current.scope.userId !== scope.userId || phoneOperation.current.scope.hotelId !== scope.hotelId)) {
+      phoneOperation.current = null;
+      setPhoneBusy(false);
+    }
     draft.current = { scope, fields: remote, baseline: remote, stopped: false, retained: !!saved };
     setData(result);
     if (saved && !canRestoreProfileRecovery(saved, remote)) {
@@ -249,6 +273,7 @@ export default function ProfilePage() {
     const signOut = () => {
       persist();
       if (draft.current) draft.current.stopped = true;
+      phoneOperation.current = null; setPhoneBusy(false);
       loadGeneration.current++;
       setData(null); setName(""); setPreferences(null); setPhoneSettings(null); setRecoveryConflict(null); setPhoneRecoveryConflict(null);
     };
@@ -259,7 +284,11 @@ export default function ProfilePage() {
     const subscription = createClient().auth.onAuthStateChange((event, session) => {
       if (event === "SIGNED_OUT" || (draft.current && session && session.user.id !== draft.current.scope.userId)) signOut();
     });
-    const refresh = () => { void load().catch(error => setMessage(error instanceof Error ? error.message : "Profile could not be refreshed.")); };
+    const refresh = () => {
+      // Returning from the browser permission dialog must not replace the
+      // editor whose notification change is still being acknowledged.
+      if (!phoneOperation.current) void load().catch(error => setMessage(error instanceof Error ? error.message : "Profile could not be refreshed."));
+    };
     window.addEventListener("focus", refresh);
     return () => { subscription.data.subscription.unsubscribe(); window.removeEventListener("focus", refresh); persist(); window.removeEventListener("pagehide", persist); window.removeEventListener("cmpri-workspace-sign-out", signOut); document.removeEventListener("visibilitychange", hidden); };
   // The event subscription owns its initial reader; all editor values are read through the current refs.
@@ -283,7 +312,7 @@ export default function ProfilePage() {
   async function save() {
     if (!preferences || !draft.current || draft.current.stopped || recoveryConflict) return;
     if (!name.trim()) {
-      setMessage(tx("Enter a display name before saving.", "Ingrese un nombre para mostrar antes de guardar."));
+      setMessage("Enter a display name before saving.");
       return;
     }
     setBusy(true);
@@ -316,7 +345,7 @@ export default function ProfilePage() {
         throw new Error("Profile was saved, but newer edits could not be preserved on this device. Keep this window open.");
       }
       if (payload.profile_settings_available !== false) applyPreferences(payload.preferences);
-      setMessage(payload.warning || tx("Profile and preferences saved.", "Perfil y preferencias guardados."));
+      setMessage(payload.warning || "Profile and preferences saved.");
       setData((current) => current ? { ...current, profile: payload.profile, preferences: payload.preferences, profile_settings_available: payload.profile_settings_available !== false, warning: payload.warning } : current);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Profile could not be saved.");
@@ -342,26 +371,32 @@ export default function ProfilePage() {
       if (response.status === 409) await load();
       throw new Error(payload.error || "Phone notification schedule could not be saved.");
     }
+    const acknowledged = normalizeNotificationSettings(payload.settings);
+    const expected = normalizeNotificationSettings(submitted);
+    if (payload.ok !== true || !acknowledged || !expected || phoneScheduleKey(acknowledged) !== phoneScheduleKey(expected)) {
+      throw new Error("Notification schedule was not confirmed. Your settings were kept.");
+    }
     const unchanged = phoneScheduleKey(phone.fields) === phoneScheduleKey(submitted);
-    phone.baseline = payload.settings; phone.configured = true;
+    phone.baseline = acknowledged; phone.configured = true;
     if (unchanged) {
-      phone.fields = payload.settings;
-      phoneHadRecovery.current = !clearPhoneScheduleRecovery(localStorage, editor.scope); setPhoneSettings(payload.settings);
+      phone.fields = acknowledged;
+      phoneHadRecovery.current = !clearPhoneScheduleRecovery(localStorage, editor.scope); setPhoneSettings(acknowledged);
     } else if (!savePhoneScheduleRecovery(localStorage, phone)) throw new Error("Schedule saved, but newer edits could not be preserved. Keep this window open.");
     return editor;
   }
 
   async function savePhoneSchedule() {
-    setPhoneBusy(true); setPhoneMessage("");
-    try { await submitPhoneSchedule(); setPhoneMessage("Notification schedule saved."); }
-    catch (error) { setPhoneMessage(error instanceof Error ? error.message : "Phone notification schedule could not be saved."); }
-    finally { setPhoneBusy(false); }
+    const operation = beginPhoneOperation();
+    if (!operation) return;
+    try { await submitPhoneSchedule(); if (currentPhoneOperation(operation)) setPhoneMessage("Notification schedule saved."); }
+    catch (error) { if (currentPhoneOperation(operation)) setPhoneMessage(error instanceof Error ? error.message : "Phone notification schedule could not be saved."); }
+    finally { if (currentPhoneOperation(operation)) { phoneOperation.current = null; setPhoneBusy(false); } }
   }
 
   async function enablePhoneNotifications() {
     if (!phoneSettings) return;
-    setPhoneBusy(true);
-    setPhoneMessage("");
+    const operation = beginPhoneOperation();
+    if (!operation) return;
     try {
       if (!phoneSupported || !phonePublicKey || !window.isSecureContext) {
         throw new Error("Web Push is unavailable in this browser or server configuration.");
@@ -371,78 +406,87 @@ export default function ProfilePage() {
         : await Notification.requestPermission();
       if (permission !== "granted") throw new Error("Browser notification permission was not granted.");
       const editor = await submitPhoneSchedule();
+      if (!currentPhoneOperation(operation)) return;
       const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
       const ready = await navigator.serviceWorker.ready;
       const subscription = await ready.pushManager.getSubscription() || await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: base64KeyToBytes(phonePublicKey),
       });
+      const operationHeaders = await phoneOperationHeaders(operation);
+      if (!operationHeaders) return;
       const response = await fetch("/api/profile/phone-notifications", {
         method: "POST",
-        headers: await headers(),
+        headers: operationHeaders,
         body: JSON.stringify({ action: "subscribe", subscription: subscription.toJSON() }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "This device could not be registered for phone notifications.");
-      if (editor.stopped || draft.current !== editor) return;
+      if (!currentPhoneOperation(operation) || editor.stopped) return;
+      if (!response.ok || payload.ok !== true) throw new Error(payload.error || "This device could not be registered for phone notifications.");
+      if (!await phoneOperationHeaders(operation)) return;
       setPhoneSubscribed(true);
       setPhoneMessage("Phone notifications are enabled on this device.");
     } catch (error) {
-      setPhoneMessage(error instanceof Error ? error.message : "Phone notifications could not be enabled.");
+      if (currentPhoneOperation(operation)) setPhoneMessage(error instanceof Error ? error.message : "Phone notifications could not be enabled.");
     } finally {
-      setPhoneBusy(false);
+      if (currentPhoneOperation(operation)) { phoneOperation.current = null; setPhoneBusy(false); }
     }
   }
 
   async function disablePhoneNotifications() {
-    setPhoneBusy(true);
-    setPhoneMessage("");
+    const operation = beginPhoneOperation();
+    if (!operation) return;
     try {
       const registration = await navigator.serviceWorker.getRegistration("/");
       const subscription = await registration?.pushManager.getSubscription();
+      const operationHeaders = await phoneOperationHeaders(operation);
+      if (!operationHeaders) return;
+      let browserRemoved = true;
       if (subscription) {
         const response = await fetch("/api/profile/phone-notifications", {
           method: "POST",
-          headers: await headers(),
+          headers: operationHeaders,
           body: JSON.stringify({ action: "unsubscribe", endpoint: subscription.endpoint }),
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || "This device could not be removed from phone notifications.");
-        await subscription.unsubscribe();
+        if (!await phoneOperationHeaders(operation)) return;
+        if (!response.ok || payload.ok !== true) throw new Error(payload.error || "This device could not be removed from phone notifications.");
+        browserRemoved = await subscription.unsubscribe();
       }
+      if (!await phoneOperationHeaders(operation)) return;
       setPhoneSubscribed(false);
-      setPhoneMessage("Phone notifications are disabled on this device.");
+      setPhoneMessage(browserRemoved ? "Phone notifications are disabled on this device." : "Phone notifications are disabled for this account, but the browser could not remove its registration.");
     } catch (error) {
-      setPhoneMessage(error instanceof Error ? error.message : "Phone notifications could not be disabled.");
+      if (currentPhoneOperation(operation)) setPhoneMessage(error instanceof Error ? error.message : "Phone notifications could not be disabled.");
     } finally {
-      setPhoneBusy(false);
+      if (currentPhoneOperation(operation)) { phoneOperation.current = null; setPhoneBusy(false); }
     }
   }
 
   if (!data || !preferences) return (
-    <main className="min-h-screen bg-slate-950 p-6 text-white">
+    <main lang={preferences?.language} className="min-h-screen bg-slate-950 p-6 text-white">
       <div className="mx-auto max-w-xl">
         {profileHeader}
         <div className="rounded-xl border border-slate-700 bg-slate-900 p-5" role={message ? "alert" : undefined}>
           <button type="button" onClick={() => void signOut()} className="mb-4 rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>
-          {!message && <h2 className="text-xl font-bold">Loading profile…</h2>}
-          {message && <p className="text-sm text-slate-300">{message}</p>}
-          {message && <button type="button" onClick={() => void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")).finally(() => setLoading(false))} disabled={loading} className="mt-4 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading ? "Retrying…" : "Retry"}</button>}
+          {!message && <h2 className="text-xl font-bold">{tx("Loading profile…")}</h2>}
+          {message && <p className="text-sm text-slate-300">{tx(message)}</p>}
+          {message && <button type="button" onClick={() => void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")).finally(() => setLoading(false))} disabled={loading} className="mt-4 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading ? tx("Retrying…") : tx("Retry")}</button>}
         </div>
       </div>
     </main>
   );
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main lang={preferences?.language} className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
         {profileHeader}
 
-        {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{message}</div>}
+        {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{tx(message)}</div>}
         {recoveryConflict && <section role="alert" className="mt-4 rounded-xl border border-amber-500 p-4 text-sm">
-          <h2 className="font-bold">Recovered Profile Needs Review</h2>
-          <p className="mt-2">Saved name: {recoveryConflict.remote.name}. Recovered name: {recoveryConflict.saved.fields.name}.</p>
-          <details className="mt-2"><summary>Compare preferences</summary><p className="whitespace-pre-wrap">Saved: {JSON.stringify(recoveryConflict.remote.preferences, null, 2)}</p><p className="whitespace-pre-wrap">Recovered: {JSON.stringify(recoveryConflict.saved.fields.preferences, null, 2)}</p></details>
+          <h2 className="font-bold">{tx("Recovered Profile Needs Review")}</h2>
+          <p className="mt-2">{tx("Saved name:")}{" "}{recoveryConflict.remote.name}{tx(". Recovered name:")}{" "}{recoveryConflict.saved.fields.name}.</p>
+          <details className="mt-2"><summary>{tx("Compare preferences")}</summary><p className="whitespace-pre-wrap">{tx("Saved:")}{" "}{JSON.stringify(recoveryConflict.remote.preferences, null, 2)}</p><p className="whitespace-pre-wrap">{tx("Recovered:")}{" "}{JSON.stringify(recoveryConflict.saved.fields.preferences, null, 2)}</p></details>
           <div className="mt-3 flex gap-4">
             <button type="button" className="underline" onClick={() => {
               const current = draft.current;
@@ -452,7 +496,7 @@ export default function ProfilePage() {
               current.retained = true;
               if (!saveProfileRecovery(localStorage, current.scope, current.fields, current.baseline)) setMessage("Recovered changes could not be preserved. Keep this window open until they are saved.");
               setRecoveryConflict(null); setMessage("Recovered changes are ready for review. Save Profile to submit them.");
-            }}>Use Recovered Changes</button>
+            }}>{tx("Use Recovered Changes")}</button>
             <button type="button" className="underline" onClick={() => {
               const current = draft.current;
               if (!current || current.stopped) return;
@@ -460,7 +504,7 @@ export default function ProfilePage() {
               current.retained = false;
               current.fields = recoveryConflict.remote; current.baseline = recoveryConflict.remote;
               setName(current.fields.name); setPreferences(current.fields.preferences); setRecoveryConflict(null);
-            }}>Discard Recovered Copy</button>
+            }}>{tx("Discard Recovered Copy")}</button>
           </div>
         </section>}
 
@@ -468,7 +512,7 @@ export default function ProfilePage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold">{tx("ChatGPT Connection", "Conexión de ChatGPT")}</h2>
-              <p className="mt-1 text-sm text-slate-300">Status: <span className={data.chatgpt_connection?.connected ? "text-emerald-300" : "text-slate-300"}>{data.chatgpt_connection?.oauth_connected ? data.chatgpt_connection.oauth_access === "read_write" ? "OAuth connected · Read and write" : "OAuth connected · Read only" : data.chatgpt_connection?.personal_link_active ? "Legacy private link active" : "Not connected"}</span></p>
+              <p className="mt-1 text-sm text-slate-300">{tx("Status:")}{" "}<span className={data.chatgpt_connection?.connected ? "text-emerald-300" : "text-slate-300"}>{data.chatgpt_connection?.oauth_connected ? data.chatgpt_connection.oauth_access === "read_write" ? tx("OAuth connected · Read and write") : tx("OAuth connected · Read only") : data.chatgpt_connection?.personal_link_active ? tx("Legacy private link active") : tx("Not connected")}</span></p>
               <p className="mt-1 text-sm text-slate-400">{tx("Connect ChatGPT with secure per-user OAuth. CMPRI checks your current role and permissions on every tool call.", "Conecta ChatGPT con OAuth seguro por usuario. CMPRI verifica tu rol y permisos actuales en cada solicitud.")}</p>
             </div>
             <ModalNavigationButton href="/profile/ai-connection" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">{tx("Connect ChatGPT", "Conectar ChatGPT")}</ModalNavigationButton>
@@ -478,20 +522,20 @@ export default function ProfilePage() {
         {phoneSettings && <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">{tx("Notifications", "Notificaciones")}</h2>
           {phoneRecoveryConflict && <div role="alert" className="mt-3 rounded-lg border border-amber-500 p-3 text-sm">
-            <p className="font-bold">Recovered Notification Schedule Needs Review</p>
-            <details className="mt-2"><summary>Compare schedules</summary><p className="whitespace-pre-wrap">Saved: {JSON.stringify(phoneRecoveryRemote, null, 2)}</p><p className="whitespace-pre-wrap">Recovered: {JSON.stringify(phoneRecoveryConflict.fields, null, 2)}</p></details>
+            <p className="font-bold">{tx("Recovered Notification Schedule Needs Review")}</p>
+            <details className="mt-2"><summary>{tx("Compare schedules")}</summary><p className="whitespace-pre-wrap">{tx("Saved:")}{" "}{JSON.stringify(phoneRecoveryRemote, null, 2)}</p><p className="whitespace-pre-wrap">{tx("Recovered:")}{" "}{JSON.stringify(phoneRecoveryConflict.fields, null, 2)}</p></details>
             <div className="mt-2 flex gap-4"><button type="button" className="underline" onClick={() => {
               if (!phoneDraft.current || draft.current?.stopped) return;
               phoneDraft.current.fields = phoneRecoveryConflict.fields;
               setPhoneSettings(phoneRecoveryConflict.fields as PhoneNotificationSettings); setPhoneRecoveryConflict(null);
               phoneHadRecovery.current = true;
               if (!savePhoneScheduleRecovery(localStorage, phoneDraft.current)) setPhoneMessage("Recovered settings could not be preserved. Keep this window open until they are saved.");
-            }}>Use Recovered Schedule</button><button type="button" className="underline" onClick={() => {
+            }}>{tx("Use Recovered Schedule")}</button><button type="button" className="underline" onClick={() => {
               if (!phoneDraft.current || !draft.current || draft.current.stopped) return;
               if (!clearPhoneScheduleRecovery(localStorage, draft.current.scope)) { setPhoneMessage("This device could not discard the recovered schedule."); return; }
               phoneHadRecovery.current = false;
               phoneDraft.current.fields = phoneDraft.current.baseline; setPhoneSettings(phoneDraft.current.baseline as PhoneNotificationSettings); setPhoneRecoveryConflict(null);
-            }}>Discard Recovered Schedule</button></div>
+            }}>{tx("Discard Recovered Schedule")}</button></div>
           </div>}
           {!phoneSupported && <p role="status" className="mt-3 text-sm text-amber-200">{tx("This browser does not support Web Push notifications.", "Este navegador no admite notificaciones Web Push.")}</p>}
           {phoneSupported && !phonePublicKey && <p role="status" className="mt-3 text-sm text-amber-200">{tx("Phone notifications are not configured on this server.", "Las notificaciones del teléfono no están configuradas en este servidor.")}</p>}
@@ -529,7 +573,7 @@ export default function ProfilePage() {
                         ...phoneSettings,
                         schedule: { ...phoneSettings.schedule, [day]: { ...phoneSettings.schedule[day], [field]: event.target.value } },
                       })} className="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white shadow-sm transition-colors focus-visible:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30">
-                        {customTime && <option value={value}>{notificationTimeLabel(value)} (current)</option>}
+                        {customTime && <option value={value}>{notificationTimeLabel(value)} {tx("(current)")}</option>}
                         {NOTIFICATION_TIMES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </label>;
@@ -538,18 +582,18 @@ export default function ProfilePage() {
               ))}
             </div>
           </div>
-          {phoneMessage && <p role="status" className="mt-4 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-slate-200">{phoneMessage}</p>}
+          {phoneMessage && <p role="status" className="mt-4 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-slate-200">{tx(phoneMessage)}</p>}
         </section>}
         {!phoneSettings && phoneMessage && data && isNotificationScheduleEligibleProfile(data.profile) && <section className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-950/20 p-5">
           <h2 className="text-xl font-bold">{tx("Notifications", "Notificaciones")}</h2>
-          <p role="alert" className="mt-3 text-sm text-amber-100">{phoneMessage}</p>
+          <p role="alert" className="mt-3 text-sm text-amber-100">{tx(phoneMessage)}</p>
           <button type="button" onClick={() => void load().catch((error) => setPhoneMessage(error instanceof Error ? error.message : "Phone notification settings could not be loaded."))} className="mt-3 rounded-lg border border-amber-400/50 px-3 py-2 text-sm font-semibold text-amber-100">{tx("Retry", "Reintentar")}</button>
         </section>}
 
         <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">{tx("Personal Preferences", "Preferencias personales")}</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-1 text-sm text-slate-300">{tx("Language", "Idioma")}<select value={preferences.language} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, language: event.target.value as Preferences["language"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="en">English</option><option value="es">Español</option></select></label>
+            <label className="grid gap-1 text-sm text-slate-300">{tx("Language", "Idioma")}<select value={preferences.language} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, language: event.target.value as Preferences["language"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="en">{tx("English")}</option><option value="es">{tx("Español")}</option></select></label>
             <label className="grid gap-1 text-sm text-slate-300">{tx("Appearance", "Apariencia")}<select value={preferences.appearance} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, appearance: event.target.value as Preferences["appearance"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="dark">{tx("Dark", "Oscuro")}</option><option value="light">{tx("Light", "Claro")}</option></select></label>
           </div>
           {!isSubmitOnlyProfile && <div className="mt-4 grid gap-1 text-sm text-slate-300">
@@ -581,12 +625,12 @@ export default function ProfilePage() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm text-slate-300">{tx("Display name", "Nombre para mostrar")}<input value={name} onChange={(event) => setName(event.target.value)} disabled={busy} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white" /></label>
             {!isSubmitOnlyProfile && <label className="grid gap-1 text-sm text-slate-300">{tx("Sign-in email", "Correo de inicio de sesión")}<input value={data.profile.email || ""} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>}
-            <label className="grid gap-1 text-sm text-slate-300 sm:col-span-2">{tx("Job Title / Role", "Puesto / Rol")}<input value={isHousekeeping ? "Housekeeping" : displayedRole || "Unknown"} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>
+            <label className="grid gap-1 text-sm text-slate-300 sm:col-span-2">{tx("Job Title / Role", "Puesto / Rol")}<input value={(displayedRole || "Unknown").split(" + ").map(label => tx(label)).join(" + ")} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>
           </div>
         </section>
 
         <div className="mt-5 flex flex-wrap justify-end gap-3">
-          <ModalNavigationButton href="/feedback?route=%2Fprofile" className="rounded-lg border border-amber-500/50 bg-amber-950/20 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-900/30">Report a Problem / Suggestion</ModalNavigationButton>
+          <ModalNavigationButton href="/feedback?route=%2Fprofile" className="rounded-lg border border-amber-500/50 bg-amber-950/20 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-900/30">{tx("Report a Problem / Suggestion")}</ModalNavigationButton>
           {data.can_manage_users && <ModalNavigationButton href="/management/users" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">{tx("User Management", "Administración de usuarios")}</ModalNavigationButton>}
           {isSubmitOnlyProfile && <button type="button" onClick={() => void signOut()} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/40">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4 shrink-0">

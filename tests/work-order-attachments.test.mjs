@@ -473,11 +473,11 @@ test("permanent file-validation failures let users replace the image without dis
     globalThis.fetch = originalFetch;
   }
 
-  assert.match(workOrderPageSource, /canReplacePhoto && pendingPhotoUploads\.length > 0 && <><button[^>]*onClick=\{chooseReplacementPhoto\}[^>]*>Choose a different photo<\/button>/);
+  assert.match(workOrderPageSource, /canReplacePhoto && pendingPhotoUploads\.length > 0 && <><button[^>]*onClick=\{chooseReplacementPhoto\}[^>]*>\{tx\("Choose a different photo"\)\}<\/button>/);
   assert.match(workOrderPageSource, /disabled=\{\(pendingPhotoUploads\.length > 0 && !canReplacePhoto\) \|\| retryingPhotoUpload \|\| loading \|\| Boolean\(attachmentRecoveryConflict\) \|\| attachmentRecoveryFailed \|\| attachmentRecoveryReady !== creationScope\}/);
   assert.match(workOrderPageSource, /function chooseReplacementPhoto\(\)[\s\S]*?photoFileInputRef\.current\?\.click\(\)/);
   assert.match(workOrderPageSource, /function acceptSelectedPhotos\([\s\S]*?setPhotos\(\(current\) => current\.map\(\(photo\) => photo\.uploadId === photoToReplaceUploadId \? replacement : photo\)\)/);
-  assert.match(workOrderPageSource, /onClick=\{continueWithoutPhoto\}[^>]*>Continue without photo<\/button>/);
+  assert.match(workOrderPageSource, /onClick=\{continueWithoutPhoto\}[^>]*>\{tx\("Continue without photo"\)\}<\/button>/);
   assert.match(workOrderPageSource, /async function continueWithoutPhoto\(\)[\s\S]*?setPendingPhotoUploads\(\[\]\)[\s\S]*?setPhotos\(\[\]\)[\s\S]*?Photo upload was skipped[\s\S]*?resetWorkOrderForm\(true\)/);
   assert.match(workOrderPageSource, /\{pendingPhotoUploads\.length > 0 && !canReplacePhoto && <button[^>]*onClick=\{\(\) => void retryPendingPhotoUploads\(\)\}/);
 });

@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { subscribeResources } from "@/lib/events/browser";
 import { useEffect, useRef, useState } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
@@ -15,6 +16,7 @@ const FLOOR_KEY = "cmpri:ticket-room-ranker:floors:v1";
 const REQUEST_TIMEOUT_MS = 15_000;
 
 export default function TicketRoomRankerPage() {
+  const { t } = useUiLanguage();
   const embedded = useEmbeddedModal();
   const [rooms, setRooms] = useState<RankedRoom[]>([]);
   const [filter, setFilter] = useState<RoomRank | "All">("All");
@@ -73,32 +75,32 @@ export default function TicketRoomRankerPage() {
 
   return <main className={styles.page}>
     <div className={styles.heading}>
-      <div className={styles.counts} role="group" aria-label="Filter rooms by rank">
-        <button type="button" aria-pressed={filter === "All"} onClick={() => setFilter("All")}><b>{rooms.length}</b> rooms</button>
-        {(["A", "B", "C"] as const).map((rank) => <button type="button" key={rank} aria-label={`Show ${counts[rank]} rank ${rank} rooms`} aria-pressed={filter === rank} onClick={() => setFilter(rank)}><b className={`${styles.badge} ${styles[rank]}`}>{rank}</b><span>{counts[rank]}</span></button>)}
+      <div className={styles.counts} role="group" aria-label={t("Filter rooms by rank")}>
+        <button type="button" aria-pressed={filter === "All"} onClick={() => setFilter("All")}><b>{rooms.length}</b>{" "}{t("rooms")}</button>
+        {(["A", "B", "C"] as const).map((rank) => <button type="button" key={rank} aria-label={t("Show {value0} rank {rank} rooms", { value0: counts[rank], rank: rank })} aria-pressed={filter === rank} onClick={() => setFilter(rank)}><b className={`${styles.badge} ${styles[rank]}`}>{rank}</b><span>{counts[rank]}</span></button>)}
       </div>
-      {embedded && <ModalDashboardLink className={styles.dashboard}>Dashboard</ModalDashboardLink>}
-      <span className={styles.source}>CMPRI tickets · Active priorities and counts</span>
+      {embedded && <ModalDashboardLink className={styles.dashboard}>{t("Dashboard")}</ModalDashboardLink>}
+      <span className={styles.source}>{t("CMPRI tickets · Active priorities and counts")}</span>
       {!embedded && <RoomRankerKey />}
     </div>
-    {error && <p role="alert" className={styles.error}>{error}{loaded && " Displaying the last successful refresh."}</p>}
-    {!loaded && !error && <p role="status" className={styles.message}>Loading rooms and active tickets…</p>}
-    <div className={styles.visibleCount} aria-live="polite">{shown.length} / {rooms.length} rooms · Read down each floor</div>
+    {error && <p role="alert" className={styles.error}>{t(error)}{loaded && t(" Displaying the last successful refresh.")}</p>}
+    {!loaded && !error && <p role="status" className={styles.message}>{t("Loading rooms and active tickets…")}</p>}
+    <div className={styles.visibleCount} aria-live="polite">{shown.length} / {rooms.length}{" "}{t("rooms · Read down each floor")}</div>
     <div className={styles.floors}>
       {floors.map((floor) => {
         const list = shown.filter((room) => room.floor === floor);
         const open = floorsOpen[floor] === true;
-        return <section key={floor} className={styles.floor} aria-label={`${({"1":"1st", "2":"2nd", "3":"3rd", "4":"4th"} as Record<string,string>)[floor] || floor} Floor`}>
-          <button type="button" className={styles.floorHeader} aria-expanded={open} aria-controls={`floor-${floor}`} onClick={() => toggleFloor(floor)}><span>{open ? "▾" : "▸"} {({"1":"1st", "2":"2nd", "3":"3rd", "4":"4th"} as Record<string,string>)[floor] || floor} Floor</span><span>{list.length} rooms</span></button>
+        return <section key={floor} className={styles.floor} aria-label={t("{value0} Floor", { value0: t(({"1":"1st", "2":"2nd", "3":"3rd", "4":"4th"} as Record<string,string>)[floor] || floor) })}>
+          <button type="button" className={styles.floorHeader} aria-expanded={open} aria-controls={`floor-${floor}`} onClick={() => toggleFloor(floor)}><span>{open ? "▾" : "▸"} {t(({"1":"1st", "2":"2nd", "3":"3rd", "4":"4th"} as Record<string,string>)[floor] || floor)}{" "}{t("Floor")}</span><span>{list.length}{" "}{t("rooms")}</span></button>
           <div id={`floor-${floor}`} hidden={!open}>
-            <div className={styles.columns}><span>Room</span><span>Rank</span><span /><span>Issue</span><span /></div>
+            <div className={styles.columns}><span>{t("Room")}</span><span>{t("Rank")}</span><span /><span>{t("Issue")}</span><span /></div>
             {list.map((room) => <div key={room.id} className={styles.row} data-room={room.number} data-rank={room.rank}>
               <span className={`${styles.room} ${styles[`text${room.rank}`]}`}>{room.number}</span><span className={`${styles.badge} ${styles[room.rank]}`}>{room.rank}</span>
               {room.issues.some(isTicketAutomaticallyEscalated) ? <TicketEscalationIndicator /> : <span />}
-              {room.issues[0] ? <a className={styles.issue} href={`/work-orders/${encodeURIComponent(room.issues[0].id)}`} title={room.issues[0].issue}>{room.issues[0].issue}</a> : <span className={styles.muted}>No active tickets</span>}
-              {room.issues.length > 1 ? <button type="button" className={styles.more} aria-label={`Show ${room.issues.length - 1} additional issues for room ${room.number}`} title={room.issues.slice(1).map((issue) => issue.issue).join("\n")} onClick={() => showAdditional(room)}>+{room.issues.length - 1} more</button> : <span />}
+              {room.issues[0] ? <a className={styles.issue} href={`/work-orders/${encodeURIComponent(room.issues[0].id)}`} title={room.issues[0].issue}>{room.issues[0].issue}</a> : <span className={styles.muted}>{t("No active tickets")}</span>}
+              {room.issues.length > 1 ? <button type="button" className={styles.more} aria-label={t("Show {value0} additional issues for room {value1}", { value0: room.issues.length - 1, value1: room.number })} title={room.issues.slice(1).map((issue) => issue.issue).join("\n")} onClick={() => showAdditional(room)}>+{room.issues.length - 1}{" "}{t("more")}</button> : <span />}
             </div>)}
-            {!list.length && <p className={styles.message}>No matching rooms</p>}
+            {!list.length && <p className={styles.message}>{t("No matching rooms")}</p>}
           </div>
         </section>;
       })}
@@ -108,11 +110,11 @@ export default function TicketRoomRankerPage() {
       const bounds = event.currentTarget.getBoundingClientRect();
       if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) event.currentTarget.close();
     }}>
-      <button type="button" className={styles.close} onClick={() => dialog.current?.close()}>Close</button>
-      <h2 id="additional-issues-title" className={styles.detailTitle}>Room {selected?.number}<span>{extras.length} additional issue{extras.length === 1 ? "" : "s"}</span></h2>
-      <div className={styles.detailColumns}><span>Priority</span><span>Issue</span></div>
-      {extras.map((issue) => <div key={issue.id} className={styles.detailRow}><strong>{issue.priority}</strong><a href={`/work-orders/${encodeURIComponent(issue.id)}`}>{issue.issue}</a></div>)}
-      {!extras.length && <p className={styles.message}>No additional active issues.</p>}
+      <button type="button" className={styles.close} onClick={() => dialog.current?.close()}>{t("Close")}</button>
+      <h2 id="additional-issues-title" className={styles.detailTitle}>{t("Room")}{" "}{selected?.number}<span>{t(extras.length === 1 ? "{count} additional issue" : "{count} additional issues", { count: extras.length })}</span></h2>
+      <div className={styles.detailColumns}><span>{t("Priority")}</span><span>{t("Issue")}</span></div>
+      {extras.map((issue) => <div key={issue.id} className={styles.detailRow}><strong>{t(issue.priority)}</strong><a href={`/work-orders/${encodeURIComponent(issue.id)}`}>{issue.issue}</a></div>)}
+      {!extras.length && <p className={styles.message}>{t("No additional active issues.")}</p>}
     </dialog>
   </main>;
 }

@@ -16,11 +16,11 @@ test("profile connection UI explains per-user ChatGPT OAuth and connection revoc
   assert.match(page, /Connect ChatGPT/);
   assert.match(page, /Connect with secure OAuth/);
   assert.match(page, /Each user authorizes their own CMPRI account/);
-  assert.match(page, /select <strong>OAuth<\/strong>/);
+  assert.match(page, /select"\)\}[\s\S]*?<strong>\{tx\("OAuth"\)\}<\/strong>/);
   assert.match(page, /OpenAI API credits are separate from OAuth/);
   assert.match(page, /Revoke ChatGPT access/);
   assert.match(page, /remove the CMPRI app from ChatGPT/);
-  assert.match(page, /approve <strong>read and write<\/strong> access/);
+  assert.match(page, /approve"\)\}[\s\S]*?<strong>\{tx\("read and write"\)\}<\/strong> \{tx\("access/);
   assert.match(consent, /Authorize read-only access/);
   assert.match(consent, /provider: "google"/);
   assert.match(consent, /Continue with Google/);

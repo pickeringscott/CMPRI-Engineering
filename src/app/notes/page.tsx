@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import {useEffect,useState} from 'react';
 import GeneralNotes from '@/components/GeneralNotes';
 import ModalDashboardLink from '@/components/ModalDashboardLink';
@@ -7,6 +8,7 @@ import {NotesSessionGuard,isNotesSessionRestart} from '@/lib/general-notes-sessi
 import {createClient,getValidSession} from '@/lib/supabase/client';
 import './notes.css';
 export default function GeneralNotesPage(){
+  const {t: ui} = useUiLanguage();
  const [session,setSession]=useState<CmpriClientSession|null>(null),[error,setError]=useState('Checking your CMPRI session…');
  useEffect(()=>{
   const guard=new NotesSessionGuard(async()=>{const token=await getValidSession();if(!token?.access_token)return {kind:'missing'};const options={headers:{Authorization:`Bearer ${token.access_token}`},cache:'no-store' as RequestCache};let response=await fetch('/api/session',options);if(await isNotesSessionRestart(response))response=await fetch('/api/session',options);if(await isNotesSessionRestart(response))throw Error('Session check restarted');if(response.status===401||response.status===403)return {kind:'denied'};if(!response.ok)throw Error('Session check unavailable');const authorized=await response.json() as CmpriClientSession;if(!authorized.user?.id||!authorized.hotelId)throw Error('Incomplete session');return {kind:'authorized',session:authorized}},(authorized,message)=>{setSession(authorized);setError(message)});
@@ -19,5 +21,5 @@ export default function GeneralNotesPage(){
  function finishClose(){if(window.parent!==window)window.parent.postMessage({type:'cmpri-modal-close',modalToken:new URLSearchParams(window.location.search).get('modalToken')||''},window.location.origin);else window.history.back()}
  useEffect(()=>{const ready=()=>{if(window.parent!==window)window.parent.postMessage({type:'cmpri-modal-close',modalToken:new URLSearchParams(window.location.search).get('modalToken')||''},window.location.origin);else window.history.back()};document.addEventListener('cmpri-notes-close-ready',ready);return()=>document.removeEventListener('cmpri-notes-close-ready',ready)},[]);
  function close(){if(document.dispatchEvent(new Event('cmpri-modal-cancel-request',{cancelable:true})))finishClose()}
- return <main className="general-notes-host"><header className="general-notes-page-header" data-cmpri-page-heading><h1>Notes</h1><div className="flex items-center gap-2"><ModalDashboardLink className="text-xs"/><button type="button" data-cmpri-modal-close="true" aria-label="Close Notes" onClick={close}>×</button></div></header>{session&&error&&<p className="general-notes-session-notice" role="alert">{error}</p>}{session?<GeneralNotes key={session.hotelId+':'+session.user.id} scope={{hotelId:session.hotelId,userId:session.user.id}}/>:<p className="general-notes-auth" role="status">{error}</p>}</main>;
+ return <main className="general-notes-host"><header className="general-notes-page-header" data-cmpri-page-heading><h1>{ui("Notes")}</h1><div className="flex items-center gap-2"><ModalDashboardLink className="text-xs"/><button type="button" data-cmpri-modal-close="true" aria-label={ui("Close Notes")} onClick={close}>×</button></div></header>{session&&error&&<p className="general-notes-session-notice" role="alert">{ui(error)}</p>}{session?<GeneralNotes key={session.hotelId+':'+session.user.id} scope={{hotelId:session.hotelId,userId:session.user.id}}/>:<p className="general-notes-auth" role="status">{ui(error)}</p>}</main>;
 }

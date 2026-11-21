@@ -47,7 +47,7 @@ test('one-click approval saves pending edits and changes status to Open in the s
   assert.equal(f.calls.status[0],'Open');
 });
 test('Approve triggers the save operation directly without a second button action',()=>{
-  assert.match(source,/<button type="button" onClick=\{\(\) => \{ void saveTicket\("Open"\); \}\}[^>]*>Approve/);
+  assert.match(source,/<button type="button" onClick=\{\(\) => \{ void saveTicket\("Open"\); \}\}[^>]*>\{t\("Approve → Open"\)\}/);
 });
 
 

@@ -1,4 +1,6 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+
 
 import { useLayoutEffect, useRef } from "react";
 
@@ -22,6 +24,7 @@ export default function WorkOrderFilters({ filter, searching, loading, countFor,
   countFor: (key: WorkOrderListFilter) => number;
   onChange: (key: WorkOrderListFilter) => void;
 }) {
+  const { t, tt, locale } = useUiLanguage();
   const gridRef = useRef<HTMLDivElement>(null);
   const countSignature = CARDS.map(card => countFor(card.key)).join(",");
 
@@ -88,20 +91,20 @@ export default function WorkOrderFilters({ filter, searching, loading, countFor,
       observer.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [countSignature, loading]);
+  }, [countSignature, loading, locale]);
 
-  return <div ref={gridRef} id="work-order-kpi-filters" role="group" aria-label="Work order filters" className="grid shrink-0">
+  return <div ref={gridRef} id="work-order-kpi-filters" role="group" aria-label={t("Work order filters")} className="grid shrink-0">
     {CARDS.map(card => <button
       key={card.key}
       data-preview-kpi={card.key}
       type="button"
-      title={card.label}
-      aria-label={`${card.label}: ${loading ? "loading" : countFor(card.key)}`}
+      title={tt(card.label)}
+      aria-label={t("{value0}: {value1}", { value0: String(t(card.label)), value1: String(loading ? t("loading") : countFor(card.key)) })}
       aria-pressed={!searching && filter === card.key}
       onClick={() => onChange(card.key)}
       className="work-order-filter-button rounded border font-semibold uppercase"
     >
-      <span className="work-order-filter-label"><span className="filter-label-full">{card.label}</span><span className="filter-label-short">{card.compactLabel}</span></span>
+      <span className="work-order-filter-label"><span className="filter-label-full">{t(card.label)}</span><span className="filter-label-short">{t(card.compactLabel)}</span></span>
       <span className="work-order-filter-count font-bold">{loading ? "—" : countFor(card.key)}</span>
     </button>)}
   </div>;

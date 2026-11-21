@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
@@ -8,10 +9,12 @@ import SearchableSelect from "@/components/SearchableSelect";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
+import { uniqueUserRoleChoices, userRoleChoice } from "@/lib/ui/user-role-options";
 
 type UserRow = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[]; active: boolean | null; can_manage: boolean; last_sign_in_at?: string | null; waiting_for_verification?: boolean | null };
 
 export default function UserManagementPage() {
+  const {t: ui, tt: tip, locale} = useUiLanguage();
   const onlineUsers = useOnlineUsers();
   const embedded = useEmbeddedModal();
   const router = useRouter();
@@ -32,7 +35,8 @@ export default function UserManagementPage() {
   const [password, setPassword] = useState("");
   const [setPasswordMode, setSetPasswordMode] = useState(false);
   const [busy, setBusy] = useState(false);
-  const roleOptions = roles.map((value) => ({ value, label: value }));
+  const roleChoices = uniqueUserRoleChoices(roles);
+  const roleOptions = roleChoices.map((value) => ({ value, label: ui(roleDisplayName(value)) }));
 
   const authHeaders = useCallback(async () => {
     const session = await getValidSession();
@@ -117,61 +121,60 @@ export default function UserManagementPage() {
       <div className="mx-auto w-full px-4 py-8 sm:px-6">
         {!embedded && <div className="mt-4 flex items-end justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">Management</p>
-            <h1 className="mt-2 text-3xl font-bold">User Management</h1>
-            <p className="mt-2 text-sm text-slate-400">Invite users, assign roles, or deactivate access. Deactivated accounts retain their CMPRI history.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-400">{ui("Management")}</p>
+            <h1 className="mt-2 text-3xl font-bold">{ui("User Management")}</h1>
+            <p className="mt-2 text-sm text-slate-400">{ui("Invite users, assign roles, or deactivate access. Deactivated accounts retain their CMPRI history.")}</p>
           </div>
-          <div className="flex items-center gap-3"><span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold">{users.filter((u) => u.active === true).length} active</span><ModalDashboardLink className="text-sm font-semibold text-amber-400">← Dashboard</ModalDashboardLink></div>
+          <div className="flex items-center gap-3"><span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold">{ui("Active users: {count}", {count: users.filter((u) => u.active === true).length})}</span><ModalDashboardLink className="text-sm font-semibold text-amber-400">{ui("← Dashboard")}</ModalDashboardLink></div>
         </div>}
         {embedded && <div className="mb-4 flex items-center justify-end gap-3">
-          <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold">{users.filter((u) => u.active === true).length} active</span>
-          <ModalDashboardLink className="text-sm font-semibold text-amber-400">← Dashboard</ModalDashboardLink>
+          <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold">{ui("Active users: {count}", {count: users.filter((u) => u.active === true).length})}</span>
+          <ModalDashboardLink className="text-sm font-semibold text-amber-400">{ui("← Dashboard")}</ModalDashboardLink>
         </div>}
-        {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{message}</div>}
+        {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{ui(message)}</div>}
         {roles.length > 0 && (
           <form onSubmit={addUser} className="mt-6 grid gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 sm:grid-cols-2">
-            <input required disabled={busy} maxLength={200} aria-label="Full name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" className="min-h-11 min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3" />
-            <input required disabled={busy} maxLength={254} type="email" aria-label="Email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="min-h-11 min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3" />
-            <SearchableSelect value={role} onChange={setRole} options={roleOptions} placeholder="Role for new user" disabled={busy} required />
+            <input required disabled={busy} maxLength={200} aria-label={ui("Full name")} value={name} onChange={(e) => setName(e.target.value)} placeholder={ui("Full name")} className="min-h-11 min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3" />
+            <input required disabled={busy} maxLength={254} type="email" aria-label={ui("Email")} value={email} onChange={(e) => setEmail(e.target.value)} placeholder={ui("Email")} className="min-h-11 min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3" />
+            <SearchableSelect value={role} onChange={setRole} options={roleOptions} placeholder={ui("Role for new user")} disabled={busy} required />
             <label className="flex items-center gap-2 self-center text-sm text-slate-300">
-              <input type="checkbox" disabled={busy} checked={setPasswordMode} onChange={(e) => setSetPasswordMode(e.target.checked)} className="h-4 w-4" />
-              Set temporary password instead of sending an invite email
-            </label>
+              <input type="checkbox" disabled={busy} checked={setPasswordMode} onChange={(e) => setSetPasswordMode(e.target.checked)} className="h-4 w-4" />{ui("Set temporary password instead of sending an invite email")}</label>
             {setPasswordMode && (
-              <input required disabled={busy} minLength={10} maxLength={128} type="password" autoComplete="new-password" aria-label="Temporary password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Temporary password (10+ characters)" className="min-h-11 min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 sm:col-span-2" />
+              <input required disabled={busy} minLength={10} maxLength={128} type="password" autoComplete="new-password" aria-label={ui("Temporary password")} value={password} onChange={(e) => setPassword(e.target.value)} placeholder={ui("Temporary password (10+ characters)")} className="min-h-11 min-w-0 rounded-lg border border-slate-700 bg-slate-950 px-3 sm:col-span-2" />
             )}
-            <button disabled={busy || !roles.includes(role)} className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-slate-950 disabled:opacity-50 sm:col-span-2">{busy ? "Saving…" : setPasswordMode ? "Create User With Password" : "Invite User"}</button>
+            <button disabled={busy || !roles.includes(role)} className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-slate-950 disabled:opacity-50 sm:col-span-2">{busy ? ui("Saving…") : setPasswordMode ? ui("Create User With Password") : ui("Invite User")}</button>
           </form>
         )}
         <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900">
-          <div className="border-b border-slate-800 px-5 py-4"><h2 className="text-xl font-bold">Users</h2></div>
-          {loading ? <p className="p-5 text-slate-400">Loading…</p> : users.map((user) => (
-            <div key={user.id} className="grid gap-3 border-b border-slate-800 px-5 py-4 md:grid-cols-[1fr_220px_150px] md:items-center">
+          <div className="border-b border-slate-800 px-5 py-4"><h2 className="text-xl font-bold">{ui("Users")}</h2></div>
+          {loading ? <p className="p-5 text-slate-400">{ui("Loading…")}</p> : users.map((user) => {
+            const selectedRole = userRoleChoice(user.role, roleChoices);
+            return <div key={user.id} className="grid gap-3 border-b border-slate-800 px-5 py-4 md:grid-cols-[1fr_220px_150px] md:items-center">
               <div className="min-w-0">
-                <p className="break-words font-semibold">{user.full_name || "Unnamed user"}</p>
-                {user.can_manage && <p className="text-xs text-sky-200">{accountRoleDisplayName(user)}</p>}
-                <p className="mt-1 break-all text-sm text-slate-300">{user.email || "No email on file"}</p>
+                <p className="break-words font-semibold">{user.full_name || ui("Unnamed user")}</p>
+                {user.can_manage && <p className="text-xs text-sky-200">{accountRoleDisplayName(user).split(" + ").map(label => ui(label)).join(" + ")}</p>}
+                <p className="mt-1 break-all text-sm text-slate-300">{user.email || ui("No email on file")}</p>
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
-                  <span>{user.active === true ? "Active" : "Deactivated"} · {user.waiting_for_verification === true ? "Waiting for verification" : user.last_sign_in_at ? `Last sign-in: ${new Date(user.last_sign_in_at).toLocaleString()}` : user.waiting_for_verification === false ? "Never signed in" : "Sign-in unavailable"}</span>
-                  {user.active === true && onlineUsers.has(presenceKeys[user.id]) && <span role="img" aria-label="Currently online" title="Currently online" className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-500" />}
+                  <span>{user.active === true ? ui("Active") : ui("Deactivated")} · {user.waiting_for_verification === true ? ui("Waiting for verification") : user.last_sign_in_at ? ui("Last sign-in: {value0}",{value0:String(new Date(user.last_sign_in_at).toLocaleString(locale))}) : user.waiting_for_verification === false ? ui("Never signed in") : ui("Sign-in unavailable")}</span>
+                  {user.active === true && onlineUsers.has(presenceKeys[user.id]) && <span role="img" aria-label={ui("Currently online")} title={tip("Currently online")} className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-500" />}
                 </p>
               </div>
               {user.can_manage ? (
                 <div className="min-w-0">
-                  <span className="text-xs text-slate-500">Authorization role</span>
-                  <SearchableSelect value={user.role || ""} onChange={(value) => void updateUser(user, { role: value })} options={roles.includes(user.role || "") ? roleOptions : [{ value: user.role || "", label: roleDisplayName(user.role || "Unassigned") }, ...roleOptions]} placeholder={`Role for ${user.full_name || "user"}`} disabled={busy} />
-                  {Boolean(user.secondary_roles?.length) && <p className="mt-1 text-xs text-slate-500">{roleDisplayName(user.secondary_roles || [])}</p>}
+                  <span className="text-xs text-slate-500">{ui("Authorization role")}</span>
+                  <SearchableSelect value={selectedRole} onChange={(value) => { if (roleChoices.includes(value) && value !== selectedRole) void updateUser(user, { role: value }); }} options={roleChoices.includes(selectedRole) ? roleOptions : [{ value: selectedRole, label: ui(roleDisplayName(user.role || "Unassigned")) }, ...roleOptions]} placeholder={ui("Role for {value0}",{value0:String(user.full_name || "user")})} disabled={busy} />
+                  {Boolean(user.secondary_roles?.length) && <p className="mt-1 text-xs text-slate-500">{roleDisplayName(user.secondary_roles || []).split(" + ").map(label => ui(label)).join(" + ")}</p>}
                 </div>
               ) : (
-                <p className="text-sm text-slate-400">{accountRoleDisplayName(user)}</p>
+                <p className="text-sm text-slate-400">{accountRoleDisplayName(user).split(" + ").map(label => ui(label)).join(" + ")}</p>
               )}
               {user.can_manage ? (
-                <button disabled={busy} onClick={() => void updateUser(user, { active: user.active !== true })} className={`rounded-lg border px-3 py-2 text-sm font-bold disabled:opacity-50 ${user.active !== true ? "border-emerald-500/50 text-emerald-200" : "border-red-500/50 text-red-200"}`}>{user.active !== true ? "Reactivate" : "Deactivate"}</button>
+                <button disabled={busy} onClick={() => void updateUser(user, { active: user.active !== true })} className={`rounded-lg border px-3 py-2 text-sm font-bold disabled:opacity-50 ${user.active !== true ? "border-emerald-500/50 text-emerald-200" : "border-red-500/50 text-red-200"}`}>{user.active !== true ? ui("Reactivate") : ui("Deactivate")}</button>
               ) : (
-                <span className="text-xs text-slate-500">View only</span>
+                <span className="text-xs text-slate-500">{ui("View only")}</span>
               )}
-            </div>
-          ))}
+            </div>;
+          })}
         </section>
       </div>
 

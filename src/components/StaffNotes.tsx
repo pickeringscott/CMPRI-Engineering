@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useId, type FormEvent } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { createClient } from "@/lib/supabase/client";
@@ -19,6 +20,7 @@ type Note = { author_user_id?:string;author_name_id?:string|null;mentions?:Staff
 type Payload = { notes: Note[]; parents: Note[]; mentions: StaffMention[]; management: boolean; frontDesk: boolean; hotelId: string; userId?:string;
   targets?:Record<string,{href:string;preview:string}>;tickets: Record<string, { href: string; preview: string }>; next: string | null };
 export default function StaffNotes({ compact: forcedCompact }: { compact?: boolean }) {
+  const {t: ui, tt: tip, locale} = useUiLanguage();
   const [data, setData] = useState<Payload | null>(null);
   const compact = forcedCompact === true;
   const [body, setBody] = useState("");
@@ -253,13 +255,13 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
     output.push(note.body.slice(at)); return output;
   }
   const composer = <form onSubmit={post} className="shrink-0 py-1">
-    {reply && <div className="flex items-center gap-2 text-xs text-slate-400"><button type="button" onClick={() => jump(reply.id)} title={reply.body}>Replying to {reply.author_name}</button><button type="button" aria-label="Cancel reply" onClick={() => setReply(null)}>×</button></div>}
+    {reply && <div className="flex items-center gap-2 text-xs text-slate-400"><button type="button" onClick={() => jump(reply.id)} title={reply.body}>{ui("Replying to ")}{reply.author_name}</button><button type="button" aria-label={ui("Cancel reply")} onClick={() => setReply(null)}>×</button></div>}
     <div className="flex items-start gap-1">
-      <div role="combobox" aria-controls={suggestionsId} aria-label="Staff Notes mention targets" aria-haspopup="listbox" aria-expanded={showSuggestions} className="staff-compose-shell relative min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 focus-within:border-sky-400">
-        {nameMode&&<div className="staff-name-entry"><input ref={nameInput} aria-label="Your actual name" placeholder="Your name" autoComplete="given-name" autoCapitalize="words" maxLength={80} required disabled={pending} value={nameDraft} onChange={e=>setNameDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing){e.preventDefault();void confirmName()}}}/><button type="button" disabled={pending||!nameDraft.trim()} onClick={()=>void confirmName()}>Confirm</button></div>}
-        {data?.frontDesk&&!nameMode&&<div className="staff-confirmed-identity"><span>{staffName}</span><span aria-hidden="true">·</span><span>Front Desk</span><button type="button" aria-label="Change name" disabled={pending} onClick={()=>{setStaffName('');setStaffNameId('');setNameDraft('');try{sessionStorage.removeItem(`cmpri:staff-name:v2:${data.hotelId}:${data.userId}`)}catch{}}}>Change</button></div>}
+      <div role="combobox" aria-controls={suggestionsId} aria-label={ui("Staff Notes mention targets")} aria-haspopup="listbox" aria-expanded={showSuggestions} className="staff-compose-shell relative min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-950 focus-within:border-sky-400">
+        {nameMode&&<div className="staff-name-entry"><input ref={nameInput} aria-label={ui("Your actual name")} placeholder={ui("Your name")} autoComplete="given-name" autoCapitalize="words" maxLength={80} required disabled={pending} value={nameDraft} onChange={e=>setNameDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.nativeEvent.isComposing){e.preventDefault();void confirmName()}}}/><button type="button" disabled={pending||!nameDraft.trim()} onClick={()=>void confirmName()}>{ui("Confirm")}</button></div>}
+        {data?.frontDesk&&!nameMode&&<div className="staff-confirmed-identity"><span>{staffName}</span><span aria-hidden="true">·</span><span>{ui("Front Desk")}</span><button type="button" aria-label={ui("Change name")} disabled={pending} onClick={()=>{setStaffName('');setStaffNameId('');setNameDraft('');try{sessionStorage.removeItem(`cmpri:staff-name:v2:${data.hotelId}:${data.userId}`)}catch{}}}>{ui("Change")}</button></div>}
         <div className="relative">
-        <textarea ref={input} aria-autocomplete="both" aria-controls={showSuggestions?suggestionsId:undefined} aria-activedescendant={showSuggestions?suggestionsId+'-'+(activeSuggestion%options.length):undefined} aria-label="Write a comment" placeholder={nameMode?"Confirm your name to comment…":"Write a comment… @mention"} value={body} maxLength={4000} rows={1} disabled={pending||!data||nameMode}
+        <textarea ref={input} aria-autocomplete="both" aria-controls={showSuggestions?suggestionsId:undefined} aria-activedescendant={showSuggestions?suggestionsId+'-'+(activeSuggestion%options.length):undefined} aria-label={ui("Write a comment")} placeholder={nameMode?ui("Confirm your name to comment…"):ui("Write a comment… @mention")} value={body} maxLength={4000} rows={1} disabled={pending||!data||nameMode}
           onChange={e => { changeBody(e.target.value);setCaret(e.target.selectionStart); }} onSelect={e => {setCaret(e.currentTarget.selectionStart);}}
           onPaste={e=>{if(e.clipboardData.files.length){e.preventDefault();chooseFiles(Array.from(e.clipboardData.files))}}}
           onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();chooseFiles(Array.from(e.dataTransfer.files))}}
@@ -271,37 +273,37 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
           className="block h-6 min-h-6 w-full resize-none overflow-y-auto rounded-lg border border-slate-700 bg-slate-950 px-2 py-0.5 text-sm leading-tight text-transparent caret-white placeholder:text-slate-400 outline-none focus:border-sky-400" />
         <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg border border-transparent">
           <div ref={mirror} className="box-border whitespace-pre-wrap break-words px-2 py-0.5 text-sm leading-tight text-white">
-            {completion ? <>{highlightedDraft(0, caret)}<span className="relative"><button type="button" tabIndex={-1} aria-label={`Complete @${completion.mention.label}`} onPointerDown={e => e.preventDefault()} onClick={()=>acceptMention(completion?.mention)} className="pointer-events-auto absolute left-0 top-0 z-10 whitespace-nowrap bg-slate-950 text-slate-500">{completion.suffix}</button></span>{highlightedDraft(caret, body.length)}</> : highlightedDraft(0, body.length)}{"\u200b"}
+            {completion ? <>{highlightedDraft(0, caret)}<span className="relative"><button type="button" tabIndex={-1} aria-label={ui("Complete @{value0}",{value0:String(completion.mention.label)})} onPointerDown={e => e.preventDefault()} onClick={()=>acceptMention(completion?.mention)} className="pointer-events-auto absolute left-0 top-0 z-10 whitespace-nowrap bg-slate-950 text-slate-500">{completion.suffix}</button></span>{highlightedDraft(caret, body.length)}</> : highlightedDraft(0, body.length)}{"\u200b"}
           </div>
         </div>
         </div>
-        <div hidden={!showSuggestions} id={suggestionsId} role="listbox" aria-label="Mention targets" className="staff-mention-options">{options.map((target,index)=><button key={staffTargetKey(target)} id={suggestionsId+'-'+index} type="button" role="option" aria-selected={index===activeSuggestion%options.length} aria-label={`Mention ${target.description&&(target.kind==='person'||target.kind==='front_desk_name')?target.description:target.label} (${staffTargetType(target.kind)})`} onPointerDown={e=>e.preventDefault()} onClick={()=>acceptMention(target)}><span>{target.label}{target.description&&target.description!==target.label?' · '+target.description:''}</span><small>{staffTargetType(target.kind)}</small></button>)}</div>
+        <div hidden={!showSuggestions} id={suggestionsId} role="listbox" aria-label={ui("Mention targets")} className="staff-mention-options">{options.map((target,index)=><button key={staffTargetKey(target)} id={suggestionsId+'-'+index} type="button" role="option" aria-selected={index===activeSuggestion%options.length} aria-label={ui("Mention {value0} ({value1})",{value0:String(target.description&&(target.kind==='person'||target.kind==='front_desk_name')?target.description:target.label),value1:String(staffTargetType(target.kind))})} onPointerDown={e=>e.preventDefault()} onClick={()=>acceptMention(target)}><span>{target.kind === "role" ? ui(target.label) : target.label}{target.description&&target.description!==target.label?' · '+target.description:''}</span><small>{ui(staffTargetType(target.kind))}</small></button>)}</div>
       </div>
-      <StaffNotesMedia disabled={pending||nameMode||!data} onFiles={chooseFiles} onGif={chooseGif} postButton={<button type="submit" disabled={!data||pending||nameMode||(!body.trim()&&!files.length&&!gifIds.length)} className="font-bold">{pending?"…":"Post"}</button>}/>
+      <StaffNotesMedia disabled={pending||nameMode||!data} onFiles={chooseFiles} onGif={chooseGif} postButton={<button type="submit" disabled={!data||pending||nameMode||(!body.trim()&&!files.length&&!gifIds.length)} className="font-bold">{pending?"…":ui("Post")}</button>}/>
     </div>
     {files.length+gifIds.length>0&&<StaffNoteAttachments files={files} gifIds={gifIds} gifs={gifs} onRemove={pending?undefined:removeAttachment}/>}
-    {error && <p role="alert" className="mt-1 text-xs text-red-300">{error} <button type="button" onClick={() => void load()} className="underline">Reload</button></p>}
+    {error && <p role="alert" className="mt-1 text-xs text-red-300">{ui(error)} <button type="button" onClick={() => void load()} className="underline">{ui("Reload")}</button></p>}
   </form>;
   const ordered = [...(data?.notes || [])].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
   if (compact) ordered.reverse();
   const all = new Map([...(data?.parents || []), ...ordered].map(n => [n.id, n]));
-  return <section aria-label="Staff Notes" className={"cmpri-staff-notes "+(compact ? "mt-3 min-w-0" : "flex min-h-0 flex-1 flex-col")}>
-    {compact && <h2 className="font-bold text-amber-400">Staff Notes</h2>}
+  return <section aria-label={ui("Staff Notes")} className={"cmpri-staff-notes "+(compact ? "mt-3 min-w-0" : "flex min-h-0 flex-1 flex-col")}>
+    {compact && <h2 className="font-bold text-amber-400">{ui("Staff Notes")}</h2>}
     {compact && composer}
-    {connection && <p role="status" className="text-xs text-slate-500">{connection}</p>}
-    {!compact && data?.next && <button type="button" className="text-xs text-sky-300" onClick={() => void load(data.next!)}>Older comments</button>}
+    {connection && <p role="status" className="text-xs text-slate-500">{ui(connection)}</p>}
+    {!compact && data?.next && <button type="button" className="text-xs text-sky-300" onClick={() => void load(data.next!)}>{ui("Older comments")}</button>}
     <div ref={list} className={`${compact ? "" : "min-h-0 flex-1"} overflow-y-auto overscroll-auto`} onScroll={e => { nearBottom.current = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 60; }}>
       {ordered.map(note => { const parent = note.parent_id ? all.get(note.parent_id) : null; const date = new Date(note.created_at);
         return <div data-reply={Boolean(parent)} key={note.id} id={`note-${note.id}`} data-staff-note className="flex items-start gap-1 border-b border-slate-800 px-2 py-0.5 text-xs leading-tight">
-          <button type="button" aria-label={note.author_name} className="staff-note-author shrink-0 font-semibold" title={'Insert @'+note.author_name} onClick={()=>{if(nameMode)return;const target=staffAuthorMention(note,data?.mentions||[]);if(!target)return;const start=input.current?.selectionStart??body.length,end=input.current?.selectionEnd??start,inserted=insertStaffMention(body,{start,end},target,selected);setBody(inserted.value);setSelected(inserted.mentions);setCaret(inserted.caret);requestAnimationFrame(()=>{input.current?.focus();input.current?.setSelectionRange(inserted.caret,inserted.caret)})}}><span className="staff-author-name">{note.author_name}</span>{note.author_name_id&&<span className="staff-front-desk-badge">Front Desk</span>}</button>
-          <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-slate-300">{parent && <button type="button" onClick={() => jump(parent.id)} title={`${parent.author_name}: ${parent.body}`} className="mr-1 text-slate-500 hover:text-sky-300">↪ {parent.author_name}</button>}{content(note)}<StaffNoteAttachments files={note.attachments||[]} gifIds={note.gif_ids||[]} gifs={gifs} onRetry={()=>{void load();void restoreGIFs(note.gif_ids||[])}}/></div>
-          <time dateTime={note.created_at} title={date.toLocaleString()} className="shrink-0 text-slate-500">{date.toLocaleDateString(undefined, { month: "2-digit", day: "2-digit" })} <small>{date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</small></time>
-          <button type="button" aria-label={`Reply to ${note.author_name}`} title="Reply" className="shrink-0 px-1 text-slate-500 hover:text-sky-300" onClick={() => { setReply(note); input.current?.focus(); }}>↪</button>
+          <button type="button" aria-label={note.author_name} className="staff-note-author shrink-0 font-semibold" title={'Insert @'+note.author_name} onClick={()=>{if(nameMode)return;const target=staffAuthorMention(note,data?.mentions||[]);if(!target)return;const start=input.current?.selectionStart??body.length,end=input.current?.selectionEnd??start,inserted=insertStaffMention(body,{start,end},target,selected);setBody(inserted.value);setSelected(inserted.mentions);setCaret(inserted.caret);requestAnimationFrame(()=>{input.current?.focus();input.current?.setSelectionRange(inserted.caret,inserted.caret)})}}><span className="staff-author-name">{note.author_name}</span>{note.author_name_id&&<span className="staff-front-desk-badge">{ui("Front Desk")}</span>}</button>
+          <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-slate-300">{parent && <button type="button" onClick={() => jump(parent.id)} title={ui("{value0}: {value1}",{value0:String(parent.author_name),value1:String(parent.body)})} className="mr-1 text-slate-500 hover:text-sky-300">↪ {parent.author_name}</button>}{content(note)}<StaffNoteAttachments files={note.attachments||[]} gifIds={note.gif_ids||[]} gifs={gifs} onRetry={()=>{void load();void restoreGIFs(note.gif_ids||[])}}/></div>
+          <time dateTime={note.created_at} title={date.toLocaleString(locale)} className="shrink-0 text-slate-500">{date.toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })} <small>{date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" })}</small></time>
+          <button type="button" aria-label={ui("Reply to {value0}",{value0:String(note.author_name)})} title={tip("Reply")} className="shrink-0 px-1 text-slate-500 hover:text-sky-300" onClick={() => { setReply(note); input.current?.focus(); }}>↪</button>
         </div>;
       })}
-      {data && !ordered.length && <p className="py-2 text-xs text-slate-500">No staff notes yet.</p>}
+      {data && !ordered.length && <p className="py-2 text-xs text-slate-500">{ui("No staff notes yet.")}</p>}
     </div>
-    {compact && data?.next && <button type="button" className="text-xs text-sky-300" onClick={() => void load(data.next!)}>Older comments</button>}
+    {compact && data?.next && <button type="button" className="text-xs text-sky-300" onClick={() => void load(data.next!)}>{ui("Older comments")}</button>}
     {!compact && composer}
   </section>;
 }

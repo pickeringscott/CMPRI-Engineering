@@ -1,10 +1,12 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient, getValidSession } from "@/lib/supabase/client";
 
 type Application = { id: string; created_at: string; name?: string; email?: string; department?: string; resumeName?: string | null; answers?: Record<string, unknown> };
 const departmentName = (department: unknown) => department === "front" ? "Front Desk" : "Maintenance";
 export default function EmploymentReview() {
+  const {t: ui, tt: tip, locale} = useUiLanguage();
   const [list, setList] = useState<Application[]>([]);
   const [selected, setSelected] = useState<Application | null>(null);
   const [message, setMessage] = useState("Loading private questionnaires…");
@@ -67,10 +69,10 @@ export default function EmploymentReview() {
   }
   const labels: Record<string, string> = { department: "Department", name: "Full name", email: "Email address", phone: "Phone number", history: "Relevant work history / training", example: selected?.answers?.department === 'front' ? "Guest-service example" : "Repair example", workingDays: "Available working days", skills: "Tasks you have done", interview: "Interview days" };
   return <main style={{ maxWidth: 850, margin: "auto", padding: 12, color: "var(--cmpri-modal-text,#f4f6fa)", background: "var(--cmpri-modal-surface,#202020)", minHeight: "100vh" }}>
-    <div data-cmpri-page-heading><h1 style={{ fontSize: 22, margin: "0 0 8px" }}>Candidate questionnaires</h1><p style={{ fontSize: 12, margin: "0 0 8px" }}>Private work-account review. Human review only.</p></div>
-    <button onClick={() => void load()} className="rounded border px-3 py-1">{selected ? "Back to questionnaires" : "Refresh"}</button>
-    <p role="status">{message}</p>
-    {selected?.resumeName && <div className="my-3"><button onClick={() => void openResume()}>View original PDF: {selected.resumeName}</button>{resumeUrl && <div><button onClick={clearResume}>Close PDF</button><iframe title="Original résumé PDF" src={resumeUrl} style={{ width: '100%', height: '75vh' }} /></div>}</div>}
-    {selected ? <dl>{Object.entries(selected.answers || {}).map(([key, value]) => <div key={key} style={{ padding: "5px 0", borderBottom: "1px solid var(--cmpri-outline,#555)" }}><dt style={{ fontSize: 12, color: "var(--cmpri-modal-muted,#a3a3a3)" }}>{labels[key] || key}</dt><dd style={{ margin: "2px 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{key === 'department' ? departmentName(value) : display(value)}</dd></div>)}</dl> : <div>{!message && list.length === 0 && <p>No questionnaires yet.</p>}{list.map(item => <button key={item.id} onClick={() => void load(item.id)} style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 4px", borderBottom: "1px solid var(--cmpri-outline,#555)", overflowWrap: "anywhere" }}><small>{departmentName(item.department)}</small><br /><strong>{item.name}</strong> · {item.email}<br /><small>{new Date(item.created_at).toLocaleString()}</small></button>)}</div>}
+    <div data-cmpri-page-heading><h1 style={{ fontSize: 22, margin: "0 0 8px" }}>{ui("Candidate questionnaires")}</h1><p style={{ fontSize: 12, margin: "0 0 8px" }}>{ui("Private work-account review. Human review only.")}</p></div>
+    <button onClick={() => void load()} className="rounded border px-3 py-1">{selected ? ui("Back to questionnaires") : ui("Refresh")}</button>
+    <p role="status">{ui(message)}</p>
+    {selected?.resumeName && <div className="my-3"><button onClick={() => void openResume()}>{ui("View original PDF: ")}{selected.resumeName}</button>{resumeUrl && <div><button onClick={clearResume}>{ui("Close PDF")}</button><iframe title={tip("Original résumé PDF")} src={resumeUrl} style={{ width: '100%', height: '75vh' }} /></div>}</div>}
+    {selected ? <dl>{Object.entries(selected.answers || {}).map(([key, value]) => <div key={key} style={{ padding: "5px 0", borderBottom: "1px solid var(--cmpri-outline,#555)" }}><dt style={{ fontSize: 12, color: "var(--cmpri-modal-muted,#a3a3a3)" }}>{ui(labels[key] || key)}</dt><dd style={{ margin: "2px 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{key === 'department' ? ui(departmentName(value)) : display(value)}</dd></div>)}</dl> : <div>{!message && list.length === 0 && <p>{ui("No questionnaires yet.")}</p>}{list.map(item => <button key={item.id} onClick={() => void load(item.id)} style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 4px", borderBottom: "1px solid var(--cmpri-outline,#555)", overflowWrap: "anywhere" }}><small>{ui(departmentName(item.department))}</small><br /><strong>{item.name}</strong> · {item.email}<br /><small>{new Date(item.created_at).toLocaleString(locale)}</small></button>)}</div>}
   </main>;
 }

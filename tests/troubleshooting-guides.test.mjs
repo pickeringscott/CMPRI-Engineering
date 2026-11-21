@@ -64,21 +64,21 @@ test("work-order technical guidance never falls back to generic checks", () => {
 });
 
 test("creation guidance keeps its single source link above steps without Copy or page links", () => {
-  const start = workOrderForm.indexOf('aria-label="Troubleshooting Guide"');
+  const start = workOrderForm.indexOf('aria-label={tx("Troubleshooting Guide")}');
   const end = workOrderForm.indexOf('</section>', start);
   assert.ok(start >= 0 && end > start);
   const guide = workOrderForm.slice(start, end);
-  assert.equal((guide.match(/>Source:/g) || []).length, 1);
-  assert.ok(guide.indexOf('>Source:') < guide.indexOf('troubleshootingSteps.map'));
+  assert.equal((guide.match(/\{tx\("Source:"\)\}/g) || []).length, 1);
+  assert.ok(guide.indexOf('{tx("Source:")}') < guide.indexOf('troubleshootingSteps.map'));
   assert.doesNotMatch(guide, /CopyButton|#page=|Manual p\.|Open Manual|Clear check/);
 });
 
 test("native guide dropdown opens exactly the three local PDF exports", () => {
-  assert.match(component, /<select[\s\S]*aria-label="Front Desk Quick Guides"/);
+  assert.match(component, /<select[\s\S]*aria-label=\{t\("Front Desk Quick Guides"\)\}/);
   assert.doesNotMatch(component, /window.open/);
   assert.match(component, /dialogRef.current.showModal\(\)/);
   assert.doesNotMatch(component, /Back to guides/); // One dismiss control in the viewer header.
-  assert.match(component, /aria-label="Close guide"/);
+  assert.match(component, /aria-label=\{t\("Close guide"\)\}/);
   assert.doesNotMatch(component, /aria-haspopup="menu"/);
   for (const slug of ["enseo", "dormakaba", "guest-room"]) {
     assert.ok(component.includes(`/guides/${slug}.pdf`));

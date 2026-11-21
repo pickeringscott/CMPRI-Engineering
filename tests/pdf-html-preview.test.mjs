@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -17,7 +18,7 @@ function fixture(){
  const exports={};
  vm.runInNewContext(code,{exports,AbortController,Uint8Array,URL,Error,ResizeObserver:observer,IntersectionObserver:observer,window,
   fetch:(url,options)=>new Promise(resolve=>pending.push({url,options,resolve})),
-  require(name){
+  require(name){if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;
    if(['react','react/jsx-runtime'].includes(name))return require(name);
    if(name==='./PdfArtworkZoom')return {default:()=>null};
    if(name==='./PdfHtmlPreview.module.css')return {default:{page:'page',viewport:'viewport',textLayer:'textLayer'}};

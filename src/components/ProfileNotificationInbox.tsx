@@ -1,4 +1,7 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { translateNotificationMessage } from "@/lib/i18n/notification-text";
+
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -9,6 +12,7 @@ import { fetchDashboardInbox, markServerDashboardNotificationsRead, unreadWorkOr
 
 /** Roles landing on submission/profile pages retain the same personal inbox. */
 export default function ProfileNotificationInbox() {
+  const { t, tt } = useUiLanguage();
   const path = usePathname();
   const ownedByDashboard = ["/engineering", "/front-desk", "/technician"].includes(path);
   // Ticket and notebook views use the dashboard inbox; floating controls obscure editing.
@@ -41,12 +45,12 @@ export default function ProfileNotificationInbox() {
       setItems(current => current.map(row => row.id === item.id ? { ...row, is_read: true } : row));
     } catch { setError("The notification could not be marked read."); }
   }
-  return <aside className="fixed bottom-3 left-3 z-[90] rounded-lg border border-slate-700 bg-slate-950 p-2 text-white" aria-label="Your notifications">
-    <DashboardNotificationBell count={count} label={`${count} unread notifications`} title="Your notifications" onClick={() => setOpen(value => !value)} />
+  return <aside className="fixed bottom-3 left-3 z-[90] rounded-lg border border-slate-700 bg-slate-950 p-2 text-white" aria-label={t("Your notifications")}>
+    <DashboardNotificationBell count={count} label={t("{count} unread notifications", { count })} title={tt("Your notifications")} onClick={() => setOpen(value => !value)} />
     {open && <div className="max-h-64 w-80 max-w-[calc(100vw-3rem)] overflow-y-auto text-sm">
-      {!items.length && <p>No notifications.</p>}
-      {items.map(item => <p key={item.id} className="border-t border-slate-700 py-2"><Link href={item.target_path || `/work-orders/${encodeURIComponent(item.work_order_id || "")}`} onClick={() => void markRead(item)}>{item.message}</Link></p>)}
-      {error && <p role="alert">{error}</p>}
+      {!items.length && <p>{t("No notifications.")}</p>}
+      {items.map(item => <p key={item.id} className="border-t border-slate-700 py-2"><Link href={item.target_path || `/work-orders/${encodeURIComponent(item.work_order_id || "")}`} onClick={() => void markRead(item)}>{translateNotificationMessage(item.message, t)}</Link></p>)}
+      {error && <p role="alert">{t(error)}</p>}
     </div>}
   </aside>;
 }

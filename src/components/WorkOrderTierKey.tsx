@@ -1,4 +1,6 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -7,6 +9,7 @@ import LoyaltyBadge from "@/components/LoyaltyBadge";
 const TIERS = ["Titanium", "Platinum", "Gold", "Silver", "Base"] as const;
 
 export default function WorkOrderTierKey() {
+  const { t } = useUiLanguage();
   const [open, setOpen] = useState(false);
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -49,14 +52,14 @@ export default function WorkOrderTierKey() {
   }, [open]);
 
   return <div ref={root} className="work-order-tier-key" onPointerDown={event => event.stopPropagation()}>
-    <button ref={trigger} type="button" className="work-order-tier-help" aria-label="Marriott Bonvoy membership tier key" aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}>
+    <button ref={trigger} type="button" className="work-order-tier-help" aria-label={t("Marriott Bonvoy membership tier key")} aria-expanded={open} aria-controls={id} onClick={() => setOpen(value => !value)}>
       <LoyaltyBadge tier="Ambassador" />
       <span className="work-order-tier-question" aria-hidden="true">?</span>
     </button>
-    {open && createPortal(<section ref={popover} id={id} className="work-order-tier-popover" aria-label="Marriott Bonvoy membership tiers">
-      <h2>Marriott Bonvoy tiers</h2>
-      <ol>{TIERS.map(tier => <li key={tier}><LoyaltyBadge tier={tier} /><span>{tier === "Base" ? "Member" : `${tier} Elite`}</span></li>)}</ol>
-      <p><LoyaltyBadge tier="Ambassador" /><span>Ambassador Elite is the highest tier, shown by the symbol in the title bar.</span></p>
+    {open && createPortal(<section ref={popover} id={id} className="work-order-tier-popover" aria-label={t("Marriott Bonvoy membership tiers")}>
+      <h2>{t("Marriott Bonvoy tiers")}</h2>
+      <ol>{TIERS.map(tier => <li key={tier}><LoyaltyBadge tier={tier} /><span>{tier === "Base" ? t("Member") : t("{value0} Elite", { value0: String(tier) })}</span></li>)}</ol>
+      <p><LoyaltyBadge tier="Ambassador" /><span>{t("Ambassador Elite is the highest tier, shown by the symbol in the title bar.")}</span></p>
     </section>, document.body)}
   </div>;
 }

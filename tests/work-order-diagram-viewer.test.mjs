@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -25,7 +26,7 @@ async function fixture() {
     disconnect() { this.disconnected = true; }
   }
   const exports = {};
-  vm.runInNewContext(compiled, { exports, document, window, HTMLElement, ResizeObserver, require: name => require(name) });
+  vm.runInNewContext(compiled, { exports, document, window, HTMLElement, ResizeObserver, require: name => name === '@/components/UiLanguageProvider' ? uiLanguageDependency : require(name) });
   const opener = document.createElement('button'); opener.textContent = 'Open diagram'; document.body.appendChild(opener); opener.focus();
   const host = document.createElement('div'); document.body.appendChild(host);
   const root = createRoot(host);

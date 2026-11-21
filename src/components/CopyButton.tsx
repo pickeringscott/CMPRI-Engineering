@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import { useState } from "react";
 
@@ -9,6 +10,7 @@ type CopyButtonProps = {
 };
 
 export default function CopyButton({ text, label = "Copy", className = "" }: CopyButtonProps) {
+  const { t } = useUiLanguage();
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -31,7 +33,7 @@ export default function CopyButton({ text, label = "Copy", className = "" }: Cop
           : "border-slate-600 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white"
       } ${className}`}
     >
-      {copied ? "Copied" : label}
+      {copied ? t("Copied") : t(label)}
     </button>
   );
 }

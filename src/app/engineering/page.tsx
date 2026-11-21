@@ -1,4 +1,6 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+
 import { SITE_SEASONAL_THEME } from "@/lib/ui/site-seasonal-theme";
 import { subscribeResources } from "@/lib/events/browser";
 import { canReviewEmployment } from "@/lib/employment-access";
@@ -97,16 +99,17 @@ function DashboardLauncherButton({
   onLaunch: (launcher: Launcher, clickedAt: number) => void;
   className?: string;
 }) {
+  const { t, tt } = useUiLanguage();
   return (
     <button
       type="button"
       data-cmpri-desktop-launch={launcher.key}
       data-open={open ? "true" : "false"}
-      title={launcher.label}
+      title={tt(launcher.label)}
       onClick={() => onLaunch(launcher, Date.now())}
       className={className || `cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-1 py-0.5 font-semibold shadow-sm shadow-black/20 ${launcher.tone}`}
     >
-      {launcher.label}
+      {t(launcher.label)}
     </button>
   );
 }
@@ -135,6 +138,7 @@ function writeSoundPreference(enabled: boolean) {
 }
 
 export default function EngineeringDashboardPage() {
+  const { t, tt } = useUiLanguage();
   const router = useRouter();
   const refreshInFlightRef = useRef(false);
   const refreshQueuedRef = useRef(false);
@@ -414,11 +418,11 @@ export default function EngineeringDashboardPage() {
   }, [cmpriSession]);
 
   useEffect(() => {
-    const baseTitle = roleKey(cmpriSession?.user.role) === "front_desk" || window.location.pathname === "/front-desk" ? "CMPRI Front Desk" : "CMPRI Engineering";
+    const baseTitle = t(roleKey(cmpriSession?.user.role) === "front_desk" || window.location.pathname === "/front-desk" ? "CMPRI Front Desk" : "CMPRI Engineering");
     previousTitleRef.current = baseTitle;
     document.title = inbox.length > 0 ? `(${inbox.length}) ${baseTitle}` : baseTitle;
     return () => { document.title = baseTitle; };
-  }, [inbox.length, cmpriSession?.user.role]);
+  }, [inbox.length, cmpriSession?.user.role, t]);
 
   // ---------- Window manager ----------
 
@@ -646,9 +650,7 @@ export default function EngineeringDashboardPage() {
             The hidden header lets the artwork observe its eventual height. */}
         <header className="cmpri-desktop-topbar" hidden aria-hidden="true" />
         <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
-          <p role="status" aria-live="polite" className="cmpri-sign-in-card relative z-10 mx-auto mt-4 w-fit rounded-[22px] border p-4 text-center text-[16pt] font-semibold">
-            Loading Dashboard...<br />Have a wonderful day!
-          </p>
+          <p role="status" aria-live="polite" className="cmpri-sign-in-card relative z-10 mx-auto mt-4 w-fit rounded-[22px] border p-4 text-center text-[16pt] font-semibold">{t("Loading Dashboard...")}<br />{t("Have a wonderful day!")}</p>
         </div>
       </main>
     );
@@ -664,7 +666,7 @@ export default function EngineeringDashboardPage() {
   const canOpenTroubleshootingGuides = canAccessTroubleshootingGuides(session.user);
   const canUseEngineeringAdminTools = ["engineer", "system_admin"].includes(roleKey(session.user.role));
   const awaitingApproval = orders.filter(isPendingApproval);
-  const displayName = session.user.name?.trim() || "Name not set";
+  const displayName = session.user.name?.trim() || t("Name not set");
   const displayRole = accountRoleDisplayName(session.user);
 
   async function signOut() {
@@ -845,8 +847,8 @@ export default function EngineeringDashboardPage() {
     }
   }
   const bellLabel = canReviewTickets
-    ? `Work order approvals for ${displayName} (${displayRole}): ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}, ${approvalTotal} awaiting approval`
-    : `Notifications for ${displayName} (${displayRole}): ${unreadCount} unread`;
+    ? t("Work order approvals for {name} ({role}): {count} unread, {approvals} awaiting approval", { name: displayName, role: t(displayRole), count: unreadCount, approvals: approvalTotal })
+    : t("Notifications for {name} ({role}): {count} unread", { name: displayName, role: t(displayRole), count: unreadCount });
   const createWorkOrderLauncher = launcherGroups
     .flatMap((group) => group.items)
     .find((launcher): launcher is Launcher => Boolean(launcher && launcher.key === "/work-orders"));
@@ -863,15 +865,15 @@ export default function EngineeringDashboardPage() {
         <div className="cmpri-header-shelf">
           <div className="cmpri-header-identity">
             <p data-dashboard-title data-front-desk-colors={frontDeskLayout ? "true" : undefined} className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight">
-              <span className="text-amber-300">CMPRI</span>{" "}
-              <span className="text-amber-300">{frontDeskLayout ? "Front Desk" : isHousekeepingDashboard ? "Housekeeping" : "Engineering"}</span>
+              <span className="text-amber-300">{t("CMPRI")}</span>{" "}
+              <span className="text-amber-300">{frontDeskLayout ? t("Front Desk") : isHousekeepingDashboard ? t("Housekeeping") : t("Engineering")}</span>
                                <DashboardNotificationBell
                     count={notificationCount}
                     label={bellLabel}
                     aria-label={bellLabel}
-                    title={canReviewTickets
-                      ? `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s) · ${approvalTotal} awaiting approval`
-                      : `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s)`}
+                    title={tt(canReviewTickets
+                      ? `${displayName} · ${t(displayRole)}${session.user.email ? ` · ${session.user.email}` : ""}\n${t("{count} unread notifications · {approvals} awaiting approval", { count: unreadCount, approvals: approvalTotal })}`
+                      : `${displayName} · ${t(displayRole)}${session.user.email ? ` · ${session.user.email}` : ""}\n${t("{count} unread notifications", { count: unreadCount })}`)}
                     onClick={openApprovals}
                   /></p>
             <div data-dashboard-account className="mt-2 text-left leading-tight">
@@ -879,7 +881,7 @@ export default function EngineeringDashboardPage() {
                 <p data-dashboard-name className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
 
               </div>
-              <p data-dashboard-role className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
+              <p data-dashboard-role data-cmpri-chief-engineer={displayRole === "Chief Engineer" ? "true" : "false"} className="mt-1 text-[9pt] font-medium text-sky-200/90">{t(displayRole)}</p>
             </div>
           </div>
           <div className="cmpri-header-utilities" data-front-desk={frontDeskLayout}><PoolStatus controlOnly onOpen={openPoolStatus}/>
@@ -887,7 +889,7 @@ export default function EngineeringDashboardPage() {
           </div>
         </div>
 
-        <nav aria-label="Open dashboard windows" className="w-full min-w-0">
+        <nav aria-label={t("Open dashboard windows")} className="w-full min-w-0">
           <ApprovedDashboardMenus groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
         </nav>
 
@@ -911,12 +913,12 @@ export default function EngineeringDashboardPage() {
 
       <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
         {openKeys.size === 0 && (
-          <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">CMPRI {frontDeskLayout ? "Front Desk" : "Engineering"}</p>
+          <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">{t("CMPRI ")}{frontDeskLayout ? t("Front Desk") : t("Engineering")}</p>
         )}
         {message && (
           <div role="alert" className="absolute bottom-2 left-2 z-[150] flex max-w-md items-start gap-2 rounded-md border border-red-400/40 bg-red-950/80 px-3 py-2 text-xs text-red-100 shadow-lg">
-            <span className="flex-1">{message}</span>
-            <button type="button" onClick={() => setMessage("")} aria-label="Dismiss dashboard error" className="text-red-200 hover:text-white">×</button>
+            <span className="flex-1">{t(message)}</span>
+            <button type="button" onClick={() => setMessage("")} aria-label={t("Dismiss dashboard error")} className="text-red-200 hover:text-white">×</button>
           </div>
         )}
         {windows.map((entry) => {
@@ -988,10 +990,10 @@ export default function EngineeringDashboardPage() {
                   onClear={(id) => void clearNotifications([id])}
                   onClearAll={() => void clearNotifications(inbox.map((notification) => notification.id))}
                 /></div>
-                {canReviewTickets && <nav aria-label="Approval pages" className="flex justify-between gap-2 p-2 text-sm">
-                  <button disabled={loading || approvalPage === 0} onClick={() => { approvalPageRef.current--; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Previous</button>
-                  <span>Page {approvalPage + 1} · {approvalTotal} awaiting approval</span>
-                  <button disabled={loading || (approvalPage + 1) * 100 >= approvalTotal} onClick={() => { approvalPageRef.current++; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Next</button>
+                {canReviewTickets && <nav aria-label={t("Approval pages")} className="flex justify-between gap-2 p-2 text-sm">
+                  <button disabled={loading || approvalPage === 0} onClick={() => { approvalPageRef.current--; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>{t("Previous")}</button>
+                  <span>{t("Page ")}{approvalPage + 1} · {approvalTotal}{t(" awaiting approval")}</span>
+                  <button disabled={loading || (approvalPage + 1) * 100 >= approvalTotal} onClick={() => { approvalPageRef.current++; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>{t("Next")}</button>
                 </nav>}
                 </div>
               )}

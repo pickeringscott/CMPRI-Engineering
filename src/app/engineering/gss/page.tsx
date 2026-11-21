@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useEffect, useState } from "react";
 import GssScorecard from "./GssScorecard";
 import GssSourceReport from "./GssSourceReport";
@@ -12,6 +13,7 @@ import ModalDashboardLink from "@/components/ModalDashboardLink";
 
 
 export default function GssPage() {
+  const { t } = useUiLanguage();
 
   const [pageAllowed, setPageAllowed] = useState(false);
   useEffect(() => { (async () => {
@@ -30,7 +32,7 @@ export default function GssPage() {
   })(); }, []);
   if (!pageAllowed) return null;
   return <main className={styles.page}><div className="mx-auto w-full px-3 py-4 sm:px-4">
-    <ModalDashboardLink className="rounded-lg border border-amber-400/55 px-3 py-1 text-xs text-amber-400">Dashboard</ModalDashboardLink>
+    <ModalDashboardLink className="rounded-lg border border-amber-400/55 px-3 py-1 text-xs text-amber-400">{t("Dashboard")}</ModalDashboardLink>
     <GssSourceReport verifiedDate={verifiedGssReports[0].date} />
     <GssScorecard />
   </div></main>;

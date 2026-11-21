@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import ManualSourceLink from './ManualSourceLink';
@@ -39,10 +40,11 @@ export default function WorkOrderSourcePages({ passages, sourceUrl, assetId, sou
 }
 
 function SourcePage({ passage, sourceUrl, userId, preview }: { passage: SourcePassage; sourceUrl: string; userId: string; preview: ReactNode }) {
+  const { t } = useUiLanguage();
   const url = passage.source_url || sourceUrl;
   const chart = /\b(?:troubleshooting|diagnostic|fault|flow)\s*chart\b/i.test(passage.text);
   return <section data-continuous-source-page={passage.page} data-source-document={passage.source_document_id} className="mt-1 min-w-0 border-t border-slate-700">
-    <ManualSourceLink userId={userId} className="text-xs text-sky-300 underline" href={url.split('#')[0] + '#page=' + passage.page}>Page {passage.page}</ManualSourceLink>
+    <ManualSourceLink userId={userId} className="text-xs text-sky-300 underline" href={url.split('#')[0] + '#page=' + passage.page}>{t("Page")} {passage.page}</ManualSourceLink>
     <div data-original-chart={chart ? 'true' : undefined}>{preview}</div>
   </section>;
 }

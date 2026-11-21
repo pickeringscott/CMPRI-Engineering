@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useState } from "react";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
 import { authorizationHeaders } from "@/lib/auth/client-session";
@@ -383,6 +384,7 @@ export default function RoomOperationsImport({
   onDateChange: (date: string) => void;
   onCommitted: (date: string) => void;
 }) {
+  const { t } = useUiLanguage();
   const [statusText, setStatusText] = useState("");
   const [departuresText, setDeparturesText] = useState("");
   const [statusFileName, setStatusFileName] = useState("");
@@ -687,21 +689,21 @@ export default function RoomOperationsImport({
   }
 
   return (
-    <section aria-label="Import Daily Room Operations" className="space-y-3 rounded-xl border border-emerald-500/35 bg-slate-900/70 p-3">
+    <section aria-label={t("Import Daily Room Operations")} className="space-y-3 rounded-xl border border-emerald-500/35 bg-slate-900/70 p-3">
       <div>
-        <h2 className="text-lg font-semibold">Daily Room Ops Upload</h2>
-        <p className="mt-1 text-sm text-slate-400">Upload today&apos;s printed Room Status Report and optional Expected Departures report. Printed dates and report ordering are verified before replacing the current view; source reports remain available for investigation. A missing checkout time defaults to 11:00 AM.</p>
+        <h2 className="text-lg font-semibold">{t("Daily Room Ops Upload")}</h2>
+        <p className="mt-1 text-sm text-slate-400">{t("Upload today's printed Room Status Report and optional Expected Departures report. Printed dates and report ordering are verified before replacing the current view; source reports remain available for investigation. A missing checkout time defaults to 11:00 AM.")}</p>
       </div>
 
       <div className="rounded-xl border border-sky-500/40 bg-sky-950/25 p-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="text-sm font-bold text-sky-200">Upload RoomStatus Images (ChatGPT Auto-Import)</h3>
-            <p className="text-xs text-slate-300">Upload all report pages. Printed dates, current and incoming columns, room coverage, and required details are validated before import.</p>
+            <h3 className="text-sm font-bold text-sky-200">{t("Upload RoomStatus Images (ChatGPT Auto-Import)")}</h3>
+            <p className="text-xs text-slate-300">{t("Upload all report pages. Printed dates, current and incoming columns, room coverage, and required details are validated before import.")}</p>
           </div>
           <label className="shrink-0">
             <span className={`inline-block cursor-pointer rounded-lg bg-sky-500 px-4 py-2 text-center text-xs font-bold text-slate-950 shadow hover:bg-sky-400 ${busy ? "pointer-events-none opacity-50" : ""}`}>
-              {busy ? "Processing with ChatGPT…" : "Upload Images & Auto-Import"}
+              {busy ? t("Processing with ChatGPT…") : t("Upload Images & Auto-Import")}
             </span>
             <input
               type="file"
@@ -719,41 +721,37 @@ export default function RoomOperationsImport({
         </div>
       </div>
 
-      <label className="block max-w-xs text-xs font-semibold text-slate-300">
-        Report date
-        <input type="date" required min={today} max={today} value={date} onChange={(event) => { onDateChange(event.target.value); setPreview(null); }} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+      <label className="block max-w-xs text-xs font-semibold text-slate-300">{t("Report date")}<input type="date" required min={today} max={today} value={date} onChange={(event) => { onDateChange(event.target.value); setPreview(null); }} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
       </label>
       <div className="grid gap-3 lg:grid-cols-2">
-        <label className="block text-xs font-semibold text-slate-300">
-          Room Status Report {statusFileName ? `· ${statusFileName}` : ""}
-          <textarea value={statusText} onChange={(event) => { setStatusText(event.target.value); setStatusFileName(""); setPreview(null); }} rows={8} placeholder={"Printed Date: 10/10/2026\nPrinted Time: 8:15 AM\nRoom\tRoom Status\tRoom Type\tArv\tDep\tLOS\tCode\tName\tBlk'd\tDue In\tType\tName\n316\tOccupied\tKING\t10Oct\t11Oct\t1\tREG\tGuest Name\t\t\t\t"} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
+        <label className="block text-xs font-semibold text-slate-300">{t("Room Status Report")}{" "}{statusFileName ? t("· {statusFileName}", { statusFileName: statusFileName }) : ""}
+          <textarea value={statusText} onChange={(event) => { setStatusText(event.target.value); setStatusFileName(""); setPreview(null); }} rows={8} placeholder={t("Printed Date: 10/10/2026\nPrinted Time: 8:15 AM\nRoom\tRoom Status\tRoom Type\tArv\tDep\tLOS\tCode\tName\tBlk'd\tDue In\tType\tName\n316\tOccupied\tKING\t10Oct\t11Oct\t1\tREG\tGuest Name\t\t\t\t")} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
           <input type="file" accept=".csv,.tsv,.txt,image/*" onChange={(event) => { void loadFile(event.target.files?.[0], "status"); event.currentTarget.value = ""; }} className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:font-semibold file:text-white" />
         </label>
-        <label className="block text-xs font-semibold text-slate-300">
-          Expected Departures {departuresFileName ? `· ${departuresFileName}` : ""}
-          <textarea value={departuresText} onChange={(event) => { setDeparturesText(event.target.value); setDeparturesFileName(""); setPreview(null); }} rows={8} placeholder={"Printed Date: 10/10/2026\nPrinted Time: 8:20 AM\nRoom\tCheckout Date\tCheckout Time\tGuest Name\n316\t10/11/2026\t2:00 PM\tGuest Name"} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
+        <label className="block text-xs font-semibold text-slate-300">{t("Expected Departures")}{" "}{departuresFileName ? t("· {departuresFileName}", { departuresFileName: departuresFileName }) : ""}
+          <textarea value={departuresText} onChange={(event) => { setDeparturesText(event.target.value); setDeparturesFileName(""); setPreview(null); }} rows={8} placeholder={t("Printed Date: 10/10/2026\nPrinted Time: 8:20 AM\nRoom\tCheckout Date\tCheckout Time\tGuest Name\n316\t10/11/2026\t2:00 PM\tGuest Name")} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-sm font-normal text-white outline-none focus:border-amber-400" />
           <input type="file" accept=".csv,.tsv,.txt,image/*" onChange={(event) => { void loadFile(event.target.files?.[0], "departures"); event.currentTarget.value = ""; }} className="mt-2 block w-full text-xs text-slate-300 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-800 file:px-3 file:py-2 file:font-semibold file:text-white" />
         </label>
       </div>
-      <button type="button" onClick={() => void prepareImport()} disabled={busy || !date} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">Preview Merged Snapshot</button>
-      {message ? <p role="status" className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200">{message}</p> : null}
+      <button type="button" onClick={() => void prepareImport()} disabled={busy || !date} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">{t("Preview Merged Snapshot")}</button>
+      {message ? <p role="status" className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200">{t(message)}</p> : null}
       {preview ? (
-        <section aria-label="Validated room-operations preview" className="space-y-3 rounded-xl border border-amber-500/50 bg-amber-950/15 p-3">
+        <section aria-label={t("Validated room-operations preview")} className="space-y-3 rounded-xl border border-amber-500/50 bg-amber-950/15 p-3">
           <div>
-            <h3 className="font-bold text-amber-100">Validated preview · {preview.date} · {preview.rows.length} rooms</h3>
-            <p className="mt-1 text-xs text-amber-100">Commit replaces this day&apos;s complete snapshot. Moves will be detected by comparing today&apos;s guest rooms with yesterday&apos;s snapshot.</p>
+            <h3 className="font-bold text-amber-100">{t("Validated preview ·")}{" "}{preview.date} · {preview.rows.length}{" "}{t("rooms")}</h3>
+            <p className="mt-1 text-xs text-amber-100">{t("Commit replaces this day's complete snapshot. Moves will be detected by comparing today's guest rooms with yesterday's snapshot.")}</p>
           </div>
           <div className="max-h-[45vh] overflow-auto rounded-lg border border-slate-700">
             <table className="w-full min-w-[48rem] text-left text-xs">
-              <thead className="sticky top-0 bg-slate-900 text-slate-300"><tr><th className="p-2">Room</th><th className="p-2">Checkout date</th><th className="p-2">Checkout time</th><th className="p-2">Status</th><th className="p-2">Guest</th><th className="p-2">Room type</th><th className="p-2">Reserved</th></tr></thead>
+              <thead className="sticky top-0 bg-slate-900 text-slate-300"><tr><th className="p-2">{t("Room")}</th><th className="p-2">{t("Checkout date")}</th><th className="p-2">{t("Checkout time")}</th><th className="p-2">{t("Status")}</th><th className="p-2">{t("Guest")}</th><th className="p-2">{t("Room type")}</th><th className="p-2">{t("Reserved")}</th></tr></thead>
               <tbody className="divide-y divide-slate-800">
-                {preview.rows.map((row, index) => <tr key={`${row.room}-${index}`}><td className="p-2">{row.room}</td><td className="p-2">{row.checkout_date || "—"}</td><td className="p-2">{row.checkout_time || "—"}</td><td className="p-2">{row.room_status || "—"}</td><td className="p-2">{row.guest_name || "—"}</td><td className="p-2">{row.room_type || "—"}</td><td className="p-2">{row.reserved ? "Yes" : "No"}</td></tr>)}
+                {preview.rows.map((row, index) => <tr key={`${row.room}-${index}`}><td className="p-2">{row.room}</td><td className="p-2">{row.checkout_date || "—"}</td><td className="p-2">{row.checkout_time || "—"}</td><td className="p-2">{row.room_status || "—"}</td><td className="p-2">{row.guest_name || "—"}</td><td className="p-2">{row.room_type || "—"}</td><td className="p-2">{row.reserved ? t("Yes") : t("No")}</td></tr>)}
               </tbody>
             </table>
           </div>
           <div className="flex justify-end gap-2">
-            <button type="button" disabled={busy} onClick={() => setPreview(null)} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50">Discard preview</button>
-            <button type="button" disabled={busy} onClick={() => void commitImport()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">{busy ? "Committing…" : "Commit import"}</button>
+            <button type="button" disabled={busy} onClick={() => setPreview(null)} className="rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200 disabled:opacity-50">{t("Discard preview")}</button>
+            <button type="button" disabled={busy} onClick={() => void commitImport()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 disabled:opacity-50">{busy ? t("Committing…") : t("Commit import")}</button>
           </div>
         </section>
       ) : null}

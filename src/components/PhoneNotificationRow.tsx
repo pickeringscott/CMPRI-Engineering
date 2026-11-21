@@ -1,4 +1,6 @@
 "use client";
+
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { subscribeResources } from "@/lib/events/browser";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -39,7 +41,7 @@ export default function PhoneNotificationRow(props: Props) {
   const [message, setMessage] = useState("");
   const requestId = useRef<string | null>(null);
   const submitting = useRef(false);
-  const tx = (en: string, es: string) => props.spanish ? es : en;
+  const { t: tx, tt } = useUiLanguage(props.spanish ? "es" : "en");
   const pending = test?.status === "pending" || test?.status === "sending";
 
   const call = useCallback(async (action: "send" | "status" | "cancel", id?: string, delaySeconds?: number) => {
@@ -119,20 +121,20 @@ export default function PhoneNotificationRow(props: Props) {
         <p className="font-semibold">{tx("Phone Notifications", "Notificaciones del teléfono")}</p>
         <p className="text-sm text-slate-400">{props.subscribed ? tx("Enabled on this device", "Activadas en este dispositivo") : tx("Disabled on this device", "Desactivadas en este dispositivo")}</p>
       </div>
-      <div className="flex max-w-full flex-wrap items-center gap-2" aria-label="Phone notification controls">
+      <div className="flex max-w-full flex-wrap items-center gap-2" aria-label={tx("Phone notification controls")}>
         <button type="button" disabled={props.busy || (!props.subscribed && (!props.supported || !props.configured))} onClick={props.onToggle} className="h-10 shrink-0 rounded-lg border border-sky-400/50 bg-sky-950/30 px-4 py-2 text-sm font-semibold text-sky-100 disabled:opacity-50">
           {props.busy ? tx("Saving…", "Guardando…") : props.subscribed ? tx("Disable", "Desactivar") : tx("Enable", "Activar")}
         </button>
         {showTests && <>
-          <button type="button" aria-label="Send test notification now" title="Test this device’s notifications" disabled={testDisabled} onClick={() => void send(0)} className="h-10 shrink-0 rounded-lg border border-sky-400/50 bg-sky-950/30 px-2 py-2 text-xs font-semibold text-sky-100 disabled:opacity-50">Send now</button>
-          <button type="button" aria-label="Send test notification in 10 seconds" title="Test this device after locking your phone" disabled={testDisabled} onClick={() => void send(10)} className="h-10 shrink-0 rounded-lg border border-sky-400/50 bg-sky-950/30 px-2 py-2 text-xs font-semibold text-sky-100 disabled:opacity-50">Send in 10 seconds</button>
+          <button type="button" aria-label={tx("Send test notification now")} title={tt("Test this device’s notifications")} disabled={testDisabled} onClick={() => void send(0)} className="h-10 shrink-0 rounded-lg border border-sky-400/50 bg-sky-950/30 px-2 py-2 text-xs font-semibold text-sky-100 disabled:opacity-50">{tx("Send now")}</button>
+          <button type="button" aria-label={tx("Send test notification in 10 seconds")} title={tt("Test this device after locking your phone")} disabled={testDisabled} onClick={() => void send(10)} className="h-10 shrink-0 rounded-lg border border-sky-400/50 bg-sky-950/30 px-2 py-2 text-xs font-semibold text-sky-100 disabled:opacity-50">{tx("Send in 10 seconds")}</button>
         </>}
       </div>
     </div>
     {showTests && props.subscribed && (test || message || busy) && <div role="status" className="mt-2 text-sm text-slate-300">
-      <p>{message || (test ? pushTestMessage(test) : "Scheduling test…")}</p>
-      {test?.status === "pending" && <button type="button" onClick={() => void cancel()} disabled={busy} className="mt-1 min-h-10 text-sky-200 underline disabled:opacity-50">Cancel test</button>}
-      {message && <button type="button" onClick={() => void refresh()} disabled={busy} className="ml-3 min-h-10 text-sky-200 underline disabled:opacity-50">Check test status</button>}
+      <p>{message ? tx(message) : test ? tx(pushTestMessage(test)) : tx("Scheduling test…")}</p>
+      {test?.status === "pending" && <button type="button" onClick={() => void cancel()} disabled={busy} className="mt-1 min-h-10 text-sky-200 underline disabled:opacity-50">{tx("Cancel test")}</button>}
+      {message && <button type="button" onClick={() => void refresh()} disabled={busy} className="ml-3 min-h-10 text-sky-200 underline disabled:opacity-50">{tx("Check test status")}</button>}
     </div>}
   </>;
 }

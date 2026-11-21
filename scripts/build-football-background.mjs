@@ -37,6 +37,7 @@ const artwork = await sharp(resolve(root, 'public/GiesOverheadView.jpg')).webp({
 const template = readFileSync(resolve(source, 'index.template.html'), 'utf8').replace(/(<noscript>[\s\S]*?)<img\b[^>]*>([\s\S]*?<\/noscript>)/g, '$1$2');
 const rules = readFileSync(resolve(source, 'football-rules.js'), 'utf8').replace(/^export const FootballRules\b/m, 'const FootballRules');
 let html = template
+  .replaceAll('__UI_LANGUAGE_SCRIPT__', () => readFileSync(resolve(root, 'public/ui-language.js'), 'utf8'))
   .replaceAll('__SITE_PALETTE_CSS__', paletteCss)
   .replaceAll('__SITE_THEME_COLOR__', palette.desktop['tone-1'])
   .replaceAll('__CANVAS_UI_PALETTE__', JSON.stringify(canvasUiPalette))
@@ -49,7 +50,7 @@ const script = html.match(/<script>([\s\S]*?)<\/script>/);
 if (!script) throw new Error('Football template must contain its inline game script');
 const result = await minify(script[1], { compress: { passes: 2 }, mangle: true, format: { comments: false } });
 if (!result.code) throw new Error('Football game script did not minify');
-html = html.replace(script[0], '<script>' + result.code + '</script>');
+html = html.replace(script[0], () => '<script>' + result.code + '</script>');
 const version = hash(html);
 const entry = `${prefix}index.${version}.html`;
 const files = [entry];

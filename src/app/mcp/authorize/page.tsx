@@ -1,4 +1,6 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -14,6 +16,7 @@ function requestParams() {
 }
 
 export default function McpAuthorizePage() {
+  const { t } = useUiLanguage();
   const [client, setClient] = useState<ClientDetails | null>(null);
   const [user, setUser] = useState<CmpriUser["user"] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,26 +106,26 @@ export default function McpAuthorizePage() {
     }
   }
 
-  if (loading) return <main className="min-h-screen bg-slate-950 p-6 text-white"><p role="status">Loading secure CMPRI authorization…</p></main>;
+  if (loading) return <main className="min-h-screen bg-slate-950 p-6 text-white"><p role="status">{t("Loading secure CMPRI authorization…")}</p></main>;
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-950 p-4 text-white">
       <section className="w-full max-w-lg rounded-2xl border border-slate-800 bg-slate-900 p-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">CMPRI secure authorization</p>
-        <h1 className="mt-2 text-2xl font-bold">Connect ChatGPT to CMPRI</h1>
-        {error && <p role="alert" className="mt-4 rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{error}</p>}
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">{t("CMPRI secure authorization")}</p>
+        <h1 className="mt-2 text-2xl font-bold">{t("Connect ChatGPT to CMPRI")}</h1>
+        {error && <p role="alert" className="mt-4 rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-200">{t(error)}</p>}
         {client && user ? <>
-          <p className="mt-4 text-sm text-slate-200"><strong>{client.client_name}</strong> is requesting {writeRequested ? "read and write" : "read-only"} access to CMPRI as:</p>
+          <p className="mt-4 text-sm text-slate-200"><strong>{client.client_name}</strong>{t(" is requesting ")}{writeRequested ? t("read and write") : t("read-only")}{t(" access to CMPRI as:")}</p>
           <p className="mt-2 rounded-lg bg-slate-950 p-3 text-sm">{user.name || user.email} · {accountRoleDisplayName(user)}</p>
-          <p className="mt-3 text-sm text-slate-300">Tools check your active CMPRI profile, property membership, role, and permissions on every request. ChatGPT cannot use another user’s CMPRI access.</p>
-          <p className="mt-3 rounded-lg border border-sky-900 bg-sky-950/40 p-3 text-sm text-sky-100">{writeRequested ? "This connection requests read and write access. CMPRI exposes only actions permitted by your current role; changes run through the same validation and checks as the CMPRI app." : "This connection requests read-only access. Reconnect later if you want to grant CMPRI write access."}</p>
+          <p className="mt-3 text-sm text-slate-300">{t("Tools check your active CMPRI profile, property membership, role, and permissions on every request. ChatGPT cannot use another user’s CMPRI access.")}</p>
+          <p className="mt-3 rounded-lg border border-sky-900 bg-sky-950/40 p-3 text-sm text-sky-100">{writeRequested ? t("This connection requests read and write access. CMPRI exposes only actions permitted by your current role; changes run through the same validation and checks as the CMPRI app.") : t("This connection requests read-only access. Reconnect later if you want to grant CMPRI write access.")}</p>
           <div className="mt-5 flex flex-wrap gap-3">
-            <button type="button" disabled={busy} onClick={() => void approve()} className="rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-bold hover:bg-sky-600 disabled:opacity-50">{busy ? "Authorizing…" : writeRequested ? "Authorize read and write access" : "Authorize read-only access"}</button>
-            <Link href="/" className="rounded-lg border border-slate-600 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">Cancel</Link>
+            <button type="button" disabled={busy} onClick={() => void approve()} className="rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-bold hover:bg-sky-600 disabled:opacity-50">{busy ? t("Authorizing…") : writeRequested ? t("Authorize read and write access") : t("Authorize read-only access")}</button>
+            <Link href="/" className="rounded-lg border border-slate-600 px-4 py-2.5 text-sm font-semibold text-slate-200 hover:bg-slate-800">{t("Cancel")}</Link>
           </div>
         </> : client ? <>
-          <p className="mt-4 text-sm text-slate-300">Sign in with the Google account whose email address was added to your CMPRI profile. CMPRI permissions will be checked on every tool request.</p>
-          <button type="button" disabled={busy} onClick={() => void signIn()} className="mt-5 rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-bold hover:bg-sky-600 disabled:opacity-50">{busy ? "Opening Google sign-in…" : "Continue with Google"}</button>
+          <p className="mt-4 text-sm text-slate-300">{t("Sign in with the Google account whose email address was added to your CMPRI profile. CMPRI permissions will be checked on every tool request.")}</p>
+          <button type="button" disabled={busy} onClick={() => void signIn()} className="mt-5 rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-bold hover:bg-sky-600 disabled:opacity-50">{busy ? t("Opening Google sign-in…") : t("Continue with Google")}</button>
         </> : null}
       </section>
     </main>

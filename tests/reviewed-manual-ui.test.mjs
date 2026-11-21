@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -19,7 +20,7 @@ function fixture(recognize) {
   const exports = {};
   vm.runInNewContext(ts.transpileModule(readFileSync('src/components/LocalOcrReview.tsx', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText, { exports, Error, AbortController, Blob, Uint8Array, crypto: webcrypto, URL: { createObjectURL: () => 'blob:preview', revokeObjectURL() {} }, require(name) {
+  }).outputText, { exports, Error, AbortController, Blob, Uint8Array, crypto: webcrypto, URL: { createObjectURL: () => 'blob:preview', revokeObjectURL() {} }, require(name) { if (name === '@/components/UiLanguageProvider') return uiLanguageDependency;
     if (name === './PdfArtworkZoom') return { default: () => null };
     if(name==='./PdfHtmlPreview')return {default:()=>React.createElement('div',{'data-pdf-html-preview':true},'Original PDF preview')};if (name === 'react') return React;
     if (name === 'react/jsx-runtime') return jsx;

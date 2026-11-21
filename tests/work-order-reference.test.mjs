@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -33,6 +34,7 @@ test('real work-order list renders WO#261015001 and room 101 as distinct values'
     const exports={};cache.set(relative,exports);
     const source=readFileSync(new URL('../src/'+relative,import.meta.url),'utf8');
     vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require(name){
+   if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;
       if(name==='@/lib/events/browser')return {subscribeResources:()=>()=>{}};
       if(name==='@/lib/auth/client-session')return {authorizationHeaders:async()=>({})};
       if(name==='next/image')return {default:props=>React.createElement('img',props)};

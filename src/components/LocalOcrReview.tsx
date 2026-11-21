@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { localOcrFileKind, localOcrImageDimensions, recognizeLocalDocument } from "@/lib/ocr/local-ocr";
@@ -25,6 +26,7 @@ type Props = {
 
 /** An on-device reference tool. Extracted text is never applied automatically. */
 export default function LocalOcrReview({ onUseText, onUseGuide, useTextLabel = "Use reviewed text", fullDocument = false, sourceFile, onSourceFileChange }: Props) {
+  const { t } = useUiLanguage();
   const [file, setFile] = useState<File | null>(null);
   const [fileKind, setFileKind] = useState<"image" | "pdf" | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -225,7 +227,7 @@ export default function LocalOcrReview({ onUseText, onUseGuide, useTextLabel = "
       if (!current()) return;
       const sha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
       const message = await onUseGuide({ fileName: file.name, sha256, totalPages: documentPages, pages: nonblankPages.map(page => ({ ...page })) }, controller.signal, message => {if(current())setStatus(message);});
-      if (current()) setStatus(skippedPages.length ? `${message} Blank pages ${skippedPages.join(", ")} were not saved.` : message);
+      if (current()) setStatus(skippedPages.length ? `${t(message)} ${t("Blank pages {pages} were not saved.", {pages:skippedPages.join(", ")})}` : message);
     } catch (cause) {
       if (!current()) return;
       setStatus("");
@@ -267,66 +269,63 @@ export default function LocalOcrReview({ onUseText, onUseGuide, useTextLabel = "
   const nextBatchEnd = documentPages ? Math.min(nextPage + 9, documentPages) : 0;
 
   return (
-    <section aria-label="On-device text recognition" className="space-y-3 rounded-xl border border-slate-600 bg-slate-900/70 p-3 text-sm text-slate-100">
+    <section aria-label={t("On-device text recognition")} className="space-y-3 rounded-xl border border-slate-600 bg-slate-900/70 p-3 text-sm text-slate-100">
       <div>
-        <h3 className="font-bold">Read text on this device</h3>
-        <p className="mt-1 text-xs text-slate-300">{fullDocument ? "The selected manual is read from beginning to end. Embedded text is read directly; scanned pages use text recognition on this device. You can pause and resume without losing completed pages." : "Choose a PNG, JPEG, WebP image, or PDF. Large images are resized locally for recognition. PDFs are read in batches of up to 10 pages."} {onUseGuide ? "Saving reviewed text requires this exact PDF to be attached to the equipment first." : "Reading does not save or import records."}</p>
-        <p className="mt-1 text-xs text-amber-200">Recognition can miss or misread text, entire rows, and checkboxes. Compare each page in this pass with the original before using any text.</p>
+        <h3 className="font-bold">{t("Read text on this device")}</h3>
+        <p className="mt-1 text-xs text-slate-300">{fullDocument ? t("The selected manual is read from beginning to end. Embedded text is read directly; scanned pages use text recognition on this device. You can pause and resume without losing completed pages.") : t("Choose a PNG, JPEG, WebP image, or PDF. Large images are resized locally for recognition. PDFs are read in batches of up to 10 pages.")} {onUseGuide ? t("Saving reviewed text requires this exact PDF to be attached to the equipment first.") : t("Reading does not save or import records.")}</p>
+        <p className="mt-1 text-xs text-amber-200">{t("Recognition can miss or misread text, entire rows, and checkboxes. Compare each page in this pass with the original before using any text.")}</p>
       </div>
-      {sourceFile === undefined && <label className="block font-semibold">
-        Choose a document or image
-        <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp" disabled={busy || !authenticated} onChange={event => { void selectFile(event.currentTarget.files?.[0] || null); event.currentTarget.value = ""; }} className="mt-1 block w-full text-xs" />
+      {sourceFile === undefined && <label className="block font-semibold">{t("Choose a document or image")}<input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp" disabled={busy || !authenticated} onChange={event => { void selectFile(event.currentTarget.files?.[0] || null); event.currentTarget.value = ""; }} className="mt-1 block w-full text-xs" />
       </label>}
-      {sourceFile === null && <p className="text-xs text-slate-300">Choose the manual PDF or label image above. The same file is used here.</p>}
-      {!authenticated && <p role="status" className="text-xs text-slate-300">Sign in to use the document reader.</p>}
+      {sourceFile === null && <p className="text-xs text-slate-300">{t("Choose the manual PDF or label image above. The same file is used here.")}</p>}
+      {!authenticated && <p role="status" className="text-xs text-slate-300">{t("Sign in to use the document reader.")}</p>}
       {fileKind === "pdf" && !fullDocument && <fieldset className="flex flex-wrap items-end gap-2 text-xs text-slate-200">
-        <legend className="font-semibold">PDF page range (up to 10 pages per batch)</legend>
-        <label>First page <input aria-label="First PDF page" type="number" min={1} step={1} value={firstPage} disabled={busy} onChange={event => { setFirstPage(event.target.value); setPages([]); setReviewed(false); setStatus(""); }} className="ml-1 w-20 rounded border border-slate-600 bg-slate-950 p-1 text-white" /></label>
-        <label>Last page <input aria-label="Last PDF page" type="number" min={1} step={1} value={lastPage} disabled={busy} onChange={event => { setLastPage(event.target.value); setPages([]); setReviewed(false); setStatus(""); }} className="ml-1 w-20 rounded border border-slate-600 bg-slate-950 p-1 text-white" /></label>
-        <span>Leave blank to read the first batch, or select a range.</span>
+        <legend className="font-semibold">{t("PDF page range (up to 10 pages per batch)")}</legend>
+        <label>{t("First page")} <input aria-label={t("First PDF page")} type="number" min={1} step={1} value={firstPage} disabled={busy} onChange={event => { setFirstPage(event.target.value); setPages([]); setReviewed(false); setStatus(""); }} className="ml-1 w-20 rounded border border-slate-600 bg-slate-950 p-1 text-white" /></label>
+        <label>{t("Last page")} <input aria-label={t("Last PDF page")} type="number" min={1} step={1} value={lastPage} disabled={busy} onChange={event => { setLastPage(event.target.value); setPages([]); setReviewed(false); setStatus(""); }} className="ml-1 w-20 rounded border border-slate-600 bg-slate-950 p-1 text-white" /></label>
+        <span>{t("Leave blank to read the first batch, or select a range.")}</span>
       </fieldset>}
       <div className="flex flex-wrap gap-2">
-        <button type="button" disabled={!authenticated || !file || busy} onClick={() => void recognize(undefined,canResume)} className="min-h-10 rounded-lg border border-sky-600 px-3 py-1 font-semibold text-sky-100 disabled:opacity-50">{savingGuide ? "Saving…" : busy ? "Reading…" : canResume ? "Resume reading" : fullDocument && fileKind === 'pdf' ? "Read whole document" : "Read text"}</button>
-        {busy && <button type="button" onClick={stop} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1">{savingGuide ? "Cancel save" : "Stop reading"}</button>}
-        {canResume && !busy && <button type="button" onClick={() => void recognize()} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1">Read again from page 1</button>}
-        {file && !busy && <button type="button" onClick={() => onSourceFileChange ? onSourceFileChange(null) : void selectFile(null)} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1">Clear document</button>}
+        <button type="button" disabled={!authenticated || !file || busy} onClick={() => void recognize(undefined,canResume)} className="min-h-10 rounded-lg border border-sky-600 px-3 py-1 font-semibold text-sky-100 disabled:opacity-50">{savingGuide ? t("Saving…") : busy ? t("Reading…") : canResume ? t("Resume reading") : fullDocument && fileKind === 'pdf' ? t("Read whole document") : t("Read text")}</button>
+        {busy && <button type="button" onClick={stop} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1">{savingGuide ? t("Cancel save") : t("Stop reading")}</button>}
+        {canResume && !busy && <button type="button" onClick={() => void recognize()} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1">{t("Read again from page 1")}</button>}
+        {file && !busy && <button type="button" onClick={() => onSourceFileChange ? onSourceFileChange(null) : void selectFile(null)} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1">{t("Clear document")}</button>}
       </div>
-      {status && <p role="status" className="text-xs text-slate-200">{status}</p>}
-      {error && <p role="alert" className="text-xs text-amber-200">{error}</p>}
+      {status && <p role="status" className="text-xs text-slate-200">{t(status)}</p>}
+      {error && <p role="alert" className="text-xs text-amber-200">{t(error)}</p>}
       {file && previewUrl && <div className="grid gap-3 lg:grid-cols-2">
         <div className="min-w-0 space-y-1">
-          <h4 className="break-all font-semibold">Original: {file.name}</h4>
+          <h4 className="break-all font-semibold">{t("Original:")} {file.name}</h4>
           {fileKind === "pdf"
             ? <PdfHtmlPreview key={previewUrl} file={file} />
             : <div ref={imagePreviewHost} className="relative">
-                {!showImagePreview ? <p className="pr-10 text-xs text-slate-300">This large image will be resized locally for recognition. Open the original to compare the result.</p>
-                  : <picture><img src={previewUrl} draggable={false} alt={`Original document: ${file.name}`} className="max-h-96 w-full rounded-lg border border-slate-700 object-contain" /></picture>}
+                {!showImagePreview ? <p className="pr-10 text-xs text-slate-300">{t("This large image will be resized locally for recognition. Open the original to compare the result.")}</p>
+                  : <picture><img src={previewUrl} draggable={false} alt={t("Original document: {name}", {name:file.name})} className="max-h-96 w-full rounded-lg border border-slate-700 object-contain" /></picture>}
                 <PdfArtworkZoom key={previewUrl} host={imagePreviewHost} imageUrl={previewUrl} />
               </div>}
-          <a href={previewUrl} download={file.name} className="inline-block text-xs text-sky-300 underline">Download original for comparison</a>
+          <a href={previewUrl} download={file.name} className="inline-block text-xs text-sky-300 underline">{t("Download original for comparison")}</a>
         </div>
         <div className="min-w-0 space-y-3">
-          <h4 className="font-semibold">Extracted text</h4>
-          {!pages.length && <p className="text-xs text-slate-400">Select Read text to begin.</p>}
-          {pages.map(page => <label key={page.page} className="block text-xs font-semibold">Page {page.page}
-            <textarea aria-label={`Extracted text, page ${page.page}`} value={page.text} disabled={busy} onChange={event => editPage(page.page, event.target.value)} rows={10} spellCheck={false} className="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-950 p-2 font-mono text-xs text-white" />
+          <h4 className="font-semibold">{t("Extracted text")}</h4>
+          {!pages.length && <p className="text-xs text-slate-400">{t("Select Read text to begin.")}</p>}
+          {pages.map(page => <label key={page.page} className="block text-xs font-semibold">{t("Page")} {page.page}
+            <textarea aria-label={t("Extracted text, page {page}", {page:page.page})} value={page.text} disabled={busy} onChange={event => editPage(page.page, event.target.value)} rows={10} spellCheck={false} className="mt-1 block w-full rounded-lg border border-slate-600 bg-slate-950 p-2 font-mono text-xs text-white" />
           </label>)}
         </div>
       </div>}
       {pages.length > 0 && <div className="space-y-2">
         <label className="flex items-start gap-2 text-xs text-amber-100">
-          <input type="checkbox" disabled={busy} checked={reviewed} onChange={event => setReviewed(event.target.checked)} />
-          I compared each page in this pass and corrected the text I intend to use. I understand entire rows or fields may be missing{!fullDocument && firstPage && lastPage ? `, and pages outside ${firstPage}–${lastPage} were not read` : ""}.
+          <input type="checkbox" disabled={busy} checked={reviewed} onChange={event => setReviewed(event.target.checked)} />{t("I compared each page in this pass and corrected the text I intend to use. I understand entire rows or fields may be missing")}{!fullDocument && firstPage && lastPage ? t(", and pages outside {first}–{last} were not read", {first:firstPage, last:lastPage}) : ""}.
         </label>
         <div className="flex flex-wrap gap-2">
-          <button type="button" disabled={!reviewed || busy} onClick={() => void copyText()} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1 disabled:opacity-50">Copy reviewed text</button>
-          {onUseText && <button type="button" disabled={!reviewed || !file || busy} onClick={() => file && onUseText({ fileName: file.name, pages: pages.map(page => ({ ...page })) })} className="min-h-10 rounded-lg border border-sky-500 px-3 py-1 font-semibold text-sky-100 disabled:opacity-50">{useTextLabel}</button>}
-          {onUseGuide && fileKind === "pdf" && <button type="button" disabled={!authenticated || !reviewed || !file || busy || !documentPages || !pages.some(page => page.text.trim())} onClick={() => void saveReviewedGuide()} className="min-h-10 rounded-lg border border-emerald-500 px-3 py-1 font-semibold text-emerald-100 disabled:opacity-50">Use reviewed text in guide</button>}
+          <button type="button" disabled={!reviewed || busy} onClick={() => void copyText()} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1 disabled:opacity-50">{t("Copy reviewed text")}</button>
+          {onUseText && <button type="button" disabled={!reviewed || !file || busy} onClick={() => file && onUseText({ fileName: file.name, pages: pages.map(page => ({ ...page })) })} className="min-h-10 rounded-lg border border-sky-500 px-3 py-1 font-semibold text-sky-100 disabled:opacity-50">{t(useTextLabel)}</button>}
+          {onUseGuide && fileKind === "pdf" && <button type="button" disabled={!authenticated || !reviewed || !file || busy || !documentPages || !pages.some(page => page.text.trim())} onClick={() => void saveReviewedGuide()} className="min-h-10 rounded-lg border border-emerald-500 px-3 py-1 font-semibold text-emerald-100 disabled:opacity-50">{t("Use reviewed text in guide")}</button>}
         </div>
-        {onUseGuide && fileKind === "pdf" && pages.some(page => !page.text.trim()) && <p className="text-xs text-amber-200">Blank pages are not saved to the guide.{!pages.some(page => page.text.trim()) ? " This batch has no nonblank text to save." : " Only reviewed pages containing text will be sent."}</p>}
+        {onUseGuide && fileKind === "pdf" && pages.some(page => !page.text.trim()) && <p className="text-xs text-amber-200">{t("Blank pages are not saved to the guide.")}{!pages.some(page => page.text.trim()) ? t(" This batch has no nonblank text to save.") : t(" Only reviewed pages containing text will be sent.")}</p>}
         {!fullDocument && fileKind === "pdf" && documentPages && nextPage <= documentPages && <div className="space-y-1">
-          <p className="text-xs text-slate-300">Copy or use this batch before continuing. Reading the next batch replaces the text above.</p>
-          <button type="button" disabled={!reviewed || busy} onClick={() => void recognize({ start: nextPage, end: nextBatchEnd })} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1 disabled:opacity-50">Read pages {nextPage}–{nextBatchEnd}</button>
+          <p className="text-xs text-slate-300">{t("Copy or use this batch before continuing. Reading the next batch replaces the text above.")}</p>
+          <button type="button" disabled={!reviewed || busy} onClick={() => void recognize({ start: nextPage, end: nextBatchEnd })} className="min-h-10 rounded-lg border border-slate-500 px-3 py-1 disabled:opacity-50">{t("Read pages")} {nextPage}–{nextBatchEnd}</button>
         </div>}
       </div>}
     </section>

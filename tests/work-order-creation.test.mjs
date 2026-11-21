@@ -103,7 +103,7 @@ test('troubleshooting guide is bottom-placed and restricted to maintenance roles
   assert.match(source,/"engineeringmanager".*"regionalmaintenance".*"technician".*"maintenancetechnician"/s);
   assert.match(source,/\.includes\(currentRoleKey\)/);
   const notesPosition=source.indexOf('Notes / Actions Taken');
-  const guidePosition=source.indexOf('aria-label="Troubleshooting Guide"');
+  const guidePosition=source.indexOf('aria-label={tx("Troubleshooting Guide")}');
   const formEnd=source.indexOf('</form>',notesPosition);
   assert.ok(notesPosition>=0&&guidePosition>notesPosition&&formEnd>guidePosition);
 });

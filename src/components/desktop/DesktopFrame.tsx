@@ -1,5 +1,7 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+
 import { useEffect, useRef, type SyntheticEvent } from "react";
 import { isDesktopRoute } from "@/lib/ui/desktop-windows";
 
@@ -28,6 +30,7 @@ export default function DesktopFrame({
   onOpen: (href: string, title: string) => void;
   onReturnToDesktop: () => void;
 }) {
+  const { tt } = useUiLanguage();
   const cleanupRef = useRef<(() => void) | null>(null);
   const handlersRef = useRef({ onFocus, onOpen, onReturnToDesktop });
   useEffect(() => {
@@ -102,7 +105,7 @@ export default function DesktopFrame({
     <iframe
       allow="camera"
       ref={registerFrame}
-      title={title}
+      title={tt(title)}
       src={src}
       onLoad={handleLoad}
       className="block size-full min-h-0 min-w-0 border-0 bg-slate-950"

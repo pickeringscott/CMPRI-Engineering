@@ -1,4 +1,5 @@
 'use client';
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useEffect, useRef, useState } from 'react';
 import { WINTER_TASKS, WINTER_TASK_IDS, WINTER_YEAR, type WinterItem, type WinterTask } from '@/lib/winter-preparedness';
 import styles from './winter.module.css';
@@ -10,6 +11,7 @@ export default function WinterChecklist({ initial, persist, reload, onClose, rea
   onClose: () => void;
   readOnly?: boolean;
 }) {
+  const { t, locale } = useUiLanguage();
   const [items, setItems] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -43,25 +45,25 @@ export default function WinterChecklist({ initial, persist, reload, onClose, rea
     const saved = items.find(item => item.item_id === task.id);
     return <li key={task.id}>
       <label className={styles.task}>
-        <input type="checkbox" aria-label={task.text} checked={saved?.checked || false} disabled={readOnly || busy || !!error} onChange={event => void change(task, event.target.checked)} />
+        <input type="checkbox" aria-label={t(task.text)} checked={saved?.checked || false} disabled={readOnly || busy || !!error} onChange={event => void change(task, event.target.checked)} />
         <span className={styles.printBox} aria-hidden="true">{saved?.checked ? '✓' : ''}</span>
-        <span>{task.text}</span>
+        <span>{t(task.text)}</span>
       </label>
-      {saved && <p className={styles.attribution}>Last changed by {saved.changed_by_name} · <time dateTime={saved.changed_at}>{new Date(saved.changed_at).toLocaleString()}</time></p>}
+      {saved && <p className={styles.attribution}>{t("Last changed by")}{" "}{saved.changed_by_name} · <time dateTime={saved.changed_at}>{new Date(saved.changed_at).toLocaleString(locale)}</time></p>}
       {task.children && <ul>{task.children.map(renderTask)}</ul>}
     </li>;
   }
   return <main className={styles.page} data-winter-checklist>
     <div className={styles.toolbar}>
-      <p>Shared hotel checklist · {items.filter(item => item.checked).length} / {WINTER_TASK_IDS.length} complete</p>
-      <div><button disabled={busy} onClick={() => void refresh()}>Reload</button><button disabled={busy || !!error} onClick={() => window.print()}>Print</button><button disabled={busy} onClick={onClose}>Close</button></div>
+      <p>{t("Shared hotel checklist ·")}{" "}{items.filter(item => item.checked).length} / {WINTER_TASK_IDS.length}{" "}{t("complete")}</p>
+      <div><button disabled={busy} onClick={() => void refresh()}>{t("Reload")}</button><button disabled={busy || !!error} onClick={() => window.print()}>{t("Print")}</button><button disabled={busy} onClick={onClose}>{t("Close")}</button></div>
     </div>
     <div className={styles.feedback}>
-      {readOnly && <p>Preview: saved progress is shown. Checklist changes are blocked in this preview.</p>}
-      {error ? <p role="alert">{error}</p> : <p role="status" aria-live="polite">{status}</p>}
+      {readOnly && <p>{t("Preview: saved progress is shown. Checklist changes are blocked in this preview.")}</p>}
+      {error ? <p role="alert">{t(error)}</p> : <p role="status" aria-live="polite">{t(status)}</p>}
     </div>
     <article className={styles.sheet}>
-      <header><p className={styles.eyebrow}>Winter Preparedness {WINTER_YEAR}</p><h1>Winter Preparedness Checklist</h1><p>10.10.2026<br />V1<br />Maintenance &amp; IT -&gt; Additional Resources</p></header>
+      <header><p className={styles.eyebrow}>{t("Winter Preparedness")}{" "}{WINTER_YEAR}</p><h1>{t("Winter Preparedness Checklist")}</h1><p>10.10.2026<br />{t("V1")}<br />{t("Maintenance & IT -> Additional Resources")}</p></header>
       <ul className={styles.list}>{WINTER_TASKS.map(renderTask)}</ul>
     </article>
   </main>;

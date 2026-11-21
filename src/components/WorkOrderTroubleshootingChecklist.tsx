@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import styles from './WorkOrderTroubleshootingChecklist.module.css';
 
@@ -58,6 +59,7 @@ function chartParts(label: string): { context: string; detail: string } | null {
 
 /** PM completion/review visuals with explicit work-order ownership for clearing. */
 export default function WorkOrderTroubleshootingChecklist({ workOrderId, session, expectedContextIdentity, ticketRevision, disabledReason, manualUrl, sourceFileName, assetId, sourceSha256, visitId, isOpen = true, onRestartRevision, registerExitFlush, previewSteps,previewReadOnly=false }: Props) {
+  const { t, tt } = useUiLanguage();
   const scope = JSON.stringify([workOrderId, session.hotelId, session.user.id, expectedContextIdentity, ticketRevision]);
   const identity = useRef({ scope, generation: 0 });
   const mounted = useRef(true);
@@ -250,20 +252,20 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
     finally { if (current()) setBusyState(null); }
   };
   return (
-    <section aria-label="Work-order troubleshooting checklist" className="mt-1 space-y-0 [&>p]:leading-tight">
-      {sourceFileName && <p className="text-xs text-slate-300" data-guide-source-file={sourceFileName}>Source: {manualUrl ? <ManualSourceLink userId={session.user.id} href={manualUrl} className="text-sky-300 underline">{sourceFileName}</ManualSourceLink> : sourceFileName}</p>}
-      {preview && <p role="status" className="text-xs text-amber-200">Preview for the edited issue — save the work order to record checks.</p>}
-      {data?.previewReadOnly&&<p role="status" className="text-xs text-amber-200">Preview check marks stay in this browser. Live work orders are unchanged.</p>}
-      {disabledReason && <p role="status" className="text-xs text-amber-200">{disabledReason}</p>}
-      {busy === "load" && !data && <p role="status" className="text-xs text-slate-400">Loading saved checklist…</p>}
-      {message && <div role="alert" className="text-xs text-amber-200">{message} <button type="button" disabled={!!busy || !!disabledReason} onClick={() => void request()} className="underline">Reload checklist</button></div>}
-      {data?.pendingVisits?.filter(earlier => earlier.visitId !== visitId).map(earlier => <p key={earlier.visitId} className="text-xs text-slate-400">An earlier troubleshooting summary is pending. <button type="button" disabled={!!busy} onClick={() => void recoverEarlier(earlier.visitId)} className="underline">Recover earlier summary</button></p>)}
+    <section aria-label={t("Work-order troubleshooting checklist")} className="mt-1 space-y-0 [&>p]:leading-tight">
+      {sourceFileName && <p className="text-xs text-slate-300" data-guide-source-file={sourceFileName}>{t("Source:")} {manualUrl ? <ManualSourceLink userId={session.user.id} href={manualUrl} className="text-sky-300 underline">{sourceFileName}</ManualSourceLink> : sourceFileName}</p>}
+      {preview && <p role="status" className="text-xs text-amber-200">{t("Preview for the edited issue — save the work order to record checks.")}</p>}
+      {data?.previewReadOnly&&<p role="status" className="text-xs text-amber-200">{t("Preview check marks stay in this browser. Live work orders are unchanged.")}</p>}
+      {disabledReason && <p role="status" className="text-xs text-amber-200">{t(disabledReason)}</p>}
+      {busy === "load" && !data && <p role="status" className="text-xs text-slate-400">{t("Loading saved checklist…")}</p>}
+      {message && <div role="alert" className="text-xs text-amber-200">{t(message)} <button type="button" disabled={!!busy || !!disabledReason} onClick={() => void request()} className="underline">{t("Reload checklist")}</button></div>}
+      {data?.pendingVisits?.filter(earlier => earlier.visitId !== visitId).map(earlier => <p key={earlier.visitId} className="text-xs text-slate-400">{t("An earlier troubleshooting summary is pending.")} <button type="button" disabled={!!busy} onClick={() => void recoverEarlier(earlier.visitId)} className="underline">{t("Recover earlier summary")}</button></p>)}
       {display && !display.steps.length && <div className="space-y-0 text-sm leading-tight text-slate-400">
-        <p>{display.reason || "The uploaded document has no instructions matching this description yet."}</p>
+        <p>{display.reason ? t(display.reason) : t("The uploaded document has no instructions matching this description yet.")}</p>
       </div>}
-      {showHandoff && <div role="group" aria-label="Previous technician progress" className="rounded border border-amber-500/40 p-2 text-sm text-amber-100">
-        <p>Another technician has checked steps. Continue their progress or start a new checklist?</p>
-        <div className="flex gap-2"><button type="button" disabled={!!busy} onClick={() => setHandoffChoice(visitId)} className="underline">Continue</button><button type="button" disabled={!!busy} onClick={() => void startNew()} className="underline">Start new</button></div>
+      {showHandoff && <div role="group" aria-label={t("Previous technician progress")} className="rounded border border-amber-500/40 p-2 text-sm text-amber-100">
+        <p>{t("Another technician has checked steps. Continue their progress or start a new checklist?")}</p>
+        <div className="flex gap-2"><button type="button" disabled={!!busy} onClick={() => setHandoffChoice(visitId)} className="underline">{t("Continue")}</button><button type="button" disabled={!!busy} onClick={() => void startNew()} className="underline">{t("Start new")}</button></div>
       </div>}
       {display && !showHandoff && <ol className="divide-y divide-slate-800">
         {display.steps.map((step, index) => {
@@ -286,17 +288,17 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
           return <li ref={index===0?firstStep:undefined} key={step.id} className={styles.step}>
             {showChart && <div className="text-xs font-semibold text-sky-300" data-chart-context>
               {chart.context}
-              {stepManualUrl && step.sourcePages?.length ? <ManualSourceFrame userId={session.user.id} href={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} title={`Manual source page ${step.sourcePages[0]}`} /> : null}
+              {stepManualUrl && step.sourcePages?.length ? <ManualSourceFrame userId={session.user.id} href={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} title={t("Manual source page {page}", {page: step.sourcePages[0]})} /> : null}
             </div>}
             <div className="flex items-start gap-0.5">
-              <button type="button" role="checkbox" aria-checked={visual !== "empty"} aria-label={`Step ${index + 1}: ${step.label}`} aria-describedby={`troubleshooting-status-${step.id}`} data-step-id={step.id} data-preview-status={visual} data-task-status={state?.status || "empty"} title={action === "clear" ? "Uncheck completed step" : nextAction(display, state)} disabled={disabled} onClick={() => void request(step.id, display, action)} className={`${styles.checkbox} shrink-0 outline-offset-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 disabled:cursor-default`}>
+              <button type="button" role="checkbox" aria-checked={visual !== "empty"} aria-label={t("Step {number}: {label}", {number: index + 1, label: step.label})} aria-describedby={`troubleshooting-status-${step.id}`} data-step-id={step.id} data-preview-status={visual} data-task-status={state?.status || "empty"} title={action === "clear" ? tt("Uncheck completed step") : tt(nextAction(display, state))} disabled={disabled} onClick={() => void request(step.id, display, action)} className={`${styles.checkbox} shrink-0 outline-offset-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 disabled:cursor-default`}>
                 <span aria-hidden="true" data-troubleshooting-box className={styles.box} style={{ borderColor: color, color, backgroundColor: visual === "empty" ? "transparent" : `color-mix(in srgb, ${color} 9.4%, transparent)` }}>{visual !== "empty" && <svg className={styles.tick} viewBox="0 0 16 16"><path d="m3 8.5 3.25 3 6.75-7" /></svg>}</span>
               </button>
               <div className="min-w-0 flex-1">
-                <p className="text-sm leading-4 text-slate-200">{chart?.detail || step.label}{semantics && <span data-source-semantics={semantics.kind} aria-label={`Source label: ${semantics.label}`} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}</p>
-                <p id={`troubleshooting-status-${step.id}`} className={showStatus ? "text-[10px] leading-3 text-slate-400" : "sr-only"}>{busy === step.id ? "Saving…" : status}{state?.workerName ? ` · Completed by ${state.workerName}` : ""}{state?.reviewedBy ? ` · Reviewed by ${state.reviewedBy}` : ""}</p>
+                <p className="text-sm leading-4 text-slate-200">{chart?.detail || step.label}{semantics && <span data-source-semantics={semantics.kind} aria-label={t("Source label: {label}", {label: semantics.label})} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}</p>
+                <p id={`troubleshooting-status-${step.id}`} className={showStatus ? "text-[10px] leading-3 text-slate-400" : "sr-only"}>{busy === step.id ? t("Saving…") : t(status)}{state?.workerName ? ` · ${t("Completed by {name}", {name: state.workerName})}` : ""}{state?.reviewedBy ? ` · ${t("Reviewed by {name}", {name: state.reviewedBy})}` : ""}</p>
                 {!!step.media?.length && assetId && stepSha256 && expectedContextIdentity && <WorkOrderStepMedia media={step.media} assetId={assetId} sourceSha256={stepSha256} userId={session.user.id} contextIdentity={expectedContextIdentity} />}
-                {!chart && !step.media?.length && stepManualUrl && step.sourcePages?.length ? <ManualSourceFrame userId={session.user.id} href={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} title={`Manual source page ${step.sourcePages[0]}`} /> : null}
+                {!chart && !step.media?.length && stepManualUrl && step.sourcePages?.length ? <ManualSourceFrame userId={session.user.id} href={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} title={t("Manual source page {page}", {page: step.sourcePages[0]})} /> : null}
               </div>
             </div>
           </li>;

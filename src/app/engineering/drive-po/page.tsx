@@ -1,4 +1,5 @@
 'use client';
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import {useCallback,useEffect,useState} from 'react';
 import {getValidSession} from '@/lib/supabase/client';
 type Status={checkedAt:string;enabled:boolean;integrationEnabled:boolean;pendingEvents:number;lastRun:string|null;lastError:string|null;error?:string;
@@ -6,6 +7,7 @@ type Status={checkedAt:string;enabled:boolean;integrationEnabled:boolean;pending
  access?:{account?:string;folderName?:string;error?:string;accountVerified?:boolean;scopeMetadata?:{reported:boolean;recognized:string[]}};
  lastResult?:{insertedLines:number;ordersEnriched:number;held:{po?:string;fileId?:string;reason:string}[]}|null};
 export default function DrivePoIntakePage(){
+  const {t: ui, locale} = useUiLanguage();
  const [status,setStatus]=useState<Status|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const load=useCallback(async(checkAccess=false)=>{
   const session=await getValidSession();if(!session)throw Error('Sign in to CMPRI to view intake status.');
@@ -26,24 +28,24 @@ export default function DrivePoIntakePage(){
  }
  const active=status?.channels.find(c=>c.status==='active'&&Date.parse(c.expires_at)>Date.parse(status.checkedAt));
  return <main className="mx-auto max-w-4xl space-y-5 p-6">
-  <h1 data-cmpri-page-heading className="text-2xl font-semibold">Purchase order Drive intake</h1>
-  <p>New PDFs in <a className="underline" href="https://drive.google.com/drive/folders/18V2KjCHw2o0uQCVFzu2GGxJ9PghGS7AD" target="_blank" rel="noreferrer">PO Downloads from iBuy</a> can supply missing items for existing matching orders. Conflicting or incomplete documents are held for review.</p>
-  {error&&<p role="alert">{error}</p>}
+  <h1 data-cmpri-page-heading className="text-2xl font-semibold">{ui("Purchase order Drive intake")}</h1>
+  <p>{ui("New PDFs in ")}<a className="underline" href="https://drive.google.com/drive/folders/18V2KjCHw2o0uQCVFzu2GGxJ9PghGS7AD" target="_blank" rel="noreferrer">{ui("PO Downloads from iBuy")}</a>{ui(" can supply missing items for existing matching orders. Conflicting or incomplete documents are held for review.")}</p>
+  {error&&<p role="alert">{ui(error)}</p>}
   {status&&<>
-   <p>{!status.integrationEnabled?'PO imports are disabled or in safe mode.':active?active.sync_received_at?'Drive has confirmed the notification channel.':'Watch registered; awaiting Drive confirmation.':'No active Drive watch.'}</p>
-   {active&&<p>Watch expires: {new Date(active.expires_at).toLocaleString()}. Renewal is automatic.</p>}
-   <p>Pending notifications: {status.pendingEvents}. Last completed run: {status.lastRun?new Date(status.lastRun).toLocaleString():'None'}.</p>
-   {status.access&&<p>{status.access.error||`Access verified for ${status.access.account}: ${status.access.folderName}`}</p>}
-   {status.access?.scopeMetadata&&<p>Google account verified: {status.access.accountVerified?'Yes':'Not yet'}. Drive scopes reported by existing token refresh: {status.access.scopeMetadata.reported?(status.access.scopeMetadata.recognized.join(', ')||'None'):'Not supplied by Google'}.</p>}
-   {status.lastError&&<p role="alert">{status.lastError}</p>}
+   <p>{!status.integrationEnabled?ui("PO imports are disabled or in safe mode."):active?active.sync_received_at?ui("Drive has confirmed the notification channel."):ui("Watch registered; awaiting Drive confirmation."):ui("No active Drive watch.")}</p>
+   {active&&<p>{ui("Watch expires: ")}{new Date(active.expires_at).toLocaleString(locale)}{ui(". Renewal is automatic.")}</p>}
+   <p>{ui("Pending notifications: ")}{status.pendingEvents}{ui(". Last completed run: ")}{status.lastRun?new Date(status.lastRun).toLocaleString(locale):ui("None")}.</p>
+   {status.access&&<p>{status.access.error||ui("Access verified for {value0}: {value1}",{value0:String(status.access.account),value1:String(status.access.folderName)})}</p>}
+   {status.access?.scopeMetadata&&<p>{ui("Google account verified: ")}{status.access.accountVerified?ui("Yes"):ui("Not yet")}{ui(". Drive scopes reported by existing token refresh: ")}{status.access.scopeMetadata.reported?(status.access.scopeMetadata.recognized.join(', ')||ui("None")):ui("Not supplied by Google")}.</p>}
+   {status.lastError&&<p role="alert">{ui(status.lastError)}</p>}
    <div className="flex gap-3">
-    <button className="rounded border px-3 py-2" disabled={busy} onClick={()=>action(false)}>Check access and refresh</button>
-    <button className="rounded border px-3 py-2" disabled={busy||!!active||!status.access?.account||!status.integrationEnabled} onClick={()=>action(true)}>Activate folder notifications</button>
+    <button className="rounded border px-3 py-2" disabled={busy} onClick={()=>action(false)}>{ui("Check access and refresh")}</button>
+    <button className="rounded border px-3 py-2" disabled={busy||!!active||!status.access?.account||!status.integrationEnabled} onClick={()=>action(true)}>{ui("Activate folder notifications")}</button>
    </div>
    {status.lastResult&&<>
-    <p>Last run added {status.lastResult.insertedLines} items to {status.lastResult.ordersEnriched} orders.</p>
-    <h2 className="text-xl font-semibold">Documents requiring review</h2>
-    {status.lastResult.held.length?<table className="w-full text-left"><thead><tr><th>PO or source file</th><th>Reason</th></tr></thead><tbody>{status.lastResult.held.map((h,i)=><tr key={`${h.po||h.fileId}-${i}`}><td>{h.po||h.fileId}</td><td>{h.reason}</td></tr>)}</tbody></table>:<p>No held documents.</p>}
+    <p>{ui("Last run added ")}{status.lastResult.insertedLines}{ui(" items to ")}{status.lastResult.ordersEnriched}{ui(" orders.")}</p>
+    <h2 className="text-xl font-semibold">{ui("Documents requiring review")}</h2>
+    {status.lastResult.held.length?<table className="w-full text-left"><thead><tr><th>{ui("PO or source file")}</th><th>{ui("Reason")}</th></tr></thead><tbody>{status.lastResult.held.map((h,i)=><tr key={`${h.po||h.fileId}-${i}`}><td>{h.po||h.fileId}</td><td>{ui(h.reason)}</td></tr>)}</tbody></table>:<p>{ui("No held documents.")}</p>}
    </>}
   </>}
  </main>;

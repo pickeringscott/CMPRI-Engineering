@@ -91,7 +91,7 @@ test('inner embedded forms get first refusal on Escape before the host closes', 
 });
 
 test('embedded pages keep their existing actions without an injected navigation toolbar', () => {
-  assert.match(source, /aria-label=\{`Close \$\{displayTitle\}`\}/);
+  assert.match(source, /aria-label=\{t\("Close \{value0\}", \{ value0: String\(t\(displayTitle\)\) \}\)\}/);
   assert.doesNotMatch(source, /pageHeader\.style\.display = "none"/);
   assert.doesNotMatch(source, /h-11 shrink-0 items-center justify-end border-b/);
   assert.doesNotMatch(source, /document\.createElement\("a"\)/);
@@ -260,13 +260,13 @@ test('dashboard action pages render without duplicate outer headers when embedde
 
 test('temporary user passwords are masked and excluded from normal autocomplete', () => {
   const users = readFileSync(new URL('../src/app/management/users/page.tsx', import.meta.url), 'utf8');
-  assert.match(users, /type="password" autoComplete="new-password" aria-label="Temporary password"/);
+  assert.match(users, /type="password" autoComplete="new-password" aria-label=\{ui\("Temporary password"\)\}/);
 });
 
 test('Engineering Dashboard screen-launch controls are real buttons that open desktop windows', () => {
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
   const launchers = dashboard.slice(dashboard.indexOf('const launcherGroups'), dashboard.indexOf('function launch('));
-  const navigation = dashboard.slice(dashboard.indexOf('<nav aria-label="Open dashboard windows"'), dashboard.indexOf('</nav>'));
+  const navigation = dashboard.slice(dashboard.indexOf('<nav aria-label={t("Open dashboard windows")}'), dashboard.indexOf('</nav>'));
   const routes = [
     '/engineering/preventive-maintenance',
     '/engineering/purchasing',

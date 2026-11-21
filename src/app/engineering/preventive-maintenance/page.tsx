@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
@@ -113,19 +114,19 @@ function sourceDateIso(value: string) {
   return date.toISOString().slice(0, 10);
 }
 
-function dateLabel(value: string, options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }) {
+function dateLabel(value: string, options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }, locale = "en-US") {
   const date = new Date(`${value}T12:00:00`);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(undefined, options);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(locale, options);
 }
 
-function periodLabel(template: PmTemplate, period: string) {
-  if (template.cadence === "daily") return dateLabel(period, { month: "long", day: "numeric", year: "numeric" });
+function periodLabel(template: PmTemplate, period: string, locale = "en-US") {
+  if (template.cadence === "daily") return dateLabel(period, { month: "long", day: "numeric", year: "numeric" }, locale);
   if (template.cadence === "weekly") {
     const end = new Date(`${period}T12:00:00Z`);
     end.setUTCDate(end.getUTCDate() + 6);
-    return `${dateLabel(period)} – ${dateLabel(end.toISOString().slice(0, 10), { month: "short", day: "numeric", year: "numeric" })}`;
+    return `${dateLabel(period, undefined, locale)} – ${dateLabel(end.toISOString().slice(0, 10), { month: "short", day: "numeric", year: "numeric" }, locale)}`;
   }
-  return dateLabel(period, { month: "long", year: "numeric" });
+  return dateLabel(period, { month: "long", year: "numeric" }, locale);
 }
 
 function entryKey(templateId: string, periodStart: string, scopeKey = "property") {
@@ -163,21 +164,27 @@ function SourceNote({ template }: { template: PmTemplate }) {
   return <span className="text-[11px] text-slate-500">{template.sourceReference}</span>;
 }
 
+function LoadingPmDocumentReader() {
+  const { t } = useUiLanguage();
+  return <p role="status" className="text-sm text-slate-300">{t("Loading document reader…")}</p>;
+}
+
 const LocalOcrReview = dynamic(() => import("@/components/LocalOcrReview"), {
   ssr: false,
-  loading: () => <p role="status" className="text-sm text-slate-300">Loading document reader…</p>,
+  loading: LoadingPmDocumentReader,
 });
 
 /** OCR is a reference inside the existing form, not a PM save or approval. */
 function PmOcrReference() {
+  const { t } = useUiLanguage();
   const [open, setOpen] = useState(false);
   return (
-    <section className="rounded-xl border border-slate-700 bg-slate-900/50 p-3" aria-label="Read an inspection document">
+    <section className="rounded-xl border border-slate-700 bg-slate-900/50 p-3" aria-label={t("Read an inspection document")}>
       <button type="button" aria-expanded={open} aria-controls="pm-ocr-reference" onClick={() => setOpen(value => !value)} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold text-slate-200">
-        {open ? "Close document reader" : "Read a document for reference"}
+        {open ? t("Close document reader") : t("Read a document for reference")}
       </button>
       {open && <div id="pm-ocr-reference" className="mt-3 space-y-2">
-        <p className="text-xs text-slate-300">Compare recognized text with the original document. Copy only reviewed information into this form. Reading a document does not save, complete, or approve a PM record.</p>
+        <p className="text-xs text-slate-300">{t("Compare recognized text with the original document. Copy only reviewed information into this form. Reading a document does not save, complete, or approve a PM record.")}</p>
         <LocalOcrReview />
       </div>}
     </section>
@@ -195,16 +202,17 @@ function FieldInput({
   disabled: boolean;
   onChange: (value: string) => void;
 }) {
+  const { t } = useUiLanguage();
   const base = "mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400 disabled:opacity-50";
   return (
     <label className="block min-w-0">
-      <span className="text-xs font-semibold text-slate-300">{field.label}{field.required ? " *" : ""}</span>
+      <span className="text-xs font-semibold text-slate-300">{t(field.label)}{field.required ? " *" : ""}</span>
       {field.type === "textarea" ? (
         <textarea required={field.required} disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)} rows={3} className={base} />
       ) : field.type === "select" || field.type === "yes-no" ? (
         <select required={field.required} disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)} className={base}>
-          <option value="">Select…</option>
-          {(field.type === "yes-no" ? ["Yes", "No"] : field.options || []).map((option) => <option key={option} value={option}>{option}</option>)}
+          <option value="">{t("Select…")}</option>
+          {(field.type === "yes-no" ? ["Yes", "No"] : field.options || []).map((option) => <option key={option} value={option}>{t(option)}</option>)}
         </select>
       ) : (
         <input required={field.required} disabled={disabled} type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"} value={value} onChange={(event) => onChange(event.target.value)} className={base} />
@@ -214,15 +222,17 @@ function FieldInput({
 }
 
 function SectionHeading({ eyebrow, title, trailing }: { eyebrow?: string; title: string; trailing?: ReactNode }) {
+  const { t } = useUiLanguage();
   return (
     <div className="flex flex-wrap items-end justify-between gap-3">
-      <div>{eyebrow && <p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">{eyebrow}</p>}<h2 className="mt-0.5 text-xl font-bold text-white">{title}</h2></div>
+      <div>{eyebrow && <p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">{t(eyebrow)}</p>}<h2 className="mt-0.5 text-xl font-bold text-white">{t(title)}</h2></div>
       {trailing}
     </div>
   );
 }
 
 export default function PreventiveMaintenancePage() {
+  const { t, tt, locale } = useUiLanguage();
   const embedded = useEmbeddedModal();
   const router = useRouter();
   const [actor, setActor] = useState<PmTaskActor>({ id: "", name: "", role: "manager" });
@@ -900,17 +910,17 @@ export default function PreventiveMaintenancePage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-bold text-white">{template.title}</h3>
-              <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-300">{template.cadence}</span>
-              {complete && <span className="rounded-full border border-emerald-500/30 bg-emerald-950/30 px-2 py-0.5 text-[10px] font-bold text-emerald-200">Complete</span>}
+              <h3 className="font-bold text-white">{t(template.title)}</h3>
+              <span className="rounded-full border border-slate-700 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-300">{t(template.cadence)}</span>
+              {complete && <span className="rounded-full border border-emerald-500/30 bg-emerald-950/30 px-2 py-0.5 text-[10px] font-bold text-emerald-200">{t("Complete")}</span>}
             </div>
-            <p className="mt-0.5 text-xs text-slate-400">{periodLabel(template, periodStart)} · {template.scope}</p>
+            <p className="mt-0.5 text-xs text-slate-400">{periodLabel(template, periodStart, locale)} · {t(template.scope)}</p>
             {saved.filter((entry) => entry.scope_key !== newScope).map((entry) => (
-              <button key={entry.id} type="button" onClick={() => openForm(template, periodStart, entry.scope_key)} className="ml-2 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400">{entry.scope_key.replace(/^[^:]+:/, "")}{entry.is_complete ? " · done" : " · open"}</button>
+              <button key={entry.id} type="button" onClick={() => openForm(template, periodStart, entry.scope_key)} className="ml-2 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200 hover:border-emerald-400">{entry.scope_key.replace(/^[^:]+:/, "")}{entry.is_complete ? t(" · done") : t(" · open")}</button>
             ))}
           </div>
-          {canReview && reviewQueue.filter(proposal => proposal.template_id === template.id && proposal.period_start === periodStart).map(proposal => <button key={proposal.id} type="button" disabled={reviewBusyId === proposal.id} onClick={() => void reviewProposal(proposal, "approve")} className="rounded-lg border border-slate-600 px-3 py-2 text-red-400">✓ Approve {proposal.scope_key.replace(/^[^:]+:/, "")}</button>)}
-          <button type="button" onClick={() => openForm(template, periodStart, existingSingle?.scope_key || newScope)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-slate-950">{!canEdit || (["pending", "processing"].includes(existingSingle?.status || "") && !existingSingle?.can_edit_entry) ? "View form" : existingSingle ? "Open form" : template.scope === "equipment" ? "Add inspection" : "Open form"}</button>
+          {canReview && reviewQueue.filter(proposal => proposal.template_id === template.id && proposal.period_start === periodStart).map(proposal => <button key={proposal.id} type="button" disabled={reviewBusyId === proposal.id} onClick={() => void reviewProposal(proposal, "approve")} className="rounded-lg border border-slate-600 px-3 py-2 text-red-400">{t("✓ Approve")}{" "}{proposal.scope_key.replace(/^[^:]+:/, "")}</button>)}
+          <button type="button" onClick={() => openForm(template, periodStart, existingSingle?.scope_key || newScope)} className="rounded-lg bg-emerald-400 px-3 py-2 text-sm font-bold text-slate-950">{!canEdit || (["pending", "processing"].includes(existingSingle?.status || "") && !existingSingle?.can_edit_entry) ? t("View form") : existingSingle ? t("Open form") : template.scope === "equipment" ? t("Add inspection") : t("Open form")}</button>
         </div>
       </article>
     );
@@ -936,7 +946,7 @@ export default function PreventiveMaintenancePage() {
       <div className="overflow-x-auto rounded-xl border border-slate-800">
         <table data-phone-daily={template.cadence === "daily" || undefined} className="pm-task-table w-full min-w-[760px] border-collapse text-left">
           <thead className="bg-slate-900 text-xs text-slate-400">
-            <tr><th className="sticky left-0 min-w-[270px] bg-slate-900 px-3 py-3">{heading}</th>{periods.map((period, index) => <th key={period} data-current-day={periods.indexOf(period) === phoneDay || undefined} className="min-w-20 px-2 py-3 text-center">{template.cadence === "daily" ? <><span className="block font-bold text-white">{DAY_LABELS[index]}</span><span>{dateLabel(period)}</span></> : <span>{periodLabel(template, period)}</span>}</th>)}</tr>
+            <tr><th className="sticky left-0 min-w-[270px] bg-slate-900 px-3 py-3">{t(heading)}</th>{periods.map((period, index) => <th key={period} data-current-day={periods.indexOf(period) === phoneDay || undefined} className="min-w-20 px-2 py-3 text-center">{template.cadence === "daily" ? <><span className="block font-bold text-white">{t(DAY_LABELS[index])}</span><span>{dateLabel(period, undefined, locale)}</span></> : <span>{periodLabel(template, period, locale)}</span>}</th>)}</tr>
           </thead>
           <tbody>
             {template.checklist.map((item, index) => {
@@ -944,9 +954,9 @@ export default function PreventiveMaintenancePage() {
               return (
               <tr key={item.id} className="border-t border-slate-800/80 hover:bg-slate-900/50">
                 <th scope="row" className="sticky left-0 bg-slate-950 px-3 py-2.5 text-sm font-medium text-slate-200">
-                  {item.category && <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.category}</span>}
-                  {item.label}
-                  {findReferencedPmTemplate(reference, PM_TEMPLATES) && <button type="button" onClick={() => openRoutineReference(reference, periods[0], template.cadence === "weekly")} className="ml-2 text-[10px] font-bold text-emerald-300 hover:underline">Open attached form</button>}
+                  {item.category && <span className="mb-0.5 block text-[10px] font-bold uppercase tracking-wide text-slate-500">{t(item.category)}</span>}
+                  {t(item.label)}
+                  {findReferencedPmTemplate(reference, PM_TEMPLATES) && <button type="button" onClick={() => openRoutineReference(reference, periods[0], template.cadence === "weekly")} className="ml-2 text-[10px] font-bold text-emerald-300 hover:underline">{t("Open attached form")}</button>}
                 </th>
                 {periods.map((period) => {
                   const state = taskState(template, period, item.id);
@@ -960,11 +970,11 @@ export default function PreventiveMaintenancePage() {
                         id={`${history ? "pm-history" : "pm-task"}-${template.id}-${period}-${item.id}`}
                         data-preview-status={visual}
                         aria-checked={visual !== "empty"}
-                        aria-label={`${item.label} · ${dateLabel(period, { month: "long", day: "numeric", year: "numeric" })}${hasPending ? " · pending review" : ""}`}
+                        aria-label={t("{value0} · {value1}{value2}", { value0: t(item.label), value1: dateLabel(period, { month: "long", day: "numeric", year: "numeric" }, locale), value2: hasPending ? t(" · pending review") : "" })}
                         disabled={!canEdit || !taskEditable(state, actor) || !liveWorkbook || savingFor(period)}
                         onClick={() => void updateRoutine(template, period, item.id)}
                         className={`grid h-9 w-9 place-items-center rounded-lg border mx-auto transition ${hasPending ? "border-amber-400 bg-amber-400/15 text-amber-200" : visual === "approved" ? "border-emerald-400 bg-emerald-400 text-slate-950" : "border-slate-600 bg-slate-900 text-transparent hover:border-emerald-400"} disabled:cursor-wait disabled:opacity-50`}
-                        title={`${visual === "needs" ? "Needs approval" : visual === "approved" ? "Approved" : "Not checked"}${state?.workerName ? ` · Completed by ${state.workerName}` : ""}`}
+                        title={tt("{value0}{value1}", { value0: visual === "needs" ? t("Needs approval") : visual === "approved" ? t("Approved") : t("Not checked"), value1: state?.workerName ? t(" · Completed by {name}", { name: state.workerName }) : "" })}
                       >✓</button>
                     </td>
                   );
@@ -992,61 +1002,61 @@ export default function PreventiveMaintenancePage() {
     <main data-pm-mobile="true" data-cmpri-action-surface className="min-h-screen bg-slate-950 text-white">
       <div inert={Boolean(poolRequired)} className="mx-auto w-full max-w-[1600px] px-3 py-4 sm:px-5 lg:px-7">
         {!embedded && <header className="mb-3">
-          <h1 className="text-xl font-bold">Preventive Maintenance</h1>
+          <h1 className="text-xl font-bold">{t("Preventive Maintenance")}</h1>
         </header>}
-        <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-2 sm:p-3" aria-label="Week controls">
+        <section className="rounded-xl border border-slate-800 bg-slate-900/70 p-2 sm:p-3" aria-label={t("Week controls")}>
           <div className="pm-toolbar">
             <div className="pm-date-controls">
-              <button type="button" aria-label="Previous week" onClick={() => changeWeek(-1)}>‹</button>
-              <label><span className="sr-only">Week beginning</span><input type="date" value={weekStart} onChange={(event) => event.target.value && setWeekStart(pmWeekStart(event.target.value))} /></label>
-              <button type="button" aria-label="Next week" onClick={() => changeWeek(1)}>›</button>
+              <button type="button" aria-label={t("Previous week")} onClick={() => changeWeek(-1)}>‹</button>
+              <label><span className="sr-only">{t("Week beginning")}</span><input type="date" value={weekStart} onChange={(event) => event.target.value && setWeekStart(pmWeekStart(event.target.value))} /></label>
+              <button type="button" aria-label={t("Next week")} onClick={() => changeWeek(1)}>›</button>
             </div>
             <div className="pm-toolbar-actions">
-              {canReview && <button type="button" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(value => !value)}>Needs Approval ({pendingTasks.length})</button>}
-              <button type="button" onClick={downloadTransfer}>Export Weekly CSV</button>
+              {canReview && <button type="button" aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen(value => !value)}>{t("Needs Approval (")}{pendingTasks.length})</button>}
+              <button type="button" onClick={downloadTransfer}>{t("Export Weekly CSV")}</button>
 
             </div>
           </div>
           <div className="pm-date-caption">
-            <button type="button" disabled={exportingExcel} onClick={() => void downloadExcel()}>{exportingExcel ? "Exporting…" : "Export Excel"}</button><span>{dateLabel(weekStart, { month: "long", day: "numeric", year: "numeric" })} – {dateLabel(weekEnd, { month: "long", day: "numeric", year: "numeric" })}</span><button type="button" onClick={() => setWeekStart(pmWeekStart(today))}>This week</button></div>
+            <button type="button" disabled={exportingExcel} onClick={() => void downloadExcel()}>{exportingExcel ? t("Exporting…") : t("Export Excel")}</button><span>{dateLabel(weekStart, { month: "long", day: "numeric", year: "numeric" }, locale)} – {dateLabel(weekEnd, { month: "long", day: "numeric", year: "numeric" }, locale)}</span><button type="button" onClick={() => setWeekStart(pmWeekStart(today))}>{t("This week")}</button></div>
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Routine items checked</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.complete}<span className="text-sm font-medium text-slate-500"> / {overallProgress.total}</span></p></div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Weekly progress</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.percent}%</p></div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Forms still open</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{openInspectionCount}</p></div>
-            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">Needs follow-up</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold text-amber-200">{deficientCount}</p></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">{t("Routine items checked")}</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.complete}<span className="text-sm font-medium text-slate-500"> / {overallProgress.total}</span></p></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">{t("Weekly progress")}</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{overallProgress.percent}%</p></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">{t("Forms still open")}</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold">{openInspectionCount}</p></div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950 p-3"><p className="text-xs text-slate-500">{t("Needs follow-up")}</p><p className="cmpri-modal-kpi-value mt-1 text-xl font-bold text-amber-200">{deficientCount}</p></div>
           </div>
         </section>
 
         {taskQueue.periods.length > 0 && <div className="my-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-400/40 p-3 text-sm" role="status">
-          <span>{taskQueue.flushing ? "Saving PM changes…" : `${taskQueue.periods.reduce((count, period) => count + period.changes.length, 0)} PM changes queued. They save when this window closes.`}</span>
-          <button type="button" disabled={taskQueue.flushing} className="rounded border border-slate-500 px-3 py-1.5" onClick={() => void taskQueue.flush().catch(cause => setError(cause instanceof Error ? cause.message : "PM changes could not be saved."))}>Save queued changes</button>
-          <button type="button" disabled={taskQueue.flushing} className="rounded border border-slate-500 px-3 py-1.5" onClick={() => taskQueue.discard()}>Discard queued changes</button>
+          <span>{taskQueue.flushing ? t("Saving PM changes…") : t("{value0} PM changes queued. They save when this window closes.", { value0: taskQueue.periods.reduce((count, period) => count + period.changes.length, 0) })}</span>
+          <button type="button" disabled={taskQueue.flushing} className="rounded border border-slate-500 px-3 py-1.5" onClick={() => void taskQueue.flush().catch(cause => setError(cause instanceof Error ? cause.message : "PM changes could not be saved."))}>{t("Save queued changes")}</button>
+          <button type="button" disabled={taskQueue.flushing} className="rounded border border-slate-500 px-3 py-1.5" onClick={() => taskQueue.discard()}>{t("Discard queued changes")}</button>
         </div>}
 
-        {canReview && notificationsOpen && <section aria-label="PM approvals" className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-600 p-2">{pendingTasks.length ? pendingTasks.map(task => <button key={`${task.template.id}-${task.period}-${task.item.id}`} type="button" className="block w-full p-2 text-left" onClick={() => focusPendingTask(task)} title={`${task.period} · Completed by ${task.name}`}>Needs Review: {task.item.label} · {dateLabel(task.period)}</button>) : <p>No tasks awaiting review.</p>}</section>}
+        {canReview && notificationsOpen && <section aria-label={t("PM approvals")} className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-600 p-2">{pendingTasks.length ? pendingTasks.map(task => <button key={`${task.template.id}-${task.period}-${task.item.id}`} type="button" className="block w-full p-2 text-left" onClick={() => focusPendingTask(task)} title={tt("{value0} · Completed by {value1}", { value0: task.period, value1: task.name })}>{t("Needs Review:")}{" "}{t(task.item.label)} · {dateLabel(task.period, undefined, locale)}</button>) : <p>{t("No tasks awaiting review.")}</p>}</section>}
 
-        <nav className="pm-section-tabs" aria-label="PM sections">
-          {TAB_OPTIONS.map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => setTab(item.id)} className={`shrink-0 rounded-lg px-4 py-2 text-sm font-bold transition ${tab === item.id ? "bg-emerald-400 text-slate-950" : "border border-slate-800 text-slate-300 hover:bg-slate-900"}`}>{item.label}</button>)}
+        <nav className="pm-section-tabs" aria-label={t("PM sections")}>
+          {TAB_OPTIONS.map((item) => <button key={item.id} type="button" aria-current={tab === item.id ? "page" : undefined} onClick={() => setTab(item.id)} className={`shrink-0 rounded-lg px-4 py-2 text-sm font-bold transition ${tab === item.id ? "bg-emerald-400 text-slate-950" : "border border-slate-800 text-slate-300 hover:bg-slate-900"}`}>{t(item.label)}</button>)}
         </nav>
 
-        {error && <div role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-200">{error}</div>}
-        {message && !activeForm && <div role="status" className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</div>}
-        {!canEdit && !loading && !error && <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">The PM service resolved this session as read-only{accessRoles.length ? ` (roles: ${accessRoles.join(", ")})` : ""}. If you are a System Administrator, this role result is incorrect and should be reported to an administrator.</div>}
+        {error && <div role="alert" className="mt-4 rounded-xl border border-red-500/40 bg-red-950/30 p-4 text-sm text-red-200">{t(error)}</div>}
+        {message && !activeForm && <div role="status" className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{t(message)}</div>}
+        {!canEdit && !loading && !error && <div className="mt-4 rounded-xl border border-amber-500/40 bg-amber-950/20 p-3 text-sm text-amber-100">{t("The PM service resolved this session as read-only")}{accessRoles.length ? t(" (roles: {value0})", { value0: accessRoles.join(", ") }) : ""}{t(". If you are a System Administrator, this role result is incorrect and should be reported to an administrator.")}</div>}
 
 
         {tab === "week" && (
           <div className="pm-routines mt-5 space-y-7">
             <div className="phone-switch">{["daily", "weekly", "monthly", "history"].map(value => <button key={value} type="button" aria-pressed={frequency === value} onClick={() => setFrequency(value)}>{value}</button>)}</div>
-            {frequency === "daily" && <div className="phone-days">{weekDates.map((date, index) => <button key={date} type="button" aria-pressed={phoneDay === index} onClick={() => setPhoneDay(index)}>{DAY_LABELS[index]}<small>{dateLabel(date)}</small></button>)}</div>}
+            {frequency === "daily" && <div className="phone-days">{weekDates.map((date, index) => <button key={date} type="button" aria-pressed={phoneDay === index} onClick={() => setPhoneDay(index)}>{t(DAY_LABELS[index])}<small>{dateLabel(date, undefined, locale)}</small></button>)}</div>}
             <section className={frequency !== "daily" ? "pm-phone-hidden" : ""}>
-              <div className="pm-legend"><span><i className="legend-red">✓</i> Needs approval</span><span><i className="legend-green">✓</i> Approved</span></div>
-              <SectionHeading eyebrow="Workbook · daily checkbox grid" title="Daily maintenance" trailing={<span className="text-xs text-slate-400">{dailyDone} / {dailyCount} complete</span>} />
-              <p className="mb-3 mt-1 text-xs text-slate-500">Checkbox changes save together when this window closes. Pool readings are entered in the Pool Log, with a shortcut from its linked form below.</p>
+              <div className="pm-legend"><span><i className="legend-red">✓</i>{" "}{t("Needs approval")}</span><span><i className="legend-green">✓</i>{" "}{t("Approved")}</span></div>
+              <SectionHeading eyebrow={t("Workbook · daily checkbox grid")} title={tt("Daily maintenance")} trailing={<span className="text-xs text-slate-400">{dailyDone} / {dailyCount}{" "}{t("complete")}</span>} />
+              <p className="mb-3 mt-1 text-xs text-slate-500">{t("Checkbox changes save together when this window closes. Pool readings are entered in the Pool Log, with a shortcut from its linked form below.")}</p>
               {renderRoutineTable(dailyTemplate, weekDates, "Routine task")}
             </section>
 
             <section className={frequency !== "weekly" ? "pm-phone-hidden" : ""}>
-              <SectionHeading eyebrow="Live workbook · one completion per week" title="Weekly maintenance" trailing={<span className="text-xs text-slate-400">{weeklyTemplate.checklist.filter((item) => routineStatus(weeklyTemplate, weekStart, item.id)).length} / {weeklyTemplate.checklist.length} complete</span>} />
+              <SectionHeading eyebrow={t("Live workbook · one completion per week")} title={tt("Weekly maintenance")} trailing={<span className="text-xs text-slate-400">{weeklyTemplate.checklist.filter((item) => routineStatus(weeklyTemplate, weekStart, item.id)).length} / {weeklyTemplate.checklist.length}{" "}{t("complete")}</span>} />
               <div className="mt-3">
                 {renderRoutineTable(weeklyTemplate, [weekStart], "Weekly task", (itemId) => weeklyTemplate.checklist.find((item) => item.id === itemId)?.source?.endsWith(".pdf") ? weeklyTemplate.checklist.find((item) => item.id === itemId)!.source! : null)}
               </div>
@@ -1056,7 +1066,7 @@ export default function PreventiveMaintenancePage() {
               const period = templatePeriodsForWeek(template, weekStart)[0];
               return (
                 <section key={template.id} className={frequency !== "monthly" ? "pm-phone-hidden" : ""}>
-                  <SectionHeading eyebrow={`${template.title} · workbook checkboxes`} title={`${dateLabel(period, { month: "long", year: "numeric" })} monthly tasks`} trailing={<span className="text-xs text-slate-400">{template.checklist.filter((item) => routineStatus(template, period, item.id)).length} / {template.checklist.length} complete</span>} />
+                  <SectionHeading eyebrow={t("{value0} · workbook checkboxes", { value0: template.title })} title={tt("{value0} monthly tasks", { value0: dateLabel(period, { month: "long", year: "numeric" }, locale) })} trailing={<span className="text-xs text-slate-400">{template.checklist.filter((item) => routineStatus(template, period, item.id)).length} / {template.checklist.length}{" "}{t("complete")}</span>} />
                   <div className="mt-3">
                     {renderRoutineTable(template, [period], "Monthly task", (itemId) => template.checklist.find((item) => item.id === itemId)?.source || null)}
                   </div>
@@ -1065,14 +1075,14 @@ export default function PreventiveMaintenancePage() {
             })}
 
             <section className={frequency !== "history" ? "pm-phone-hidden" : ""}>
-              <SectionHeading title="Weekly History By Month" />
-              {entries.filter(entry => entry.template_id === PM_WEEKLY_TEMPLATE_ID).map(entry => <article key={entry.id} className="mt-3 rounded-lg border border-slate-700 p-3"><p className="mb-2 font-bold">{dateLabel(entry.period_start, { month: "long", day: "numeric", year: "numeric" })}</p>{renderRoutineTable(weeklyTemplate, [entry.period_start], "Weekly Task", undefined, true)}</article>)}
-              {!entries.some(entry => entry.template_id === PM_WEEKLY_TEMPLATE_ID) && <p className="mt-2 text-sm text-slate-400">No weekly records in the loaded period.</p>}
+              <SectionHeading title={tt("Weekly History By Month")} />
+              {entries.filter(entry => entry.template_id === PM_WEEKLY_TEMPLATE_ID).map(entry => <article key={entry.id} className="mt-3 rounded-lg border border-slate-700 p-3"><p className="mb-2 font-bold">{dateLabel(entry.period_start, { month: "long", day: "numeric", year: "numeric" }, locale)}</p>{renderRoutineTable(weeklyTemplate, [entry.period_start], "Weekly Task", undefined, true)}</article>)}
+              {!entries.some(entry => entry.template_id === PM_WEEKLY_TEMPLATE_ID) && <p className="mt-2 text-sm text-slate-400">{t("No weekly records in the loaded period.")}</p>}
             </section>
             <section>
-              <SectionHeading eyebrow="PDF checklists and logs" title="Inspections due this week" trailing={<button type="button" onClick={() => setTab("inspections")} className="text-sm font-bold text-emerald-300 hover:underline">Browse all forms</button>} />
-              {formPeriods.length ? <div className="mt-2 grid gap-2 xl:grid-cols-2">{formPeriods.map(({ template, periodStart }) => inspectionCard(template, periodStart))}</div> : <p className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">No separate PDF forms are scheduled for this week.</p>}
-              {monthRoutineTotal > 0 && <p className="mt-3 text-xs text-slate-500">Monthly checklist checkboxes completed: {monthRoutineDone} / {monthRoutineTotal}. Keep the checklist and linked inspection form in sync.</p>}
+              <SectionHeading eyebrow={t("PDF checklists and logs")} title={tt("Inspections due this week")} trailing={<button type="button" onClick={() => setTab("inspections")} className="text-sm font-bold text-emerald-300 hover:underline">{t("Browse all forms")}</button>} />
+              {formPeriods.length ? <div className="mt-2 grid gap-2 xl:grid-cols-2">{formPeriods.map(({ template, periodStart }) => inspectionCard(template, periodStart))}</div> : <p className="mt-3 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">{t("No separate PDF forms are scheduled for this week.")}</p>}
+              {monthRoutineTotal > 0 && <p className="mt-3 text-xs text-slate-500">{t("Monthly checklist checkboxes completed:")}{" "}{monthRoutineDone} / {monthRoutineTotal}{t(". Keep the checklist and linked inspection form in sync.")}</p>}
             </section>
           </div>
         )}
@@ -1080,16 +1090,16 @@ export default function PreventiveMaintenancePage() {
         {tab === "inspections" && (
           <div className="mt-5 space-y-7">
             <section>
-              <SectionHeading eyebrow="Source PDFs · interactive CMPRI forms" title="Forms due in the selected week" />
-              <p className="mt-1 text-sm text-slate-400">Checklist marks support complete, needs follow-up, and N/A. Log forms include repeatable inspection rows, measurements, repair dates, initials, and notes where required.</p>
+              <SectionHeading eyebrow={t("Source PDFs · interactive CMPRI forms")} title={tt("Forms due in the selected week")} />
+              <p className="mt-1 text-sm text-slate-400">{t("Checklist marks support complete, needs follow-up, and N/A. Log forms include repeatable inspection rows, measurements, repair dates, initials, and notes where required.")}</p>
               <div className="mt-4 grid gap-3 xl:grid-cols-2">
                 {formPeriods.map(({ template, periodStart }) => inspectionCard(template, periodStart))}
               </div>
-              {!formPeriods.length && <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">No scheduled source forms for this week.</p>}
+              {!formPeriods.length && <p className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-400">{t("No scheduled source forms for this week.")}</p>}
             </section>
             <section>
-              <SectionHeading eyebrow="Source checklist" title="All imported forms" />
-              <p className="mt-1 text-xs text-slate-500">The source catalog covers 33 PDFs; the duplicated Fitness Center file is represented once. Source document and page are retained on each form.</p>
+              <SectionHeading eyebrow={t("Source checklist")} title={tt("All imported forms")} />
+              <p className="mt-1 text-xs text-slate-500">{t("The source catalog covers 33 PDFs; the duplicated Fitness Center file is represented once. Source document and page are retained on each form.")}</p>
               <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {PM_TEMPLATES.filter((template) => template.id.startsWith("pdf:") && template.kind !== "room").map((template) => {
                   const period = defaultFormPeriod(template, weekStart);
@@ -1097,11 +1107,11 @@ export default function PreventiveMaintenancePage() {
                   return (
                     <article key={template.id} className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
                       <div className="flex items-start justify-between gap-2">
-                        <div><p className="font-semibold">{template.title}</p><p className="mt-1 text-xs text-slate-500">{template.cadence} · {template.scope} · {template.checklist.length} items</p></div>
-                        <button type="button" onClick={() => openForm(template, period, template.scope === "equipment" ? "property" : template.scope === "area" ? "area:property" : "property")} className="rounded-md border border-slate-700 px-2 py-1 text-xs font-bold text-emerald-200">{canEdit ? "New" : "View form"}</button>
+                        <div><p className="font-semibold">{t(template.title)}</p><p className="mt-1 text-xs text-slate-500">{t(template.cadence)} · {t(template.scope)} · {template.checklist.length}{" "}{t("items")}</p></div>
+                        <button type="button" onClick={() => openForm(template, period, template.scope === "equipment" ? "property" : template.scope === "area" ? "area:property" : "property")} className="rounded-md border border-slate-700 px-2 py-1 text-xs font-bold text-emerald-200">{canEdit ? t("New") : t("View form")}</button>
                       </div>
                       <SourceNote template={template} />
-                      {records.slice(-3).map((entry) => <button key={entry.id} type="button" onClick={() => openForm(template, entry.period_start, entry.scope_key)} className="mr-1 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200">{entry.scope_key.replace(/^[^:]+:/, "")} · {entry.is_complete ? "Complete" : "Draft"}</button>)}
+                      {records.slice(-3).map((entry) => <button key={entry.id} type="button" onClick={() => openForm(template, entry.period_start, entry.scope_key)} className="mr-1 mt-2 rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-200">{entry.scope_key.replace(/^[^:]+:/, "")} · {entry.is_complete ? t("Complete") : t("Draft")}</button>)}
                     </article>
                   );
                 })}
@@ -1112,12 +1122,12 @@ export default function PreventiveMaintenancePage() {
 
         {tab === "rooms" && roomTemplate && (
           <section className="mt-5">
-            <SectionHeading eyebrow={`Live workbook · ${PM_ROOM_NUMBERS.length} rooms`} title={`Quarterly guest room PM · ${dateLabel(currentQuarterPeriod, { month: "long", year: "numeric" })}`} trailing={<span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">{PM_ROOM_NUMBERS.filter(roomCompleted).length} / {PM_ROOM_NUMBERS.length} rooms complete</span>} />
-            <p className="mt-1 text-sm text-slate-400">Room-quarter completion is a date, separate from item checkboxes. Select a room to complete its room checklist, set rank, record deficiencies, and create a linked work order.</p>
-            <label className="mt-4 block max-w-md"><span className="sr-only">Search rooms</span><input value={roomSearch} onChange={(event) => setRoomSearch(event.target.value)} placeholder="Search room number…" className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" /></label>
+            <SectionHeading eyebrow={t("Live workbook · {value0} rooms", { value0: PM_ROOM_NUMBERS.length })} title={tt("Quarterly guest room PM · {value0}", { value0: dateLabel(currentQuarterPeriod, { month: "long", year: "numeric" }, locale) })} trailing={<span className="rounded-full border border-slate-700 px-3 py-1 text-xs text-slate-300">{PM_ROOM_NUMBERS.filter(roomCompleted).length} / {PM_ROOM_NUMBERS.length}{" "}{t("rooms complete")}</span>} />
+            <p className="mt-1 text-sm text-slate-400">{t("Room-quarter completion is a date, separate from item checkboxes. Select a room to complete its room checklist, set rank, record deficiencies, and create a linked work order.")}</p>
+            <label className="mt-4 block max-w-md"><span className="sr-only">{t("Search rooms")}</span><input value={roomSearch} onChange={(event) => setRoomSearch(event.target.value)} placeholder={t("Search room number…")} className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm outline-none focus:border-emerald-400" /></label>
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full min-w-[620px] text-left text-sm">
-                <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-400"><tr><th className="px-4 py-3">Room</th><th className="px-4 py-3">Quarterly PM date</th><th className="px-4 py-3">Rank</th><th className="px-4 py-3">Status</th><th className="px-4 py-3"></th></tr></thead>
+                <thead className="bg-slate-900 text-xs uppercase tracking-wide text-slate-400"><tr><th className="px-4 py-3">{t("Room")}</th><th className="px-4 py-3">{t("Quarterly PM date")}</th><th className="px-4 py-3">{t("Rank")}</th><th className="px-4 py-3">{t("Status")}</th><th className="px-4 py-3"></th></tr></thead>
                 <tbody>{filteredRooms.map((room) => {
                   const entry = entryFor(roomTemplate, currentQuarterPeriod, `room:${room}`);
                   const quarter = `Q${Math.floor((Number(currentQuarterPeriod.slice(5, 7)) - 1) / 3) + 1}`;
@@ -1125,14 +1135,14 @@ export default function PreventiveMaintenancePage() {
                   const displayDate = entry?.completed_on || sourceDate;
                   const roomRank = String(entry?.form_data?.rank || "—");
                   return <tr key={room} className="border-t border-slate-800/80">
-                    <th className="px-4 py-3 font-bold">Room {room}</th>
-                    <td className="px-4 py-3">{sourceDateIso(displayDate) ? dateLabel(sourceDateIso(displayDate), { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
+                    <th className="px-4 py-3 font-bold">{t("Room")}{" "}{room}</th>
+                    <td className="px-4 py-3">{sourceDateIso(displayDate) ? dateLabel(sourceDateIso(displayDate), { month: "short", day: "numeric", year: "numeric" }, locale) : "—"}</td>
                     <td className="px-4 py-3 text-slate-300">{roomRank}</td>
-                    <td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs ${entry?.status === "pending" ? "border-amber-500/40 bg-amber-950/30 text-amber-100" : displayDate ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-slate-700 text-slate-400"}`}>{entry?.status === "pending" ? "Pending review" : displayDate ? "Complete" : "Due"}</span></td>
-                    <td className="px-4 py-3 text-right">{canReview && reviewQueue.filter(proposal => proposal.template_id === roomTemplate.id && proposal.period_start === currentQuarterPeriod && proposal.scope_key === `room:${room}`).map(proposal => <button key={proposal.id} type="button" onClick={() => void reviewProposal(proposal, "approve")} disabled={reviewBusyId === proposal.id} className="mr-2 rounded-lg border border-slate-600 p-2 text-red-400">✓ Approve</button>)}<button type="button" onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400">{!canEdit || (["pending", "processing"].includes(entry?.status || "") && !entry?.can_edit_entry) ? "View PM form" : entry ? "Open PM" : "Start PM"}</button></td>
+                    <td className="px-4 py-3"><span className={`rounded-full border px-2 py-1 text-xs ${entry?.status === "pending" ? "border-amber-500/40 bg-amber-950/30 text-amber-100" : displayDate ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-200" : "border-slate-700 text-slate-400"}`}>{entry?.status === "pending" ? t("Pending review") : displayDate ? t("Complete") : t("Due")}</span></td>
+                    <td className="px-4 py-3 text-right">{canReview && reviewQueue.filter(proposal => proposal.template_id === roomTemplate.id && proposal.period_start === currentQuarterPeriod && proposal.scope_key === `room:${room}`).map(proposal => <button key={proposal.id} type="button" onClick={() => void reviewProposal(proposal, "approve")} disabled={reviewBusyId === proposal.id} className="mr-2 rounded-lg border border-slate-600 p-2 text-red-400">{t("✓ Approve")}</button>)}<button type="button" onClick={() => openForm(roomTemplate, currentQuarterPeriod, `room:${room}`)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-bold text-emerald-200 hover:border-emerald-400">{!canEdit || (["pending", "processing"].includes(entry?.status || "") && !entry?.can_edit_entry) ? t("View PM form") : entry ? t("Open PM") : t("Start PM")}</button></td>
                   </tr>;
                 })}
-                  {filteredRooms.length === 0 && <tr><td colSpan={5} role="status" className="border-t border-slate-800/80 px-4 py-5 text-center text-slate-400">No rooms match “{roomSearch.trim()}”.</td></tr>}
+                  {filteredRooms.length === 0 && <tr><td colSpan={5} role="status" className="border-t border-slate-800/80 px-4 py-5 text-center text-slate-400">{t("No rooms match “")}{roomSearch.trim()}”.</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -1141,17 +1151,17 @@ export default function PreventiveMaintenancePage() {
 
         {tab === "history" && (
           <section className="mt-5">
-            <SectionHeading eyebrow="CMPRI records" title="Maintenance History" trailing={<button type="button" onClick={downloadTransfer} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950">Download CSV</button>} />
+            <SectionHeading eyebrow={t("CMPRI records")} title={tt("Maintenance History")} trailing={<button type="button" onClick={downloadTransfer} className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-bold text-slate-950">{t("Download CSV")}</button>} />
             <PmRecordedIssues key={actor.id} actorId={actor.id} locations={locations} onOpen={openLinkedWorkOrder} onHistory={()=>setTab("history")} />
-            <p className="mt-2 max-w-4xl text-sm text-slate-400">This is a CMPRI review/export only and does not change Google Sheets. The CSV includes CMPRI checklist responses, scheduled inspection forms, and room completion records.</p>
+            <p className="mt-2 max-w-4xl text-sm text-slate-400">{t("This is a CMPRI review/export only and does not change Google Sheets. The CSV includes CMPRI checklist responses, scheduled inspection forms, and room completion records.")}</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Routine checkbox cells</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{overallProgress.complete} / {overallProgress.total}</p></div>
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Source forms due</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{formPeriods.length}</p></div>
-              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">Room-quarter completions</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{PM_ROOM_NUMBERS.filter(roomCompleted).length} / {PM_ROOM_NUMBERS.length}</p></div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">{t("Routine checkbox cells")}</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{overallProgress.complete} / {overallProgress.total}</p></div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">{t("Source forms due")}</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{formPeriods.length}</p></div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-4"><p className="text-xs text-slate-500">{t("Room-quarter completions")}</p><p className="cmpri-modal-kpi-value mt-1 text-2xl font-bold">{PM_ROOM_NUMBERS.filter(roomCompleted).length} / {PM_ROOM_NUMBERS.length}</p></div>
             </div>
             <div className="mt-4 overflow-x-auto rounded-xl border border-slate-800">
               <table className="w-full min-w-[650px] text-left text-sm">
-                <thead className="bg-slate-900 text-xs uppercase text-slate-400"><tr><th className="px-4 py-3">Cadence</th><th className="px-4 py-3">Checklist / form</th><th className="px-4 py-3">Progress</th><th className="px-4 py-3">Needs work</th></tr></thead>
+                <thead className="bg-slate-900 text-xs uppercase text-slate-400"><tr><th className="px-4 py-3">{t("Cadence")}</th><th className="px-4 py-3">{t("Checklist / form")}</th><th className="px-4 py-3">{t("Progress")}</th><th className="px-4 py-3">{t("Needs work")}</th></tr></thead>
                 <tbody>
                   {[
                     ...routineTemplatesForTransfer(monthTemplates, weekStart),
@@ -1173,9 +1183,9 @@ export default function PreventiveMaintenancePage() {
                       count + template.checklist.filter((item) => entry.responses?.[item.id] === "follow-up").length, 0,
                     );
                     return <tr key={`${template.id}:${period}`} className="border-t border-slate-800">
-                      <td className="px-4 py-3 capitalize text-slate-400">{template.cadence}</td>
-                      <td className="px-4 py-3 font-medium">{template.title}</td>
-                      <td className="px-4 py-3">{template.checklist.length ? `${checked} / ${total}` : record?.is_complete ? "Complete" : "Open"}</td>
+                      <td className="px-4 py-3 capitalize text-slate-400">{t(template.cadence)}</td>
+                      <td className="px-4 py-3 font-medium">{t(template.title)}</td>
+                      <td className="px-4 py-3">{template.checklist.length ? t("{checked} / {total}", { checked: checked, total: total }) : record?.is_complete ? t("Complete") : t("Open")}</td>
                       <td className="px-4 py-3 text-amber-200">{issues || "—"}</td>
                     </tr>;
                   })}
@@ -1183,39 +1193,39 @@ export default function PreventiveMaintenancePage() {
               </table>
             </div>
             <details className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <summary className="cursor-pointer font-semibold">Source records and transfer notes</summary>
+              <summary className="cursor-pointer font-semibold">{t("Source records and transfer notes")}</summary>
               <ul className="mt-3 space-y-1 text-sm text-slate-400">
-                <li>Routine schedules and monthly checkboxes: {PM_TEMPLATES.find((template) => template.id === PM_DAILY_TEMPLATE_ID)?.sourceFile}.</li>
-                <li>Room-quarter dates: the yearly tabs and Room PM Checklist source.</li>
-                <li>Interactive inspection fields: source PDF title and page are shown on each form.</li>
-                <li>No existing corporate spreadsheet completion values were copied or overwritten by this interface.</li>
+                <li>{t("Routine schedules and monthly checkboxes:")}{" "}{PM_TEMPLATES.find((template) => template.id === PM_DAILY_TEMPLATE_ID)?.sourceFile}.</li>
+                <li>{t("Room-quarter dates: the yearly tabs and Room PM Checklist source.")}</li>
+                <li>{t("Interactive inspection fields: source PDF title and page are shown on each form.")}</li>
+                <li>{t("No existing corporate spreadsheet completion values were copied or overwritten by this interface.")}</li>
               </ul>
             </details>
           </section>
         )}
 
-        {loading && <div role="status" className="mt-5 rounded-xl border border-slate-800 bg-slate-900 p-5 text-sm text-slate-400">Loading PM records…</div>}
-        {savingKey && savingKey !== "active-form" && savingKey !== "work-order" && <p className="mt-3 text-right text-xs text-slate-500">Saving your PM entry…</p>}
+        {loading && <div role="status" className="mt-5 rounded-xl border border-slate-800 bg-slate-900 p-5 text-sm text-slate-400">{t("Loading PM records…")}</div>}
+        {savingKey && savingKey !== "active-form" && savingKey !== "work-order" && <p className="mt-3 text-right text-xs text-slate-500">{t("Saving your PM entry…")}</p>}
       </div>
 
-      {poolRequired && <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/80 p-4 backdrop-blur-sm" onKeyDown={event => { if (event.key === "Escape") setPoolRequired(null); }}><section role="dialog" aria-modal="true" aria-labelledby="pm-pool-question" className="max-w-lg rounded-xl border border-slate-600 bg-slate-950 p-6"><p id="pm-pool-question">Would You Like To Create The Pool Log For {dateLabel(poolRequired, { month: "numeric", day: "numeric", year: "2-digit" })}?</p><div className="mt-5 flex justify-center gap-4"><a className="rounded-lg border border-slate-600 p-3 font-bold text-emerald-400" href={`/engineering/pool-log?date=${poolRequired}`}>Open Pool Log</a><button autoFocus type="button" className="rounded-lg border border-slate-600 p-3 font-bold text-red-400" onClick={() => setPoolRequired(null)}>Cancel</button></div></section></div>}
+      {poolRequired && <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/80 p-4 backdrop-blur-sm" onKeyDown={event => { if (event.key === "Escape") setPoolRequired(null); }}><section role="dialog" aria-modal="true" aria-labelledby="pm-pool-question" className="max-w-lg rounded-xl border border-slate-600 bg-slate-950 p-6"><p id="pm-pool-question">{t("Would You Like To Create The Pool Log For")}{" "}{dateLabel(poolRequired, { month: "numeric", day: "numeric", year: "2-digit" }, locale)}?</p><div className="mt-5 flex justify-center gap-4"><a className="rounded-lg border border-slate-600 p-3 font-bold text-emerald-400" href={`/engineering/pool-log?date=${poolRequired}`}>{t("Open Pool Log")}</a><button autoFocus type="button" className="rounded-lg border border-slate-600 p-3 font-bold text-red-400" onClick={() => setPoolRequired(null)}>{t("Cancel")}</button></div></section></div>}
       {activeForm && activeTemplate && (
         <div className="cmpri-modal-backdrop fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-black/80">
           <section role="dialog" aria-modal="true" aria-labelledby="pm-form-title" className="pm-inspection cmpri-modal-shell border border-slate-700 bg-slate-950 shadow-2xl">
             <header className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-3 rounded-t-2xl border-b border-slate-800 bg-slate-950/95 p-4 backdrop-blur sm:p-5">
-              <div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">{activeTemplate.cadence} PM form · {periodLabel(activeTemplate, activeForm.periodStart)}</p><h2 id="pm-form-title" className="mt-1 text-xl font-bold">{activeTemplate.title}{activeTemplate.scope === "room" ? ` · Room ${activeScopeKey.slice(5)}` : ""}</h2><SourceNote template={activeTemplate} /></div>
-              <button type="button" onClick={() => { persistFormWorkspace(); draftFlush.current(); activeFormRef.current = null; setActiveForm(null); setError(""); setMessage(""); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900">Close</button>
+              <div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-emerald-300">{t(activeTemplate.cadence)}{" "}{t("PM form ·")}{" "}{periodLabel(activeTemplate, activeForm.periodStart, locale)}</p><h2 id="pm-form-title" className="mt-1 text-xl font-bold">{t(activeTemplate.title)}{activeTemplate.scope === "room" ? t(" · Room {value0}", { value0: activeScopeKey.slice(5) }) : ""}</h2><SourceNote template={activeTemplate} /></div>
+              <button type="button" onClick={() => { persistFormWorkspace(); draftFlush.current(); activeFormRef.current = null; setActiveForm(null); setError(""); setMessage(""); }} className="rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-900">{t("Close")}</button>
             </header>
             <div className="pm-inspection-body space-y-5 p-4 sm:p-5">
-              {activeTemplate.instructions && <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">{activeTemplate.instructions}</p>}
-              {error && <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-200">{error}</p>}
-              {message && <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{message}</p>}
+              {activeTemplate.instructions && <p className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100">{t(activeTemplate.instructions)}</p>}
+              {error && <p role="alert" className="rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-200">{t(error)}</p>}
+              {message && <p role="status" className="rounded-lg border border-emerald-500/30 bg-emerald-950/25 p-3 text-sm text-emerald-100">{t(message)}</p>}
               {activeCanEdit && <PmOcrReference />}
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">Source period</p><p className="mt-1 text-sm font-semibold">{periodLabel(activeTemplate, activeForm.periodStart)}</p></div>
-                {activeTemplate.kind !== "routine" && <label className="block"><span className="text-xs font-semibold text-slate-300">{activeTemplate.kind === "room" ? "Quarterly room PM completion date *" : "Completion date"}</span><input type="date" disabled={!activeCanEdit || !!savingKey} value={completedOn} onChange={(event) => setCompletedOn(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white disabled:opacity-50" /></label>}
-                {activeTemplate.scope === "room" && <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">Room</p><p className="mt-1 text-sm font-bold">{activeScopeKey.slice(5)}</p></div>}
+                <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">{t("Source period")}</p><p className="mt-1 text-sm font-semibold">{periodLabel(activeTemplate, activeForm.periodStart, locale)}</p></div>
+                {activeTemplate.kind !== "routine" && <label className="block"><span className="text-xs font-semibold text-slate-300">{activeTemplate.kind === "room" ? t("Quarterly room PM completion date *") : t("Completion date")}</span><input type="date" disabled={!activeCanEdit || !!savingKey} value={completedOn} onChange={(event) => setCompletedOn(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white disabled:opacity-50" /></label>}
+                {activeTemplate.scope === "room" && <div className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-500">{t("Room")}</p><p className="mt-1 text-sm font-bold">{activeScopeKey.slice(5)}</p></div>}
                 {activeTemplate.fields.map((field) => (
                   <FieldInput key={field.id} field={field} value={formData[field.id] || ""} disabled={!activeCanEdit || !!savingKey} onChange={(value) => setFormData((current) => ({ ...current, [field.id]: value }))} />
                 ))}
@@ -1223,13 +1233,13 @@ export default function PreventiveMaintenancePage() {
 
               {activeTemplate.checklist.length > 0 && (
                 <section>
-                  <div className="flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-bold">Inspection checklist</h3><p className="mt-0.5 text-xs text-slate-500">Record each item as acceptable, needing follow-up, or not applicable.</p></div><span className="text-xs text-slate-400">{Object.keys(checklist).length} / {activeTemplate.checklist.length} reviewed</span></div>
+                  <div className="flex flex-wrap items-end justify-between gap-2"><div><h3 className="font-bold">{t("Inspection checklist")}</h3><p className="mt-0.5 text-xs text-slate-500">{t("Record each item as acceptable, needing follow-up, or not applicable.")}</p></div><span className="text-xs text-slate-400">{Object.keys(checklist).length} / {activeTemplate.checklist.length}{" "}{t("reviewed")}</span></div>
                   <div className="mt-2 divide-y divide-slate-800 rounded-xl border border-slate-800">
                     {activeTemplate.checklist.map((item) => (
                       <div key={item.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="min-w-0 flex-1"><p className="text-sm text-slate-200">{item.category && <span className="mr-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">{item.category}</span>}{item.label}</p><span className="text-[10px] text-slate-600">{item.source}</span></div>
+                        <div className="min-w-0 flex-1"><p className="text-sm text-slate-200">{item.category && <span className="mr-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">{t(item.category)}</span>}{t(item.label)}</p><span className="text-[10px] text-slate-600">{item.source}</span></div>
                         <div className="flex shrink-0 gap-1">
-                          {(["complete", "follow-up", "na"] as const).map((state) => <button key={state} type="button" disabled={!activeCanEdit || !!savingKey} aria-pressed={checklist[item.id] === state} onClick={() => setChecklist((current) => ({ ...current, [item.id]: state }))} className={`rounded-md border px-2 py-1.5 text-[11px] font-bold ${checklist[item.id] === state ? statusStyle(state === "complete" ? true : state === "follow-up" ? state : "na") : "border-slate-700 text-slate-400 hover:border-slate-500"} disabled:opacity-40`}>{state === "complete" ? "✓ OK" : state === "follow-up" ? "/ Follow-up" : "N/A"}</button>)}
+                          {(["complete", "follow-up", "na"] as const).map((state) => <button key={state} type="button" disabled={!activeCanEdit || !!savingKey} aria-pressed={checklist[item.id] === state} onClick={() => setChecklist((current) => ({ ...current, [item.id]: state }))} className={`rounded-md border px-2 py-1.5 text-[11px] font-bold ${checklist[item.id] === state ? statusStyle(state === "complete" ? true : state === "follow-up" ? state : "na") : "border-slate-700 text-slate-400 hover:border-slate-500"} disabled:opacity-40`}>{state === "complete" ? t("✓ OK") : state === "follow-up" ? t("/ Follow-up") : t("N/A")}</button>)}
                         </div>
                       </div>
                     ))}
@@ -1239,11 +1249,11 @@ export default function PreventiveMaintenancePage() {
 
               {activeTemplate.repeatableFields && (
                 <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 sm:p-4">
-                  <div className="flex items-center justify-between gap-2"><div><h3 className="font-bold">{activeTemplate.repeatableLabel || "Inspection records"}</h3><p className="mt-0.5 text-xs text-slate-500">Add one row for each inspected device, valve, or test location.</p></div><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => [...current, {}])} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-emerald-200 disabled:opacity-40">Add row +</button></div>
+                  <div className="flex items-center justify-between gap-2"><div><h3 className="font-bold">{activeTemplate.repeatableLabel || t("Inspection records")}</h3><p className="mt-0.5 text-xs text-slate-500">{t("Add one row for each inspected device, valve, or test location.")}</p></div><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => [...current, {}])} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-emerald-200 disabled:opacity-40">{t("Add row +")}</button></div>
                   <div className="mt-3 space-y-3">
                     {repeatableRows.map((row, index) => (
                       <div key={index} className="rounded-lg border border-slate-800 bg-slate-950 p-3">
-                        <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Record {index + 1}</p><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="text-xs text-red-300 hover:underline">Remove</button></div>
+                        <div className="flex items-center justify-between"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{t("Record")}{" "}{index + 1}</p><button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => setRepeatableRows((current) => current.filter((_, rowIndex) => rowIndex !== index))} className="text-xs text-red-300 hover:underline">{t("Remove")}</button></div>
                         <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                           {activeTemplate.repeatableFields!.map((field) => <FieldInput key={field.id} field={field} value={row[field.id] || ""} disabled={!activeCanEdit || !!savingKey} onChange={(value) => setRepeatableRows((current) => current.map((item, rowIndex) => rowIndex === index ? { ...item, [field.id]: value } : item))} />)}
                         </div>
@@ -1254,28 +1264,28 @@ export default function PreventiveMaintenancePage() {
               )}
 
               <div className="grid gap-3 lg:grid-cols-2">
-                <label className="block"><span className="text-xs font-semibold text-slate-300">Inspection notes</span><textarea disabled={!activeCanEdit || !!savingKey} value={formNotes} onChange={(event) => setFormNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" placeholder="Record observations, readings, or context…" /></label>
-                <label className="block"><span className="text-xs font-semibold text-amber-200">Deficiencies and follow-up plan</span><textarea disabled={!activeCanEdit || !!savingKey} value={deficiencyNotes} onChange={(event) => setDeficiencyNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400" placeholder="Describe what needs repair and the next step…" /></label>
+                <label className="block"><span className="text-xs font-semibold text-slate-300">{t("Inspection notes")}</span><textarea disabled={!activeCanEdit || !!savingKey} value={formNotes} onChange={(event) => setFormNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-emerald-400" placeholder={t("Record observations, readings, or context…")} /></label>
+                <label className="block"><span className="text-xs font-semibold text-amber-200">{t("Deficiencies and follow-up plan")}</span><textarea disabled={!activeCanEdit || !!savingKey} value={deficiencyNotes} onChange={(event) => setDeficiencyNotes(event.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-amber-500/30 bg-slate-950 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400" placeholder={t("Describe what needs repair and the next step…")} /></label>
               </div>
 
               {deficiencyNotes.trim() && activeCanEdit && (
                 <div className="rounded-xl border border-amber-500/30 bg-amber-950/15 p-3">
-                  <p className="text-sm font-bold text-amber-100">Create a linked work order</p>
-                  <p className="mt-1 text-xs text-amber-100/70">The PM record is saved first. The work order will include the form source, inspection period, marked deficiencies, and your follow-up notes.</p>
+                  <p className="text-sm font-bold text-amber-100">{t("Create a linked work order")}</p>
+                  <p className="mt-1 text-xs text-amber-100/70">{t("The PM record is saved first. The work order will include the form source, inspection period, marked deficiencies, and your follow-up notes.")}</p>
                   <div className="mt-3 flex flex-wrap items-end gap-3">
-                    <label className="min-w-[240px] flex-1"><span className="text-xs font-semibold text-slate-300">Work-order location</span><select value={deficiencyLocationId} onChange={(event) => setDeficiencyLocationId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">Select location…</option>{locations.map((location) => <option key={location.id} value={location.id}>{[location.area, location.room_number, location.name].filter(Boolean).join(" · ")}</option>)}</select></label>
-                    <button type="button" disabled={!activeCanEdit || !!savingKey || !deficiencyLocationId} onClick={() => void createWorkOrderFromDeficiency()} className="rounded-full bg-amber-300 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">{savingKey === "work-order" ? "Creating…" : "Save & create work order"}</button>
+                    <label className="min-w-[240px] flex-1"><span className="text-xs font-semibold text-slate-300">{t("Work-order location")}</span><select value={deficiencyLocationId} onChange={(event) => setDeficiencyLocationId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"><option value="">{t("Select location…")}</option>{locations.map((location) => <option key={location.id} value={location.id}>{[location.area, location.room_number, location.name].filter(Boolean).join(" · ")}</option>)}</select></label>
+                    <button type="button" disabled={!activeCanEdit || !!savingKey || !deficiencyLocationId} onClick={() => void createWorkOrderFromDeficiency()} className="rounded-full bg-amber-300 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">{savingKey === "work-order" ? t("Creating…") : t("Save & create work order")}</button>
                   </div>
                 </div>
               )}
 
-              {pendingLinkMatchesForm && pendingWorkOrderLink && <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100"><span>Work order {pendingWorkOrderLink.displayId} exists but is not yet linked to this PM entry.</span><button type="button" disabled={!!savingKey} onClick={() => void retryPendingWorkOrderLink()} className="rounded-md border border-amber-400/40 px-3 py-1.5 font-bold disabled:opacity-40">Retry link</button></div>}
-              {activeScopeEntry?.work_order_id && <button type="button" onClick={() => openLinkedWorkOrder(activeScopeEntry.work_order_id!)} className="rounded-lg border border-sky-500/30 bg-sky-950/25 px-3 py-2 text-sm font-semibold text-sky-200">Open linked work order</button>}
+              {pendingLinkMatchesForm && pendingWorkOrderLink && <div role="status" className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-sm text-amber-100"><span>{t("Work order")}{" "}{pendingWorkOrderLink.displayId}{" "}{t("exists but is not yet linked to this PM entry.")}</span><button type="button" disabled={!!savingKey} onClick={() => void retryPendingWorkOrderLink()} className="rounded-md border border-amber-400/40 px-3 py-1.5 font-bold disabled:opacity-40">{t("Retry link")}</button></div>}
+              {activeScopeEntry?.work_order_id && <button type="button" onClick={() => openLinkedWorkOrder(activeScopeEntry.work_order_id!)} className="rounded-lg border border-sky-500/30 bg-sky-950/25 px-3 py-2 text-sm font-semibold text-sky-200">{t("Open linked work order")}</button>}
 
               <footer className="flex flex-wrap justify-end gap-2 border-t border-slate-800 pt-4">
-                <button type="button" disabled={exportingExcel} onClick={() => void downloadExcel()} className="rounded-lg border px-4 py-2.5 text-sm font-bold">{exportingExcel ? "Exporting…" : "Export Excel"}</button>
-                <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(false)} className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-bold text-slate-200 disabled:opacity-40">{savingKey === "active-form" ? "Saving…" : "Save draft"}</button>
-                <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(true)} className="rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">Mark complete</button>
+                <button type="button" disabled={exportingExcel} onClick={() => void downloadExcel()} className="rounded-lg border px-4 py-2.5 text-sm font-bold">{exportingExcel ? t("Exporting…") : t("Export Excel")}</button>
+                <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(false)} className="rounded-lg border border-slate-700 px-4 py-2.5 text-sm font-bold text-slate-200 disabled:opacity-40">{savingKey === "active-form" ? t("Saving…") : t("Save draft")}</button>
+                <button type="button" disabled={!activeCanEdit || !!savingKey} onClick={() => void saveActive(true)} className="rounded-lg bg-emerald-400 px-4 py-2.5 text-sm font-bold text-slate-950 disabled:opacity-40">{t("Mark complete")}</button>
               </footer>
             </div>
           </section>

@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -68,7 +69,8 @@ test('browser subscribers share one channel, route only relevant signals, catch 
  const client={auth:{onAuthStateChange(callback){authCallback=callback;return {data:{subscription:{unsubscribe(){unsubscribed++;}}}};}},
  channel(){const channel={on(_type,_filter,callback){channel.change=callback;return channel;},subscribe(callback){channel.status=callback;return channel;}};channels.push(channel);return channel;},removeChannel(){removed++;return Promise.resolve();}};
  const exports={};vm.runInNewContext(ts.default.transpileModule(readFileSync('src/lib/events/browser.ts','utf8'),{compilerOptions:{module:ts.default.ModuleKind.CommonJS,target:ts.default.ScriptTarget.ES2022}}).outputText,{
- exports,require(name){if(name==='@/lib/data-cache/browser')return {invalidateCachedResources:async()=>{},reconcileDeviceDataCache:async()=>{}};if(name.includes('supabase/client'))return {createClient:()=>client};if(name==='./refresh')return {eventRefresh};if(name==='./visibility')return {resourceViewVisible:()=>true,watchResourceVisibility:()=>()=>{}};throw Error(name);},queueMicrotask,crypto:{randomUUID:()=>String(channels.length)},document:{hidden:false,addEventListener:(key,value)=>documentHandlers.set(key,value),removeEventListener:key=>documentHandlers.delete(key)},window:{addEventListener:(key,value)=>handlers.set(key,value),removeEventListener:key=>handlers.delete(key)}});
+ exports,require(name){
+   if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;if(name==='@/lib/data-cache/browser')return {invalidateCachedResources:async()=>{},reconcileDeviceDataCache:async()=>{}};if(name.includes('supabase/client'))return {createClient:()=>client};if(name==='./refresh')return {eventRefresh};if(name==='./visibility')return {resourceViewVisible:()=>true,watchResourceVisibility:()=>()=>{}};throw Error(name);},queueMicrotask,crypto:{randomUUID:()=>String(channels.length)},document:{hidden:false,addEventListener:(key,value)=>documentHandlers.set(key,value),removeEventListener:key=>documentHandlers.delete(key)},window:{addEventListener:(key,value)=>handlers.set(key,value),removeEventListener:key=>handlers.delete(key)}});
  let orders=0,inbox=0;const stopOrders=exports.subscribeResources(['orders'],async()=>orders++),stopInbox=exports.subscribeResources(['inbox'],async()=>inbox++);
  await new Promise(setImmediate);assert.equal(orders,1);assert.equal(inbox,1);
  authCallback('INITIAL_SESSION',{user:{id:'one'}});await new Promise(setImmediate);assert.equal(channels.length,1);
@@ -84,6 +86,7 @@ test('embedded mention inboxes do not allocate redundant Realtime subscriptions'
  const window={self:{},top:{}};
  const exports={};vm.runInNewContext(ts.default.transpileModule(readFileSync('src/components/WorkOrderMentionsInbox.tsx','utf8'),{compilerOptions:{module:ts.default.ModuleKind.CommonJS,target:ts.default.ScriptTarget.ES2022,jsx:ts.default.JsxEmit.ReactJSX}}).outputText,{
  exports,window,require(name){
+   if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;
   if(name==='react')return {useState:value=>[value,()=>{}],useCallback:fn=>fn,useEffect:fn=>{cleanup=fn();}};
   if(name==='@/lib/events/browser')return {subscribeResources:()=>{subscriptions++;return ()=>subscriptions--;}};
   if(name==='react/jsx-runtime')return {jsx:()=>null,jsxs:()=>null};

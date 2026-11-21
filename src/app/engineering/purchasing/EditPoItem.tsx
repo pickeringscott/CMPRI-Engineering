@@ -1,9 +1,11 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import {useEffect,useRef,useState} from 'react';
 export type PendingItemEdit={prepare:()=>false|(()=>Promise<boolean>)};
 type Line={id:string;description:string;uom:string;inventory_item_id:string|null;units_per_order_unit:number|null};
 type Item={id:string;item_name:string;unit_of_measure:string;active:boolean};
 export default function EditPoItem({line,items,received,onSave,feedback,register}:{register?:(edit:PendingItemEdit|null)=>void;line:Line;items:Item[];received:number;onSave:(body:Record<string,unknown>)=>Promise<boolean>;feedback:string}){
+  const {t: ui} = useUiLanguage();
  const [target,setTarget]=useState('keep'),[busy,setBusy]=useState(false);
  const formRef=useRef<HTMLFormElement>(null);
  const operation=useRef(crypto.randomUUID());
@@ -20,9 +22,9 @@ export default function EditPoItem({line,items,received,onSave,feedback,register
  };
  useEffect(()=>{register?.({prepare});return()=>register?.(null);});
  const form=<form ref={formRef} onSubmit={e=>e.preventDefault()}><h3>{line.description}</h3><fieldset disabled={busy} style={{border:0,padding:0,margin:0}} onChange={()=>{operation.current=crypto.randomUUID();}}>
- <label>Item description<textarea name="description" defaultValue={line.description} required maxLength={1000} rows={3}/></label>
- <label>Inventory item<select value={target} onChange={e=>setTarget(e.target.value)}><option value="keep">{items.find(i=>i.id===line.inventory_item_id)?.item_name||"Unmapped"}</option><option value="new">Create new catalog item</option>{items.filter(i=>i.active||i.id===line.inventory_item_id).sort((a,b)=>a.item_name.localeCompare(b.item_name,"en",{sensitivity:"base"})||a.id.localeCompare(b.id)).map(i=><option key={i.id} value={i.id}>{i.item_name} ({i.unit_of_measure})</option>)}</select></label>
- {received>0&&<p>{target==='keep'?'Description only; stock stays unchanged.':`${received} ${line.uom} already received will move to the selected item, along with future receipts. Used or unavailable stock requires review.`}</p>}{target!=='keep'&&<><p>{received>0?'This transfers existing stock; it does not receive these items again.':'Changing this mapping adds no stock. New catalog items start at zero.'}</p>{target==='new'&&<label>Inventory unit<select name="stockUnit" defaultValue={items.find(i=>i.id===line.inventory_item_id)?.unit_of_measure||line.uom}>{['EA','PKG','BOX','CS','LB','OZ','G','KG'].map(u=><option key={u}>{u}</option>)}</select></label>}{received===0&&<label>Inventory units per {line.uom}<input name="factor" type="number" min="0.001" step="0.001" defaultValue={line.units_per_order_unit??1} required/></label>}</>}
- </fieldset>{feedback&&feedback!=='Saved.'&&<p role="alert">{feedback}</p>}</form>;
+ <label>{ui("Item description")}<textarea name="description" defaultValue={line.description} required maxLength={1000} rows={3}/></label>
+ <label>{ui("Inventory item")}<select value={target} onChange={e=>setTarget(e.target.value)}><option value="keep">{items.find(i=>i.id===line.inventory_item_id)?.item_name||ui("Unmapped")}</option><option value="new">{ui("Create new catalog item")}</option>{items.filter(i=>i.active||i.id===line.inventory_item_id).sort((a,b)=>a.item_name.localeCompare(b.item_name,"en",{sensitivity:"base"})||a.id.localeCompare(b.id)).map(i=><option key={i.id} value={i.id}>{i.item_name} ({i.unit_of_measure})</option>)}</select></label>
+ {received>0&&<p>{target==='keep'?ui("Description only; stock stays unchanged."):ui("{value0} {value1} already received will move to the selected item, along with future receipts. Used or unavailable stock requires review.",{value0:String(received),value1:String(line.uom)})}</p>}{target!=='keep'&&<><p>{received>0?ui("This transfers existing stock; it does not receive these items again."):ui("Changing this mapping adds no stock. New catalog items start at zero.")}</p>{target==='new'&&<label>{ui("Inventory unit")}<select name="stockUnit" defaultValue={items.find(i=>i.id===line.inventory_item_id)?.unit_of_measure||line.uom}>{['EA','PKG','BOX','CS','LB','OZ','G','KG'].map(u=><option key={u}>{u}</option>)}</select></label>}{received===0&&<label>{ui("Inventory units per ")}{line.uom}<input name="factor" type="number" min="0.001" step="0.001" defaultValue={line.units_per_order_unit??1} required/></label>}</>}
+ </fieldset>{feedback&&feedback!=='Saved.'&&<p role="alert">{ui(feedback)}</p>}</form>;
  return form;
 }

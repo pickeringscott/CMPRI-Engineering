@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
@@ -29,6 +30,7 @@ const EMPTY_CONNECTION: Connection = {
 };
 
 export default function AiConnectionPage() {
+  const { t: tx } = useUiLanguage();
   const router = useRouter();
   const embedded = useEmbeddedModal();
   const [connection, setConnection] = useState(EMPTY_CONNECTION);
@@ -112,42 +114,42 @@ export default function AiConnectionPage() {
       <div className="mx-auto max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 p-5 sm:p-6">
         <div data-cmpri-page-heading className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">CMPRI · ChatGPT connector</p>
-            <h1 className="mt-1 text-2xl font-bold">Connect ChatGPT</h1>
-            <p className="mt-2 text-sm text-slate-300">Connect your ChatGPT account to CMPRI using OAuth. Each user authorizes their own CMPRI account; no shared CMPRI credential or OpenAI API key is used.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-300">{tx("CMPRI · ChatGPT connector")}</p>
+            <h1 className="mt-1 text-2xl font-bold">{tx("Connect ChatGPT")}</h1>
+            <p className="mt-2 text-sm text-slate-300">{tx("Connect your ChatGPT account to CMPRI using OAuth. Each user authorizes their own CMPRI account; no shared CMPRI credential or OpenAI API key is used.")}</p>
           </div>
-          <button type="button" onClick={close} className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{embedded ? "Done" : "Back to profile"}</button>
+          <button type="button" onClick={close} className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{embedded ? tx("Done") : tx("Back to profile")}</button>
         </div>
 
-        {loading ? <p role="status" className="mt-6 text-sm text-slate-300">Checking connection…</p> : <>
+        {loading ? <p role="status" className="mt-6 text-sm text-slate-300">{tx("Checking connection…")}</p> : <>
           <section className="mt-5 rounded-xl border border-slate-700 bg-slate-950/60 p-4">
-            <p className="text-sm">Status: <span className={connection.oauth_connected ? "font-semibold text-emerald-300" : "font-semibold text-slate-300"}>{connection.oauth_connected ? connection.oauth_access === "read_write" ? "OAuth connected · Read and write" : "OAuth connected · Read only" : connection.personal_link_active ? "Legacy private link active" : "Not connected"}</span></p>
-          <p className="mt-2 text-sm text-slate-300">{connection.message}</p>
-          {connection.oauth_access === "read_only" && <p className="mt-2 text-sm text-amber-200">To upgrade this existing connection: revoke access here, remove the CMPRI app from ChatGPT, then add it again and approve <strong>read and write</strong> access on the CMPRI consent screen.</p>}
+            <p className="text-sm">{tx("Status:")}{" "}<span className={connection.oauth_connected ? "font-semibold text-emerald-300" : "font-semibold text-slate-300"}>{connection.oauth_connected ? connection.oauth_access === "read_write" ? tx("OAuth connected · Read and write") : tx("OAuth connected · Read only") : connection.personal_link_active ? tx("Legacy private link active") : tx("Not connected")}</span></p>
+          <p className="mt-2 text-sm text-slate-300">{tx(connection.message)}</p>
+          {connection.oauth_access === "read_only" && <p className="mt-2 text-sm text-amber-200">{tx("To upgrade this existing connection: revoke access here, remove the CMPRI app from ChatGPT, then add it again and approve")}{" "}<strong>{tx("read and write")}</strong> {tx("access on the CMPRI consent screen.")}</p>}
           </section>
 
           <section className="mt-5 space-y-3 rounded-xl border border-slate-700 p-4">
-          <h2 className="font-semibold">Connect with secure OAuth</h2>
-          <p className="text-sm text-slate-300">In ChatGPT, add a custom MCP app using the CMPRI endpoint below and select <strong>OAuth</strong>. ChatGPT will open CMPRI sign-in; sign in with the Google account linked to your CMPRI profile and approve <strong>read and write</strong> access. CMPRI checks your current role and permissions on every call.</p>
-          <p className="text-sm text-slate-300">There is no payment UI. OpenAI API credits are separate from OAuth and do not pay for ChatGPT model usage; this connection only grants ChatGPT access to your CMPRI account.</p>
+          <h2 className="font-semibold">{tx("Connect with secure OAuth")}</h2>
+          <p className="text-sm text-slate-300">{tx("In ChatGPT, add a custom MCP app using the CMPRI endpoint below and select")}{" "}<strong>{tx("OAuth")}</strong>{tx(". ChatGPT will open CMPRI sign-in; sign in with the Google account linked to your CMPRI profile and approve")}{" "}<strong>{tx("read and write")}</strong> {tx("access. CMPRI checks your current role and permissions on every call.")}</p>
+          <p className="text-sm text-slate-300">{tx("There is no payment UI. OpenAI API credits are separate from OAuth and do not pay for ChatGPT model usage; this connection only grants ChatGPT access to your CMPRI account.")}</p>
           <div className="flex flex-wrap items-center gap-2">
             <code className="min-w-0 flex-1 break-all rounded-lg bg-slate-950 px-3 py-2 text-xs text-sky-200">{connection.endpoint}</code>
-            <button type="button" onClick={() => void copyEndpoint()} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold hover:bg-slate-800">{copied ? "Copied" : "Copy MCP endpoint"}</button>
+            <button type="button" onClick={() => void copyEndpoint()} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold hover:bg-slate-800">{copied ? tx("Copied") : tx("Copy MCP endpoint")}</button>
           </div>
           <ol className="list-inside list-decimal space-y-1 text-sm text-slate-300">
-            <li>Open ChatGPT Apps and create a custom app/connector.</li>
-            <li>Use the CMPRI MCP endpoint and select OAuth authentication.</li>
-            <li>Sign in to CMPRI and approve access for your account.</li>
+            <li>{tx("Open ChatGPT Apps and create a custom app/connector.")}</li>
+            <li>{tx("Use the CMPRI MCP endpoint and select OAuth authentication.")}</li>
+            <li>{tx("Sign in to CMPRI and approve access for your account.")}</li>
           </ol>
           <div className="flex flex-wrap gap-2">
-            <a href="https://chatgpt.com/plugins" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center rounded-lg border border-slate-600 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800">Open ChatGPT apps</a>
+            <a href="https://chatgpt.com/plugins" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center rounded-lg border border-slate-600 px-4 py-2 text-sm font-bold text-white hover:bg-slate-800">{tx("Open ChatGPT apps")}</a>
           </div>
           </section>
 
-          {(connection.oauth_connected || connection.personal_link_active) && <button type="button" disabled={busy} onClick={() => void disconnect()} className="mt-5 rounded-lg border border-red-700 px-4 py-2 text-sm font-bold text-red-200 hover:bg-red-950/30 disabled:opacity-50">{busy ? "Disconnecting…" : "Revoke ChatGPT access"}</button>}
+          {(connection.oauth_connected || connection.personal_link_active) && <button type="button" disabled={busy} onClick={() => void disconnect()} className="mt-5 rounded-lg border border-red-700 px-4 py-2 text-sm font-bold text-red-200 hover:bg-red-950/30 disabled:opacity-50">{busy ? tx("Disconnecting…") : tx("Revoke ChatGPT access")}</button>}
         </>}
-        {message && <p role="status" className="mt-4 text-sm text-emerald-200">{message}</p>}
-        {error && <p role="alert" className="mt-4 text-sm text-red-300">{error}</p>}
+        {message && <p role="status" className="mt-4 text-sm text-emerald-200">{tx(message)}</p>}
+        {error && <p role="alert" className="mt-4 text-sm text-red-300">{tx(error)}</p>}
       </div>
     </main>
   );

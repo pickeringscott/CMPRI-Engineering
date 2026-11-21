@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {makeUiTranslator} from '../src/lib/i18n/ui.ts';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -28,6 +29,7 @@ test('PM document reader stays closed until requested and never changes the form
   const exports = {};
   vm.runInNewContext(code, {
     exports,
+    useUiLanguage: () => ({ t: makeUiTranslator('en') }),
     useState: () => [open, change => { open = typeof change === 'function' ? change(open) : change; }],
     LocalOcrReview: reader,
     require: name => { if (name === 'react/jsx-runtime') return jsxRuntime; throw new Error(`Unexpected dependency ${name}`); },

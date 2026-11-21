@@ -91,6 +91,7 @@ body.cmpri-embedded.cmpri-tally-header .sim-tally{position:fixed;left:auto;right
 <button id="exitAmbient" type="button">Exit theme view</button>
 <noscript><div class="noscript">Enable JavaScript to see the animated game.<br><img src="__STADIUM_IMAGE__" alt="Overhead view of Gies Memorial Stadium"></div></noscript>
 <script>
+__UI_LANGUAGE_SCRIPT__
 /* CMPRI standalone theme preview, v9.0. Photo is embedded for offline portability.
    Integration contract: fixed viewport iframe, shared sign-in/desktop registry,
    shared Illinois/Iowa palette, versioned assets. This file does not activate a site theme. */
@@ -115,7 +116,8 @@ if(EMBEDDED_THEME&&parent!==window){
   bettingNode.textContent=current?data.line:known?'Last Line: '+data.line:'Unavailable';
   let title='Real Betting Point Spread · ESPN';
   if(known){
-   const chief=/chief engineer/i.test(tallyDocument?.querySelector('[data-dashboard-role]')?.textContent||'');
+   const role=tallyDocument?.querySelector('[data-dashboard-role]');
+   const chief=role?.getAttribute('data-cmpri-chief-engineer')==='true'||/chief engineer/i.test(role?.textContent||'');
    const stamp=new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:!chief,timeZoneName:'short'}).format(new Date(at));
    title+=' · '+(typeof data.provider==='string'?data.provider:'Published Line')+' · Checked: '+stamp;
    if(!current)title+=' · Last Known Line; Refresh Unavailable';

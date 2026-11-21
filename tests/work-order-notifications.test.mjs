@@ -253,7 +253,7 @@ test('Technician inbox reads are separate from active notification resolution', 
   assert.match(openInbox, /item\.is_read !== true/);
   assert.match(openInbox, /markServerDashboardNotificationsRead\(dashboardTokenRef\.current, unreadIds\)/);
   assert.doesNotMatch(openInbox, /clearServerDashboardNotifications/);
-  assert.match(dashboard, /Active notifications · \{dashboardInbox\.length\}/);
+  assert.match(dashboard, /\{t\("Active notifications · "\)\}\{dashboardInbox\.length\}/);
 });
 
 test('notification read API updates only the signed-in recipient and unread row', async () => {
@@ -351,9 +351,9 @@ test('technician dashboard excludes CMPRI AI and shows due date beneath ordered 
   const dashboard = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   const layout = readFileSync(new URL('../src/app/layout.tsx', import.meta.url), 'utf8');
   assert.doesNotMatch(layout, /DashboardAssistant/);
-  assert.match(dashboard, /Status → \{statusText\}[\s\S]*Category → \{categoryText\}[\s\S]*Severity\/Priority → \{priorityText\}[\s\S]*Due Date → \{dueLabel\}/);
+  assert.match(dashboard, /\{t\("Status → "\)\}\{t\(statusText\)\}[\s\S]*\{t\("Category → "\)\}\{t\(categoryText\)\}[\s\S]*\{t\("Severity\/Priority → "\)\}\{t\(priorityText\)\}[\s\S]*\{t\("Due Date → "\)\}\{dueLabel\}/);
   assert.match(dashboard, /key:"\/engineering\/pool-log",label:"Pool Log"/);
-  assert.match(dashboard, /[+] Work Order<\/button>/);
+  assert.match(dashboard, /\{t\("[+] Work Order"\)\}<\/button>/);
 });
 
 test('notification endpoint authorizes dashboard recipients and scopes audit records to the property', () => {

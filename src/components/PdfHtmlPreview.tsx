@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PDFDocumentProxy, PDFPageProxy, TextLayer } from 'pdfjs-dist';
@@ -30,6 +31,7 @@ export default function PdfHtmlPreview(props: Props) {
 }
 
 function PreviewDocument({ file, sourceUrl, userId, pageNumbers, isOpen = true, renderPage }: Props) {
+  const { t } = useUiLanguage();
   const [result, setResult] = useState<{ file?: File; sourceUrl?: string; document: Document } | null>(null);
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
@@ -122,22 +124,23 @@ function PreviewDocument({ file, sourceUrl, userId, pageNumbers, isOpen = true, 
   const pages = pageNumbers || (document ? Array.from({ length: document.pdf.numPages }, (_, index) => index + 1) : []);
   return <div ref={surface} data-pdf-html-preview className="min-w-0 space-y-1" style={{backgroundColor:'var(--cmpri-modal-surface,var(--cmpri-palette-modal-base))',color:'var(--cmpri-modal-text,var(--cmpri-palette-modal-text))'}}>
     <div className="flex flex-wrap items-center gap-2 text-xs">
-      <button type="button" disabled={zoom <= 1} onClick={() => setZoom(value => Math.max(1, value - .25))} className="underline">Zoom out</button>
+      <button type="button" disabled={zoom <= 1} onClick={() => setZoom(value => Math.max(1, value - .25))} className="underline">{t("Zoom out")}</button>
       <span>{Math.round(zoom * 100)}%</span>
-      <button type="button" disabled={zoom >= 3} onClick={() => setZoom(value => Math.min(3, value + .25))} className="underline">Zoom in</button>
+      <button type="button" disabled={zoom >= 3} onClick={() => setZoom(value => Math.min(3, value + .25))} className="underline">{t("Zoom in")}</button>
     </div>
-    {error ? <p role="alert" className="text-xs text-amber-200">{error} <button type="button" onClick={() => setRetry(value => value + 1)} className="underline">Retry preview</button></p>
-      : !document ? <p role="status" className="text-xs text-slate-400">{isOpen ? 'Loading original manual for HTML preview…' : 'Open this section to preview the manual.'}</p> : null}
+    {error ? <p role="alert" className="text-xs text-amber-200">{t(error)} <button type="button" onClick={() => setRetry(value => value + 1)} className="underline">{t("Retry preview")}</button></p>
+      : !document ? <p role="status" className="text-xs text-slate-400">{isOpen ? t("Loading original manual for HTML preview…") : t("Open this section to preview the manual.")}</p> : null}
     {pages.map(page => {
       const preview = <div className={styles.viewport}><div style={{ width: `${zoom * 100}%` }}>
         {document && <HtmlPage key={JSON.stringify([file?.name, sourceUrl, retry, page])} document={document} pageNumber={page} isOpen={isOpen} paletteVersion={paletteVersion} />}
       </div></div>;
-      return <div key={page}>{renderPage ? renderPage(page, preview) : <section aria-label={`Original PDF page ${page}`}><p className="text-xs">PDF page {page}</p>{preview}</section>}</div>;
+      return <div key={page}>{renderPage ? renderPage(page, preview) : <section aria-label={t("Original PDF page {page}", {page})}><p className="text-xs">{t("PDF page")} {page}</p>{preview}</section>}</div>;
     })}
   </div>;
 }
 
 function HtmlPage({ document, pageNumber, isOpen, paletteVersion }: { document: Document | null; pageNumber: number; isOpen: boolean; paletteVersion:number }) {
+  const { t } = useUiLanguage();
   const host = useRef<HTMLDivElement>(null);
   const [seen, setSeen] = useState(false);
   const [activated, setActivated] = useState(false);
@@ -211,10 +214,10 @@ function HtmlPage({ document, pageNumber, isOpen, paletteVersion }: { document: 
   }, [document, activated, width, pageNumber, retry, paletteVersion]);
   return <div ref={host} className={styles.page} data-pdf-html-page={pageNumber} style={{ aspectRatio: ratio }}>
     {/* Neutral page colors follow the app; diagrams, source colors and geometry remain intact. */}
-    {image && <picture style={{ display: 'contents' }}><img src={image} draggable={false} alt={`Original PDF page ${pageNumber}, including complete diagrams and tables`} /></picture>}
+    {image && <picture style={{ display: 'contents' }}><img src={image} draggable={false} alt={t("Original PDF page {page}, including complete diagrams and tables", {page:pageNumber})} /></picture>}
     <div ref={layer} className={styles.textLayer} data-pdf-text-layer />
     {image && isOpen && <PdfArtworkZoom key={image} host={host} imageUrl={image} pageNumber={pageNumber} />}
-    {!image && !error && <p role="status" className="absolute left-2 top-2 text-xs opacity-70">{seen ? 'Loading page…' : 'Page loads as you approach it.'}</p>}
-    {error && <p role="alert" className="relative p-2 text-xs text-amber-200">{error} <button type="button" onClick={() => setRetry(value => value + 1)} className="underline">Retry page</button></p>}
+    {!image && !error && <p role="status" className="absolute left-2 top-2 text-xs opacity-70">{seen ? t("Loading page…") : t("Page loads as you approach it.")}</p>}
+    {error && <p role="alert" className="relative p-2 text-xs text-amber-200">{t(error)} <button type="button" onClick={() => setRetry(value => value + 1)} className="underline">{t("Retry page")}</button></p>}
   </div>;
 }
