@@ -1,5 +1,8 @@
 /* Approved v23 appearance. Gestures only reorder these already-authorized DOM controls. */
-export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
+export function mountApprovedMenus(root, groups, onLaunch, layout, onSave, presentation = {}) {
+ const identity=(text,values={})=>text.replace(/\{(\w+)\}/g,(match,key)=>Object.prototype.hasOwnProperty.call(values,key)?String(values[key]):match);
+ let translate=presentation.t||identity,tooltip=presentation.tt||translate;
+ const labels=[];
  const PRESS_MS=320,SLIDE_MS=240,MOUSE_DRAG_PX=12,TOUCH_DRAG_PX=8;
  let observer,suppressedClick,cancelGesture;
  const ghosts=new Set(),cleanups=[];
@@ -7,7 +10,7 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
  const preview=document.createElement('div');preview.className='preview layout-b';
  const header=document.createElement('div');header.className='header chief-mobile';
  const bar=document.createElement('div');bar.className='groups';header.append(bar);preview.append(header);root.append(preview);
- const label=group=>group.querySelector('legend').textContent;
+ const label=group=>group.dataset.layoutLabel||group.querySelector('legend').textContent;
  const emit=()=>onSave({groups:[...bar.children].map(label),buttons:Object.fromEntries([...bar.children].map(g=>[label(g),[...g.querySelectorAll('.buttons>.action')].map(b=>b.dataset.layoutKey)])),widths:Object.fromEntries([...bar.children].map(g=>[label(g),parseFloat(g.classList.contains('collapsed')?g.expandedWidth:g.style.width)||g.offsetWidth])),collapsed:[...bar.children].filter(g=>g.classList.contains('collapsed')).map(label)});
  const listen=(name,fn,options)=>{document.addEventListener(name,fn,options);return()=>document.removeEventListener(name,fn,options)};
  const suppressFor=target=>{suppressedClick={target,until:performance.now()+400}};
@@ -104,13 +107,13 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
   cancelGesture=()=>finish(last,true);
  }
  for(const group of groups){
-  const field=document.createElement('fieldset');field.className='group';
-  const title=document.createElement('legend');title.className='group-title';title.textContent=group.label;title.tabIndex=0;title.setAttribute('role','button');title.setAttribute('aria-expanded','true');title.title='Click or tap to collapse; drag to reorder (touch: long press)';title.setAttribute('aria-label',group.label+'; click or tap to collapse, drag to reorder (touch: long press), or Alt + Left/Right');
+  const field=document.createElement('fieldset');field.className='group';field.dataset.layoutLabel=group.label;
+  const title=document.createElement('legend');title.className='group-title';title.textContent=translate(group.label);title.tabIndex=0;title.setAttribute('role','button');title.setAttribute('aria-expanded','true');title.title=tooltip('Click or tap to collapse; drag to reorder (touch: long press)');title.setAttribute('aria-label',translate('{group}; click or tap to collapse, drag to reorder (touch: long press), or Alt + Left/Right',{group:translate(group.label)}));
   const buttons=document.createElement('div');buttons.className='buttons';
   for(const action of group.items){
-   const b=document.createElement('button');b.type='button';b.className='action';b.dataset.key=action.key;b.dataset.layoutKey=action.key+'::'+action.label.replace(/ \(\d+\)$/,'');b.dataset.control=action.label;b.textContent=action.label;
+   const b=document.createElement('button');b.type='button';b.className='action';b.dataset.key=action.key;b.dataset.layoutKey=action.key+'::'+action.label.replace(/ \(\d+\)$/,'');b.dataset.control=action.label;b.textContent=translate(action.label);
    for(const [key,value]of Object.entries(action.style||{}))b.style.setProperty(key,value);
-   b.title='Drag to reorder within '+group.label+' (touch: long press)';b.oncontextmenu=e=>e.preventDefault();b.onpointerdown=e=>startDrag(e,b,buttons,true);
+   b.title=tooltip('Drag to reorder within {group} (touch: long press)',{group:translate(group.label)});b.oncontextmenu=e=>e.preventDefault();b.onpointerdown=e=>startDrag(e,b,buttons,true);
    b.onclick=e=>{if(!shouldSuppress(b,e))onLaunch(action,Date.now())};
    b.onkeydown=e=>{if(e.altKey&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const other=e.key==='ArrowLeft'?b.previousElementSibling:b.nextElementSibling;if(other){if(e.key==='ArrowLeft')other.before(b);else other.after(b);emit();b.focus()}}};buttons.append(b);
   }
@@ -120,7 +123,7 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
   const min=()=>Math.min(title.offsetWidth+26,root.clientWidth-4);
   field.style.minWidth=min()+'px';field.style.width=Math.min(Math.max(min(),Math.min(layout.widths[group.label]||fit(),fit())),root.clientWidth-4)+'px';
   const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.classList.add('group-outline');svg.setAttribute('aria-hidden','true');field.append(svg);
-  const scroll=document.createElement('input');scroll.type='range';scroll.min=0;scroll.step=1;scroll.value=0;scroll.className='group-scroll';scroll.setAttribute('aria-label','Scroll '+group.label+' buttons');field.append(scroll);
+  const scroll=document.createElement('input');scroll.type='range';scroll.min=0;scroll.step=1;scroll.value=0;scroll.className='group-scroll';scroll.setAttribute('aria-label',translate('Scroll {group} buttons',{group:translate(group.label)}));field.append(scroll);
   field.drawOutline=()=>{
    if(!field.classList.contains('collapsed')){field.style.minWidth=min()+'px';if(parseFloat(field.style.width)<min())field.style.width=min()+'px'}
    const w=field.clientWidth+2,h=field.clientHeight+16,l=11,r=l+title.offsetWidth+6;
@@ -131,7 +134,7 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
   const toggle=e=>{if(shouldSuppress(title,e))return;const closed=field.classList.toggle('collapsed');if(closed){field.expandedWidth=field.style.width;field.style.width=(title.offsetWidth+2)+'px'}else field.style.width=field.expandedWidth;title.setAttribute('aria-expanded',String(!closed));field.drawOutline();emit()};
   title.onclick=toggle;title.onpointerdown=e=>startDrag(e,field,bar,false);title.oncontextmenu=e=>e.preventDefault();
   title.onkeydown=e=>{if(e.altKey&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const other=e.key==='ArrowLeft'?field.previousElementSibling:field.nextElementSibling;if(other){if(e.key==='ArrowLeft')other.before(field);else other.after(field);emit();title.focus()}}else if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle()}};
-  const edge=document.createElement('span');edge.className='resize-edge';edge.tabIndex=0;edge.setAttribute('role','separator');edge.setAttribute('aria-orientation','vertical');edge.setAttribute('aria-label','Resize '+group.label);edge.title='Drag horizontally to resize';field.append(edge);
+  const edge=document.createElement('span');edge.className='resize-edge';edge.tabIndex=0;edge.setAttribute('role','separator');edge.setAttribute('aria-orientation','vertical');edge.setAttribute('aria-label',translate('Resize {group}',{group:translate(group.label)}));edge.title=tooltip('Drag horizontally to resize');field.append(edge);
   const resize=w=>{field.style.width=Math.max(min(),Math.min(w,root.clientWidth-4,fit()))+'px';field.expandedWidth=field.style.width;field.drawOutline()};
   edge.onkeydown=e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();resize(field.offsetWidth+(e.key==='ArrowRight'?10:-10));emit()}};
   edge.oncontextmenu=e=>e.preventDefault();edge.onpointerdown=e=>{
@@ -140,10 +143,27 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave) {
    const finish=(m,cancel=false)=>{if(m.pointerId!==e.pointerId)return;if(cancel)resize(parseFloat(width));else emit();if(edge.hasPointerCapture(e.pointerId))edge.releasePointerCapture(e.pointerId);off.forEach(fn=>fn());document.body.classList.remove('drag-active');cancelGesture=undefined};
    const off=[listen('pointermove',move,{passive:false}),listen('pointerup',m=>finish(m)),listen('pointercancel',m=>finish(m,true))];cancelGesture=()=>finish(e,true);
   };
+  labels.push({group,field,title,buttons,scroll,edge});
   if(layout.collapsed.includes(group.label)){field.expandedWidth=field.style.width;field.classList.add('collapsed');field.style.width='max-content';title.setAttribute('aria-expanded','false')}
  }
  const rank=g=>{const i=layout.groups.indexOf(label(g));return i<0?999:i};[...bar.children].sort((a,b)=>rank(a)-rank(b)).forEach(g=>bar.append(g));
  observer=new ResizeObserver(()=>[...bar.children].forEach(g=>g.drawOutline()));for(const field of bar.children){observer.observe(field);observer.observe(field.querySelector('legend'));field.drawOutline()}
  const blur=()=>cancelGesture?.();window.addEventListener('blur',blur);cleanups.push(()=>window.removeEventListener('blur',blur));
- return()=>{cancelGesture?.();observer.disconnect();cleanups.forEach(fn=>fn());for(const ghost of ghosts)ghost.remove();document.body.classList.remove('drag-active','drag-invalid','menu-reordering');root.replaceChildren()};
+ const dispose=()=>{cancelGesture?.();observer.disconnect();cleanups.forEach(fn=>fn());for(const ghost of ghosts)ghost.remove();document.body.classList.remove('drag-active','drag-invalid','menu-reordering');root.replaceChildren()};
+ // Presentation changes never replace canonical group/action/layout identifiers.
+ dispose.setPresentation=next=>{
+  translate=next.t||identity;tooltip=next.tt||translate;
+  for(const {group,field,title,buttons,scroll,edge} of labels){
+   title.textContent=translate(group.label);
+   if(field.classList.contains('collapsed'))field.style.width=(title.offsetWidth+2)+'px';
+   title.title=tooltip('Click or tap to collapse; drag to reorder (touch: long press)');
+   title.setAttribute('aria-label',translate('{group}; click or tap to collapse, drag to reorder (touch: long press), or Alt + Left/Right',{group:translate(group.label)}));
+   for(const b of buttons.children){const action=group.items.find(item=>item.key===b.dataset.key&&item.label===b.dataset.control);if(!action)continue;
+    b.textContent=translate(action.label);b.title=tooltip('Drag to reorder within {group} (touch: long press)',{group:translate(group.label)});delete b.dataset.staffNotesBaseTitle;
+   }
+   scroll.setAttribute('aria-label',translate('Scroll {group} buttons',{group:translate(group.label)}));
+   edge.setAttribute('aria-label',translate('Resize {group}',{group:translate(group.label)}));edge.title=tooltip('Drag horizontally to resize');field.drawOutline();
+  }
+ };
+ return dispose;
 }

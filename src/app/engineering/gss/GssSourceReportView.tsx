@@ -1,3 +1,5 @@
+"use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import styles from "./GssScorecard.module.css";
 // Native picture keeps report data URLs in the browser without an image-proxy request.
 
@@ -10,8 +12,8 @@ export type SourceReportState =
   | { status: "error" }
   | { status: "ready"; report: SourceReport };
 
-export function formatReportDate(date: string) {
-  return new Date(`${date}T12:00:00Z`).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
+export function formatReportDate(date: string, locale = "en-US") {
+  return new Date(`${date}T12:00:00Z`).toLocaleDateString(locale, { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" });
 }
 
 export function parseSourceReport(value: unknown): SourceReport | null {
@@ -28,13 +30,14 @@ export function parseSourceReport(value: unknown): SourceReport | null {
 }
 
 export default function GssSourceReportView({ state, verifiedDate }: { state: SourceReportState; verifiedDate: string }) {
-  if (state.status === "loading") return <p className={styles.sourceStatus} role="status">Checking for the latest GSS source report…</p>;
-  if (state.status === "error") return <p className={styles.sourceStatus} role="status">The latest GSS source report could not be loaded. The verified report below is dated {formatReportDate(verifiedDate)}.</p>;
-  if (state.report.date <= verifiedDate) return <p className={styles.sourceStatus} role="status">No newer source report was found. The verified report below is dated {formatReportDate(verifiedDate)}.</p>;
+  const { t, locale } = useUiLanguage();
+  if (state.status === "loading") return <p className={styles.sourceStatus} role="status">{t("Checking for the latest GSS source report…")}</p>;
+  if (state.status === "error") return <p className={styles.sourceStatus} role="status">{t("The latest GSS source report could not be loaded. The verified report below is dated")}{" "}{formatReportDate(verifiedDate, locale)}.</p>;
+  if (state.report.date <= verifiedDate) return <p className={styles.sourceStatus} role="status">{t("No newer source report was found. The verified report below is dated")}{" "}{formatReportDate(verifiedDate, locale)}.</p>;
   return <section className={styles.sourceReport} aria-labelledby="gss-source-title">
-    <header><h2 id="gss-source-title">Latest GSS source report</h2><time dateTime={state.report.date}>{formatReportDate(state.report.date)}</time></header>
-    <p>Original report images. The verified tables below are from an earlier report.</p>
-    {state.report.images.map(image => <figure key={image.period}><figcaption>{image.period}</figcaption><picture style={{ display: 'contents' }}><img src={image.dataUrl} alt={`${image.period} in the Marriott GSS report dated ${formatReportDate(state.report.date)}`} /></picture></figure>)}
+    <header><h2 id="gss-source-title">{t("Latest GSS source report")}</h2><time dateTime={state.report.date}>{formatReportDate(state.report.date, locale)}</time></header>
+    <p>{t("Original report images. The verified tables below are from an earlier report.")}</p>
+    {state.report.images.map(image => <figure key={image.period}><figcaption>{t(image.period)}</figcaption><picture style={{ display: 'contents' }}><img src={image.dataUrl} alt={t("{value0} in the Marriott GSS report dated {value1}", { value0: image.period, value1: formatReportDate(state.report.date, locale) })} /></picture></figure>)}
   </section>;
 }
 

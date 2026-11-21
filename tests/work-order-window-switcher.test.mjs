@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -9,6 +10,7 @@ const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKi
 const exports = {};
 const jsx = (type, props) => ({ type, props });
 vm.runInNewContext(code, { exports, require(name) {
+  if (name === '@/components/UiLanguageProvider') return uiLanguageDependency;
   if (name === 'react/jsx-runtime') return { jsx, jsxs: jsx };
   throw new Error(`Unexpected import: ${name}`);
 } });

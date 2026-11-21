@@ -7,6 +7,7 @@ import ts from 'typescript';
 import { JSDOM } from 'jsdom';
 import * as registry from '../src/lib/open-work-orders.ts';
 import * as workspace from '../src/lib/ui/workspace-resume.ts';
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import { defaultWindowRect } from '../src/lib/ui/desktop-windows.ts';
 
 const dom = new JSDOM('<!doctype html><html><body><main><header></header><div data-cmpri-technician-window-anchor></div></main><div id="root"></div></body></html>', {
@@ -29,6 +30,7 @@ const globals = {
   ResizeObserver: class { observe() {} disconnect() {} }, getComputedStyle: dom.window.getComputedStyle,
   CSS: { escape: value => value }, crypto: { randomUUID: () => `technician-modal-${++nextId}` },
   require(name) {
+    if (name === '@/components/UiLanguageProvider') return uiLanguageDependency;
     if (['react', 'react/jsx-runtime', 'react-dom'].includes(name)) return require(name);
     if (name === 'next/navigation') return { usePathname: () => '/technician', useRouter: () => router, useSearchParams: () => new URLSearchParams() };
     if (name === '@/lib/open-work-orders') return registry;

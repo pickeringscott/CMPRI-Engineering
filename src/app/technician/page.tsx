@@ -1,4 +1,7 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { translateNotificationMessage } from "@/lib/i18n/notification-text";
+
 import { subscribeResources } from "@/lib/events/browser";
 import { HOTEL_ID } from "@/lib/constants";
 import PoolStatus from "@/components/desktop/PoolStatus";
@@ -50,6 +53,7 @@ function readSoundPreference() {
 }
 
 export default function TechnicianDashboard() {
+  const { t, tt, locale } = useUiLanguage();
   const router = useRouter();
   const [orders, setOrders] = useState<AssignedWorkOrder[]>([]);
   const [newWorkQueue, setNewWorkQueue] = useState<AssignedWorkOrder[]>([]);
@@ -213,12 +217,12 @@ export default function TechnicianDashboard() {
   const unreadCount = unreadWorkOrderNotificationCount(dashboardInbox);
 
   function renderWorkOrder(order: AssignedWorkOrder) {
-    const roomTitle = order.room || "No location";
-    const issueText = order.issue || "Work order";
+    const roomTitle = order.room || t("No location");
+    const issueText = order.issue || t("Work order");
     const statusText = order.status || "Open";
     const categoryText = order.category || "General";
     const priorityText = order.priority || "Medium";
-    const dueLabel = order.due_by ? new Date(order.due_by).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No due date";
+    const dueLabel = order.due_by ? new Date(order.due_by).toLocaleDateString(locale, { month: "short", day: "numeric", year: "numeric" }) : t("No due date");
 
     return (
       <Link key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="grid gap-2 px-4 py-3 hover:bg-slate-800/50 md:grid-cols-[minmax(0,1fr)_minmax(22rem,auto)] md:items-center">
@@ -228,11 +232,11 @@ export default function TechnicianDashboard() {
         </div>
         <div className="grid gap-1 text-xs text-slate-300 md:text-right">
           <p className="flex flex-wrap gap-x-3 gap-y-1 md:justify-end">
-            <span className="font-medium text-slate-100">Status → {statusText}</span>
-            <span>Category → {categoryText}</span>
-            <span>Severity/Priority → {priorityText}</span>
+            <span className="font-medium text-slate-100">{t("Status → ")}{t(statusText)}</span>
+            <span>{t("Category → ")}{t(categoryText)}</span>
+            <span>{t("Severity/Priority → ")}{t(priorityText)}</span>
           </p>
-          <p className="text-right text-slate-400">Due Date → {dueLabel}</p>
+          <p className="text-right text-slate-400">{t("Due Date → ")}{dueLabel}</p>
         </div>
       </Link>
     );
@@ -283,42 +287,42 @@ export default function TechnicianDashboard() {
         <header className="cmpri-dashboard-titlebar sticky top-0 flex flex-col gap-2 border-b border-slate-800 bg-slate-950/95 pt-2">
           <div className="cmpri-header-shelf">
             <div className="cmpri-header-identity">
-              <h1 data-cmpri-menu-title="" className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight text-amber-300">CMPRI Engineering <DashboardNotificationBell count={unreadCount} label={`${unreadCount} unread notifications`} title="Open notifications" onClick={()=>void toggleInbox()}/></h1>
-              <p data-dashboard-name className="mt-1 text-sm font-semibold">{account?.name?.trim() || "Maintenance Technician"}</p>
-              <p data-dashboard-role className="text-xs text-sky-200/90">Maintenance Technician</p>
+              <h1 data-cmpri-menu-title="" className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight text-amber-300">{t("CMPRI Engineering ")}<DashboardNotificationBell count={unreadCount} label={t("{count} unread notifications", { count: unreadCount })} title={tt("Open notifications")} onClick={()=>void toggleInbox()}/></h1>
+              <p data-dashboard-name className="mt-1 text-sm font-semibold">{account?.name?.trim() || t("Maintenance Technician")}</p>
+              <p data-dashboard-role className="text-xs text-sky-200/90">{t("Maintenance Technician")}</p>
             </div>
-            <div className="cmpri-header-utilities"><PoolStatus controlOnly onOpen={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/pool',title:'Pool'}}))}/><button type="button" className="cmpri-header-create" onClick={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/work-orders',title:'Create Work Order'}}))}>+ Work Order</button></div>
+            <div className="cmpri-header-utilities"><PoolStatus controlOnly onOpen={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/pool',title:'Pool'}}))}/><button type="button" className="cmpri-header-create" onClick={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/work-orders',title:'Create Work Order'}}))}>{t("+ Work Order")}</button></div>
           </div>
-          <nav aria-label="Open dashboard windows" className="cmpri-dashboard-menu-rail w-full min-w-0">
+          <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
             <ApprovedDashboardMenus anchored userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={launchMenuAction} />
           </nav>
         </header>
         <div data-weather-desktop-bulletin-host className="relative z-20 w-full" />
         <div data-cmpri-technician-window-anchor data-can-view-work-orders={canViewWorkOrders} />
 
-        {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{message}</p>}
-        {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{notificationError}</p>}
-        {inboxOpen && <section aria-label="Work-order notifications" className="mt-3 rounded-lg border border-sky-400/40 bg-sky-950/25 p-3">
+        {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{t(message)}</p>}
+        {notificationError && <p role="status" className="mt-3 rounded-md border border-amber-400/40 bg-amber-950/25 p-2.5 text-sm text-amber-100">{t(notificationError)}</p>}
+        {inboxOpen && <section aria-label={t("Work-order notifications")} className="mt-3 rounded-lg border border-sky-400/40 bg-sky-950/25 p-3">
           <div className="flex items-center justify-between gap-3">
-            <h2 className="text-sm font-bold text-sky-100">Active notifications · {dashboardInbox.length}</h2>
-            <button type="button" onClick={() => setInboxOpen(false)} className="rounded-md border border-sky-400/40 px-2.5 py-1 text-xs font-semibold text-sky-100">Close</button>
+            <h2 className="text-sm font-bold text-sky-100">{t("Active notifications · ")}{dashboardInbox.length}</h2>
+            <button type="button" onClick={() => setInboxOpen(false)} className="rounded-md border border-sky-400/40 px-2.5 py-1 text-xs font-semibold text-sky-100">{t("Close")}</button>
           </div>
           {dashboardInbox.length ? <ul className="mt-2 divide-y divide-sky-400/20">
             {dashboardInbox.map((notification) => (
               <li key={notification.id}>
                 <Link href={notification.target_path || (notification.work_order_id ? `/work-orders/${encodeURIComponent(notification.work_order_id)}` : "/technician")} className="block py-2 text-sm text-sky-100 hover:underline">
-                  {notification.message}
-                  {notification.is_read === true && <span className="ml-2 text-xs text-slate-400">Read</span>}
+                  {translateNotificationMessage(notification.message, t)}
+                  {notification.is_read === true && <span className="ml-2 text-xs text-slate-400">{t("Read")}</span>}
                 </Link>
               </li>
             ))}
-          </ul> : <p className="mt-2 text-sm text-slate-300">No active notifications.</p>}
+          </ul> : <p className="mt-2 text-sm text-slate-300">{t("No active notifications.")}</p>}
         </section>}
         <div id="technician-notifications">
           <WorkOrderNotificationBanner
             notifications={notifications}
             onDismiss={dismissNotifications}
-            dismissLabel="Dismiss my alerts"
+            dismissLabel={t("Dismiss my alerts")}
           />
         </div>
 
@@ -326,24 +330,20 @@ export default function TechnicianDashboard() {
           <section role="alert" aria-live="assertive" className="mt-4 rounded-lg border border-emerald-400/50 bg-emerald-950/25 p-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-bold text-emerald-100">
-                {newWorkQueue.length} new work item{newWorkQueue.length === 1 ? "" : "s"} available
-              </p>
+                {newWorkQueue.length === 1 ? t("{count} new work item available", { count: newWorkQueue.length }) : t("{count} new work items available", { count: newWorkQueue.length })}</p>
               <div className="flex gap-2">
-                <button type="button" onClick={toggleSound} aria-pressed={soundEnabled} className="rounded-lg border border-emerald-400/50 px-3 py-1.5 text-xs font-semibold text-emerald-100">
-                  Sound {soundEnabled ? "on" : "off"}
+                <button type="button" onClick={toggleSound} aria-pressed={soundEnabled} className="rounded-lg border border-emerald-400/50 px-3 py-1.5 text-xs font-semibold text-emerald-100">{t("Sound ")}{soundEnabled ? t("on") : t("off")}
                 </button>
-                <button type="button" onClick={dismissNewWork} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-200">
-                  Dismiss
-                </button>
+                <button type="button" onClick={dismissNewWork} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-200">{t("Dismiss")}</button>
               </div>
             </div>
             <ul className="mt-3 divide-y divide-emerald-500/20 overflow-hidden rounded-lg border border-emerald-500/25 bg-slate-950/60">
               {newWorkQueue.slice(0, 6).map((order) => (
                 <li key={order.id}>
                   <Link href={`/work-orders/${encodeURIComponent(order.id)}`} onClick={() => setNewWorkQueue((existing) => existing.filter((item) => item.id !== order.id))} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 hover:bg-emerald-950/40">
-                    <span className="min-w-0 text-sm text-white">{order.room || "No location"} · {order.issue || "Work order"}</span>
+                    <span className="min-w-0 text-sm text-white">{order.room || t("No location")} · {order.issue || t("Work order")}</span>
                     <span className="rounded-full border border-emerald-400/50 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">
-                      {order.technician_name?.trim() ? "Assigned to you" : "Unassigned coverage"}
+                      {order.technician_name?.trim() ? t("Assigned to you") : t("Unassigned coverage")}
                     </span>
                   </Link>
                 </li>
@@ -354,11 +354,11 @@ export default function TechnicianDashboard() {
 
         <section className="mt-4 rounded-lg border border-slate-800 bg-slate-900">
           <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-            <h2 id="technician-assigned-work" tabIndex={-1} className="text-xl font-bold">Assigned Work</h2>
-            <span className="text-sm text-slate-400">{assignedOrders.length} active</span>
+            <h2 id="technician-assigned-work" tabIndex={-1} className="text-xl font-bold">{t("Assigned Work")}</h2>
+            <span className="text-sm text-slate-400">{assignedOrders.length}{t(" active")}</span>
           </div>
-          {loading ? <p className="p-5 text-slate-400">Loading assigned work…</p> : assignedOrders.length === 0 ? (
-            <p className="p-5 text-slate-400">No active work is assigned to you.</p>
+          {loading ? <p className="p-5 text-slate-400">{t("Loading assigned work…")}</p> : assignedOrders.length === 0 ? (
+            <p className="p-5 text-slate-400">{t("No active work is assigned to you.")}</p>
           ) : (
             <div className="divide-y divide-slate-800">
               {assignedOrders.map(renderWorkOrder)}
@@ -368,11 +368,11 @@ export default function TechnicianDashboard() {
 
         <section className="mt-4 rounded-lg border border-slate-800 bg-slate-900">
           <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-            <h2 className="text-xl font-bold">Unassigned Coverage</h2>
-            <span className="text-sm text-slate-400">{unassignedOrders.length} available</span>
+            <h2 className="text-xl font-bold">{t("Unassigned Coverage")}</h2>
+            <span className="text-sm text-slate-400">{unassignedOrders.length}{t(" available")}</span>
           </div>
-          {loading ? <p className="p-5 text-slate-400">Loading unassigned work…</p> : unassignedOrders.length === 0 ? (
-            <p className="p-5 text-slate-400">No unassigned work is available.</p>
+          {loading ? <p className="p-5 text-slate-400">{t("Loading unassigned work…")}</p> : unassignedOrders.length === 0 ? (
+            <p className="p-5 text-slate-400">{t("No unassigned work is available.")}</p>
           ) : (
             <div className="divide-y divide-slate-800">
               {unassignedOrders.map(renderWorkOrder)}

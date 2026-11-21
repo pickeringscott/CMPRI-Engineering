@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { makeUiTranslator, uiTitleCase } from '../src/lib/i18n/ui.ts';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -35,6 +36,7 @@ function loadModule(path) {
   const globals = { exports, window, document, localStorage: window.localStorage, URLSearchParams, setTimeout, clearTimeout, console, crypto: globalThis.crypto, fetch: fetchPm };
   globals.require = name => {
     if (name === 'react' || name === 'react/jsx-runtime') return require(name);
+    if (name === '@/components/UiLanguageProvider') return { useUiLanguage: () => ({ t: makeUiTranslator('en'), tt: (text, values) => uiTitleCase(makeUiTranslator('en')(text, values)), locale: 'en-US' }) };
     if (name === 'next/dynamic') return () => () => null;
     if (name === 'next/navigation') return { useRouter: () => ({ push() {} }) };
     if (name.endsWith('/supabase/client')) return { getValidSession: async () => ({ access_token: 'fixture-token' }) };

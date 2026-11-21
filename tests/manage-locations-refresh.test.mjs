@@ -8,6 +8,7 @@ import * as jsxRuntime from 'react/jsx-runtime';
 import {createRoot} from 'react-dom/client';
 import {JSDOM} from 'jsdom';
 import {loadTs} from './helpers/load-ts.mjs';
+import {uiLanguageDependency} from './helpers/ui-language.mjs';
 const locationManagement=loadTs('src/lib/location-management.ts');
 
 test('open Manage Locations refreshes on resource changes, retains expansion and ignores stale reads',{timeout:15000},async()=>{
@@ -22,6 +23,7 @@ test('open Manage Locations refreshes on resource changes, retains expansion and
  const response=value=>({ok:true,json:async()=>value});
  const exports={};
  const deps={
+  '@/components/UiLanguageProvider':uiLanguageDependency,
   react:React,'react/jsx-runtime':jsxRuntime,
   '@/lib/supabase/client':{getValidSession:async()=>({access_token:'fixture'})},
   '@/lib/auth/client-session':{loadCmpriSession:async()=>({landing:'/engineering'}),hasCapability:()=>true},

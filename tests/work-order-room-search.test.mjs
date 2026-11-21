@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadTs } from './helpers/load-ts.mjs';
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import * as search from '../src/lib/work-order-search.ts';
 import { sortWorkOrders } from '../src/lib/work-order-sort.ts';
 import { readWorkOrderListPreferences, saveWorkOrderListPreferences } from '../src/lib/work-order-list-preferences.ts';
@@ -112,6 +113,7 @@ test('reopening an expired saved page keeps Room124/Open/Oldest First and return
   const requested=[];
   const Component=loadTs('src/components/desktop/WorkOrderListWindow.tsx',{
     react:React,'react/jsx-runtime':jsx,
+    '@/components/UiLanguageProvider':uiLanguageDependency,
     '@/lib/work-order-reference.js':references,'@/lib/work-order-search':search,'@/lib/work-order-list-preferences':preferences,'@/lib/work-order-sort':{sortWorkOrders},
     '@/components/PartsStatusPill':{default:()=>null},'@/components/WorkOrderImportPill':{default:()=>null},'@/components/GuestGroupBadge':{default:()=>null},'@/components/LoyaltyBadge':{default:()=>null},
     '@/components/WorkOrderFilters':{default:({filter})=>React.createElement('div',{'data-active-filter':filter})},

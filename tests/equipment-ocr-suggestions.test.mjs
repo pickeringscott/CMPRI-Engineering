@@ -1,3 +1,4 @@
+import { englishUiLanguage } from './helpers/ui-language.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -41,7 +42,7 @@ test("equipment review only stages OCR suggestions for authorized, unlocked edit
   const code = ts.transpileModule(`${handler}\nexports.run = useReviewedOcr;`, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
   let extracted, draft = {}, dialog = "";
   const context = {
-    exports: {}, selectedId: "asset-1", canManage: true, verified: false, editing: true, extracted: null,
+    exports: {}, ui: englishUiLanguage.t, selectedId: "asset-1", canManage: true, verified: false, editing: true, extracted: null,
     window: { confirm: () => false },
     suggestionsFromReviewedOcr,
     setExtracted: value => { extracted = value; context.extracted = value; },

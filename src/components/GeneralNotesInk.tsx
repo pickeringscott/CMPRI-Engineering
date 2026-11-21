@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import {useEffect,useRef,type PointerEvent as ReactPointerEvent} from 'react';
 import type {InkPoint,InkStroke} from '@/lib/general-notes';
 const NS='http://www.w3.org/2000/svg';
@@ -10,6 +11,7 @@ function segment(stroke:InkStroke,index:number){
 function group(stroke:InkStroke){const g=document.createElementNS(NS,'g');g.dataset.stroke=stroke.id;const fragment=document.createDocumentFragment();stroke.points.forEach((_,i)=>fragment.append(segment(stroke,i)));g.append(fragment);return g}
 type Active={id:number;rect:DOMRect;stroke?:InkStroke;group?:SVGGElement;before:InkStroke[]};
 export default function GeneralNotesInk({strokes,mode,color,width,scroller,onChange,onType,onDrawingChange}:{strokes:InkStroke[];mode:'text'|'pen'|'eraser';color:string;width:number;scroller:React.RefObject<HTMLDivElement|null>;onChange:(strokes:InkStroke[])=>void;onType:()=>void;onDrawingChange?:(drawing:boolean)=>void}){
+  const {t: ui} = useUiLanguage();
  const svg=useRef<SVGSVGElement>(null),data=useRef(strokes),active=useRef<Active|null>(null),finger=useRef<{id:number;x:number;y:number;lastY:number;moved:boolean}|null>(null);
  useEffect(()=>{data.current=strokes;const fragment=document.createDocumentFragment();strokes.forEach(stroke=>fragment.append(group(stroke)));svg.current?.replaceChildren(fragment)},[strokes]);
  useEffect(()=>{const finish=()=>{const current=active.current;active.current=null;finger.current=null;if(current){if(svg.current?.hasPointerCapture(current.id))svg.current.releasePointerCapture(current.id);if(current.before!==data.current)onChange(data.current)}onDrawingChange?.(false)};document.addEventListener('cmpri-notes-finish-input',finish);return()=>document.removeEventListener('cmpri-notes-finish-input',finish)},[onChange,onDrawingChange]);
@@ -35,5 +37,5 @@ export default function GeneralNotesInk({strokes,mode,color,width,scroller,onCha
   if(touch?.id===event.pointerId){const tap=event.type==='pointerup'&&!touch.moved&&Math.hypot(event.clientX-touch.x,event.clientY-touch.y)<=10;finger.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);if(tap)onType();return}
   const current=active.current;if(current?.id!==event.pointerId)return;if(event.type==='pointerup'&&current.stroke)append(event.nativeEvent);active.current=null;if(event.currentTarget.hasPointerCapture(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);if(current.before!==data.current)onChange(data.current);onDrawingChange?.(false);
  }
- return <svg ref={svg} className="general-notes-ink" data-ink-layer="true" style={{pointerEvents:mode==='text'?'none':'auto'}} viewBox="0 0 800 1100" role="img" aria-label="Handwriting. In pen mode, fingers scroll or tap to type." onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}/>;
+ return <svg ref={svg} className="general-notes-ink" data-ink-layer="true" style={{pointerEvents:mode==='text'?'none':'auto'}} viewBox="0 0 800 1100" role="img" aria-label={ui("Handwriting. In pen mode, fingers scroll or tap to type.")} onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}/>;
 }

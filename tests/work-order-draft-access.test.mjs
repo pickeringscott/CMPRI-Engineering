@@ -486,7 +486,7 @@ test("work-order submission from another user's draft requires review capability
 
   assert.match(workOrderRoute, /if\s*\(!ownDraft\s*&&\s*!roleAllows\(auth\.profile\.role,\s*"review_tickets"\)\)/);
   assert.match(page, /if \(draft\.created_by !== cmpriSession\?\.user\.id && !draft\.can_edit\) return;/);
-  assert.match(page, /: <span className="px-3 py-1\.5 text-xs font-semibold text-slate-500">Read-only<\/span>/);
+  assert.match(page, /: <span className="px-3 py-1\.5 text-xs font-semibold text-slate-500">\{tx\("Read-only"\)\}<\/span>/);
 });
 
 test("retrying an already approved draft returns its existing order after draft deletion", async () => {

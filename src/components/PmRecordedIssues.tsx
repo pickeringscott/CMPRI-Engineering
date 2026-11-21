@@ -1,4 +1,5 @@
 'use client';
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useEffect, useRef, useState } from 'react';
 import type { RecordedIssueSource } from '@/lib/pm/recorded-issues';
 import { pmIssueExternalId, pmTicketClosed, type PmIssueLink } from '@/lib/pm/issues';
@@ -9,6 +10,7 @@ export default function PmRecordedIssues({locations, actorId, onOpen, onHistory}
   locations: {id:string;name:string;room_number?:string|null}[]; actorId: string;
   onOpen:(id:string)=>void; onHistory:()=>void;
 }) {
+  const { t } = useUiLanguage();
   const [open,setOpen] = useState(false);
   const [busy,setBusy] = useState(false);
   const [submitting,setSubmitting] = useState(false);
@@ -80,42 +82,42 @@ export default function PmRecordedIssues({locations, actorId, onOpen, onHistory}
     finally {if(!request.signal.aborted){setBusy(false);setSubmitting(false);}}
   }
   return <>
-    <button ref={trigger} type="button" disabled={busy||!actorId} className="my-2 rounded border border-slate-600 px-3 py-2 text-sm" onClick={()=>void load()}>Review issues from previous inspections</button>
-    {open && <PmIssueDialog label="Previous inspection issues" busy={submitting} onDismiss={dismiss} returnFocus={trigger}><section className="rounded-xl border border-slate-600 bg-slate-950 p-4 space-y-3">
-      <h2 className="font-bold">Previous inspection issues</h2>
-      <p className="text-sm">Review recorded issues without redoing or saving the inspection. Ticket descriptions and locations entered here apply only to confirmed work orders. No tickets are created by opening this list.</p>
-      {error && <p role="alert" className="text-red-300">{error}</p>}
-      {previewReadOnly && <p role="status" className="text-amber-200">Preview: review the saved inspections and existing work-order links here. Creating work orders is blocked in this preview.</p>}
-      {busy && <p role="status">Working…</p>}
+    <button ref={trigger} type="button" disabled={busy||!actorId} className="my-2 rounded border border-slate-600 px-3 py-2 text-sm" onClick={()=>void load()}>{t("Review issues from previous inspections")}</button>
+    {open && <PmIssueDialog label={t("Previous inspection issues")} busy={submitting} onDismiss={dismiss} returnFocus={trigger}><section className="rounded-xl border border-slate-600 bg-slate-950 p-4 space-y-3">
+      <h2 className="font-bold">{t("Previous inspection issues")}</h2>
+      <p className="text-sm">{t("Review recorded issues without redoing or saving the inspection. Ticket descriptions and locations entered here apply only to confirmed work orders. No tickets are created by opening this list.")}</p>
+      {error && <p role="alert" className="text-red-300">{t(error)}</p>}
+      {previewReadOnly && <p role="status" className="text-amber-200">{t("Preview: review the saved inspections and existing work-order links here. Creating work orders is blocked in this preview.")}</p>}
+      {busy && <p role="status">{t("Working…")}</p>}
       {!source ? <>
-        <p className="text-xs text-slate-300">All recorded years; selected week does not limit this list. Ordinary No, N/A, blank and unchecked answers are not automatically defects.</p>
-        {!busy && !records.length && !error && <p>No automatically identifiable recorded issues.</p>}
-        {records.map(record=><button type="button" disabled={busy} key={`${record.kind}:${record.id}`} onClick={()=>select(record)} className="block w-full rounded border border-slate-700 p-2 text-left"><strong>{record.title}</strong><span className="block text-sm">{record.period} · {record.scope} · {record.issues.length} recorded issues</span>{record.hold && <span className="block text-xs text-amber-200">Source reconciliation required</span>}</button>)}
-        <p className="text-sm text-amber-200">Separate retained maintenance views can contain ambiguous periods, grouped equipment or overlapping answers. Those are not silently assigned ticket identities by this list.</p>
-        <button type="button" disabled={busy} onClick={()=>{dismiss();onHistory();}} className="underline">View maintenance history</button>
+        <p className="text-xs text-slate-300">{t("All recorded years; selected week does not limit this list. Ordinary No, N/A, blank and unchecked answers are not automatically defects.")}</p>
+        {!busy && !records.length && !error && <p>{t("No automatically identifiable recorded issues.")}</p>}
+        {records.map(record=><button type="button" disabled={busy} key={`${record.kind}:${record.id}`} onClick={()=>select(record)} className="block w-full rounded border border-slate-700 p-2 text-left"><strong>{t(record.title)}</strong><span className="block text-sm">{record.period} · {record.scope} · {record.issues.length}{" "}{t("recorded issues")}</span>{record.hold && <span className="block text-xs text-amber-200">{t("Source reconciliation required")}</span>}</button>)}
+        <p className="text-sm text-amber-200">{t("Separate retained maintenance views can contain ambiguous periods, grouped equipment or overlapping answers. Those are not silently assigned ticket identities by this list.")}</p>
+        <button type="button" disabled={busy} onClick={()=>{dismiss();onHistory();}} className="underline">{t("View maintenance history")}</button>
       </> : <>
-        <h3 className="font-semibold">{source.title} · {source.period} · {source.scope}</h3>
+        <h3 className="font-semibold">{t(source.title)} · {source.period} · {source.scope}</h3>
         <p className="whitespace-pre-wrap text-sm">{source.notes}</p>
-        {sourceRoom && !ticketLocations.length && <p role="alert">No active location matches recorded Room {sourceRoom}. This issue cannot be submitted under a different room.</p>}
+        {sourceRoom && !ticketLocations.length && <p role="alert">{t("No active location matches recorded Room")}{" "}{sourceRoom}{t(". This issue cannot be submitted under a different room.")}</p>}
         {source.hold && <p role="alert" className="text-amber-200">{source.hold}</p>}
-        {!canConfirm && <p>Current permissions allow viewing only, not ticket creation.</p>}
+        {!canConfirm && <p>{t("Current permissions allow viewing only, not ticket creation.")}</p>}
         {(review?selected:source.issues).map(issue=>{
           const existing = linked(issue.key);const result = results[issue.key];const value = details[issue.key];
           return <div key={issue.key} className="border-t border-slate-700 pt-2 space-y-2">
-            <label className="flex gap-2"><input type="checkbox" checked={value.selected} disabled={busy||review||!!existing||!!source.hold||!canConfirm} onChange={event=>setDetails(current=>({...current,[issue.key]:{...current[issue.key],selected:event.target.checked}}))}/><strong>{issue.label}</strong></label>
-            {existing || result?.id ? <button type="button" disabled={submitting} className="text-emerald-300" onClick={()=>{dismiss();onOpen(existing?.id||result!.id!);}}>Linked — open work order{pmTicketClosed(existing || undefined) && <span className="block text-xs">Ticket closed — original inspection result retained</span>}</button> : review ? <><p>{locations.find(location=>location.id===value.locationId)?.name}</p><p className="whitespace-pre-wrap">{value.detail}</p></> : <>
-              <label className="block text-sm">Ticket issue description<textarea aria-label={`Ticket description: ${issue.label}`} value={value.detail} maxLength={10000} disabled={busy||!!source.hold||!canConfirm} className="block w-full rounded bg-slate-800 p-2" onChange={event=>setDetails(current=>({...current,[issue.key]:{...current[issue.key],detail:event.target.value}}))}/></label>
-              <label className="block text-sm">Ticket location<select aria-label={`Ticket location: ${issue.label}`} value={value.locationId} disabled={busy||!!source.hold||!canConfirm} className="block w-full rounded bg-slate-800 p-2" onChange={event=>setDetails(current=>({...current,[issue.key]:{...current[issue.key],locationId:event.target.value}}))}><option value="">Select recorded issue location</option>{ticketLocations.map(location=><option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+            <label className="flex gap-2"><input type="checkbox" checked={value.selected} disabled={busy||review||!!existing||!!source.hold||!canConfirm} onChange={event=>setDetails(current=>({...current,[issue.key]:{...current[issue.key],selected:event.target.checked}}))}/><strong>{t(issue.label)}</strong></label>
+            {existing || result?.id ? <button type="button" disabled={submitting} className="text-emerald-300" onClick={()=>{dismiss();onOpen(existing?.id||result!.id!);}}>{t("Linked — open work order")}{pmTicketClosed(existing || undefined) && <span className="block text-xs">{t("Ticket closed — original inspection result retained")}</span>}</button> : review ? <><p>{locations.find(location=>location.id===value.locationId)?.name}</p><p className="whitespace-pre-wrap">{value.detail}</p></> : <>
+              <label className="block text-sm">{t("Ticket issue description")}<textarea aria-label={t("Ticket description: {value0}", { value0: issue.label })} value={value.detail} maxLength={10000} disabled={busy||!!source.hold||!canConfirm} className="block w-full rounded bg-slate-800 p-2" onChange={event=>setDetails(current=>({...current,[issue.key]:{...current[issue.key],detail:event.target.value}}))}/></label>
+              <label className="block text-sm">{t("Ticket location")}<select aria-label={t("Ticket location: {value0}", { value0: issue.label })} value={value.locationId} disabled={busy||!!source.hold||!canConfirm} className="block w-full rounded bg-slate-800 p-2" onChange={event=>setDetails(current=>({...current,[issue.key]:{...current[issue.key],locationId:event.target.value}}))}><option value="">{t("Select recorded issue location")}</option>{ticketLocations.map(location=><option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
             </>}
-            {result?.error && <p role="alert" className="text-red-300">{result.error}</p>}
+            {result?.error && <p role="alert" className="text-red-300">{t(result.error)}</p>}
           </div>;
         })}
-        <p className="text-xs">Successful tickets remain linked if another fails. Retry does not create another ticket for a linked issue. Inspection answers, completion and notes remain unchanged.</p>
+        <p className="text-xs">{t("Successful tickets remain linked if another fails. Retry does not create another ticket for a linked issue. Inspection answers, completion and notes remain unchanged.")}</p>
       </>}
       <footer className="sticky bottom-0 bg-slate-950 py-2 flex flex-wrap gap-3">
-        <button disabled={submitting} onClick={dismiss}>Close</button>
-        {source && <button disabled={busy} onClick={()=>review?setReview(false):setSource(null)}>{review?'Back to details':'Back to records'}</button>}
-        {source && !source.hold && canConfirm && <button className="rounded bg-emerald-400 p-2 text-slate-950" disabled={busy||(review&&previewReadOnly)||!selected.length||selected.some(issue=>!details[issue.key].detail.trim()||!details[issue.key].locationId)||selected.every(issue=>linked(issue.key)||results[issue.key]?.id)} onClick={()=>review?void confirm():setReview(true)}>{review?'Confirm selected work orders / retry unresolved':'Review selected work orders'}</button>}
+        <button disabled={submitting} onClick={dismiss}>{t("Close")}</button>
+        {source && <button disabled={busy} onClick={()=>review?setReview(false):setSource(null)}>{review?t("Back to details"):t("Back to records")}</button>}
+        {source && !source.hold && canConfirm && <button className="rounded bg-emerald-400 p-2 text-slate-950" disabled={busy||(review&&previewReadOnly)||!selected.length||selected.some(issue=>!details[issue.key].detail.trim()||!details[issue.key].locationId)||selected.every(issue=>linked(issue.key)||results[issue.key]?.id)} onClick={()=>review?void confirm():setReview(true)}>{review?t("Confirm selected work orders / retry unresolved"):t("Review selected work orders")}</button>}
       </footer>
     </section></PmIssueDialog>}
   </>;

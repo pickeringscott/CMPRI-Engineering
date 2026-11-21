@@ -1,4 +1,6 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -28,7 +30,7 @@ type Props = {
 };
 
 function normalize(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function scoreText(text: string, query: string, isLabel: boolean) {
@@ -95,6 +97,7 @@ export default function SearchableSelect({
   expandOnOpen = false,
   autoFocus = false,
 }: Props) {
+  const { t } = useUiLanguage();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const listId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -218,7 +221,7 @@ export default function SearchableSelect({
   const inferredNoMatch = useMemo(() => {
     if (noMatchesText) return noMatchesText;
     const p = placeholder.toLowerCase();
-    if (p.includes("room") || p.includes("location")) {
+    if (p.includes("room") || p.includes("location") || p.includes("habitación") || p.includes("ubicación")) {
       return /^\s*\d{2,4}\s*$/.test(query) ? "Room does not exist" : "Location does not exist";
     }
     return "No matches";
@@ -236,11 +239,11 @@ export default function SearchableSelect({
           disabled={disabled}
           autoComplete="off"
           spellCheck={false}
-          placeholder={placeholder}
+          placeholder={t(placeholder)}
           role="combobox"
           aria-autocomplete="list"
           aria-expanded={open}
-          aria-label={placeholder}
+          aria-label={t(placeholder)}
           aria-controls={open ? listId : undefined}
           aria-activedescendant={open && visibleOptions[highlightedIndex] ? `${listId}-${highlightedIndex}` : undefined}
           onClick={() => { if (!open) openBrowse(); }}
@@ -281,7 +284,7 @@ export default function SearchableSelect({
           type="button"
           tabIndex={-1}
           disabled={disabled}
-          aria-label={open ? "Hide choices" : "Show choices"}
+          aria-label={open ? t("Hide choices") : t("Show choices")}
           onMouseDown={(event) => event.preventDefault()}
           onClick={toggleOpen}
           className="cmpri-searchable-select-toggle absolute inset-y-0 right-0 flex w-8 items-center justify-center text-slate-300 hover:text-white"
@@ -344,9 +347,7 @@ export default function SearchableSelect({
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => { setExpanded(true); setQuery(selected?.label || ""); }}
                   className="cmpri-searchable-select-action block w-full border-t border-slate-700 px-2 py-1 text-left text-[13px] font-semibold leading-5 text-sky-300 hover:bg-sky-500/15 hover:text-sky-200"
-                >
-                  See more…
-                </button>
+                >{t("See more…")}</button>
               )}
               {footerActionLabel && onFooterAction && (
                 <button
@@ -360,12 +361,12 @@ export default function SearchableSelect({
                   }}
                   className="cmpri-searchable-select-action block w-full border-t border-slate-700 px-2 py-1 text-left text-[13px] font-semibold leading-5 text-amber-300 hover:bg-amber-400/10 hover:text-amber-200"
                 >
-                  {footerActionLabel}
+                  {t(footerActionLabel || "")}
                 </button>
               )}
             </>
           ) : (
-            <div className="cmpri-searchable-select-empty px-3 py-2 text-[13px] text-slate-400">{inferredNoMatch}</div>
+            <div className="cmpri-searchable-select-empty px-3 py-2 text-[13px] text-slate-400">{t(inferredNoMatch)}</div>
           )}
         </div>
       )}

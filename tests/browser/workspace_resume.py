@@ -256,8 +256,7 @@ async def check_tally_anchor(page, width, results):
       return frame?.contentWindow?.cmpriTheme?.action && frame?.contentWindow?.cmpriTheme?.game;
     }""")
     await page.locator(".cmpri-desktop-topbar").wait_for(state="visible")
-    if width > 640:
-        await expect(child.locator("body")).to_have_class(re.compile(r"\bcmpri-tally-header\b"))
+    await expect(child.locator("body")).to_have_class(re.compile(r"\bcmpri-tally-header\b"))
 
     async def geometry(label):
         await page.wait_for_timeout(100)
@@ -265,13 +264,10 @@ async def check_tally_anchor(page, width, results):
         score = await child.locator("#cmpriScorebug").bounding_box()
         tally = await child.locator(".sim-tally").bounding_box()
         anchored = await child.locator("body").evaluate("body=>body.classList.contains('cmpri-tally-header')")
-        if width > 640:
-            assert anchored and abs(tally["y"] - parent["y"] - parent["height"] - 4) <= 1, (label, parent, tally)
-            assert abs((await page.evaluate("innerWidth")) - tally["x"] - tally["width"] - 8) <= 1, (label, tally)
-            line = await child.locator(".sim-betting-line").bounding_box()
-            assert line and line["x"] >= tally["x"] and line["y"] >= tally["y"] and line["y"] + line["height"] <= tally["y"] + tally["height"], (label, line, tally)
-        else:
-            assert not anchored and abs(tally["x"] - 8) <= 1 and abs(tally["y"] - 8) <= 1, tally
+        assert anchored and abs(tally["y"] - parent["y"] - parent["height"] - 4) <= 1, (label, parent, tally)
+        assert abs(parent["x"] + parent["width"] - tally["x"] - tally["width"] - 8) <= 1, (label, parent, tally)
+        line = await child.locator(".sim-betting-line").bounding_box()
+        assert line and line["x"] >= tally["x"] and line["y"] >= tally["y"] and line["y"] + line["height"] <= tally["y"] + tally["height"], (label, line, tally)
         return {"state": label, "header": parent, "scoreboard": score, "tally": tally}
 
     checks = [await geometry("tabs closed")]
@@ -285,7 +281,7 @@ async def check_tally_anchor(page, width, results):
         checks.append(await geometry("title bar resized"))
         await page.set_viewport_size({"width": width, "height": 1000})
         checks.append(await geometry("title bar restored"))
-    results.append({"width": width, "test": "only W-L/betting strip follows desktop title bar at four-pixel gap/right eight pixels; phone placement unchanged", "passed": True, "geometry": checks})
+    results.append({"width": width, "test": "W-L/betting strip follows the dashboard title bar with a four-pixel gap and eight-pixel right margin", "passed": True, "geometry": checks})
 
 
 async def check_width(playwright, width, results):

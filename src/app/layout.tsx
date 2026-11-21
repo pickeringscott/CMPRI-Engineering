@@ -7,6 +7,7 @@ import GlobalModalHost from "@/components/GlobalModalHost";
 import UserPresence from "@/components/UserPresence";
 import ModalTheme from "@/components/ModalTheme";
 import SiteSeasonalBackground from "@/components/desktop/SiteSeasonalBackground";
+import UiLanguageProvider from "@/components/UiLanguageProvider";
 import { SITE_SEASONAL_THEME, SITE_THEME_COLOR } from "@/lib/ui/site-seasonal-theme";
 import "./globals.css";
 
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" data-cmpri-site-theme={SITE_SEASONAL_THEME} className="h-full antialiased">
       <body className="min-h-full flex flex-col">
+        <UiLanguageProvider>
         <SiteSeasonalBackground />
         <ModalTheme />
         <UserPresence />
@@ -42,6 +44,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <StaffNotesUnread />
         <WorkOrderMentionsInbox />
         <ProfileNotificationInbox />
+        </UiLanguageProvider>
       </body>
     </html>
   );

@@ -1,10 +1,12 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import { useEffect, useRef, useState } from "react";
 import type { PDFDocumentLoadingTask } from "pdfjs-dist";
 
 /** Render the local PDF inside the modal, including browsers without an inline PDF plug-in. */
 export default function GuidePdfViewer({ src }: { src: string }) {
+  const { t } = useUiLanguage();
   const pagesRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState("Loading guide…");
   const [failed, setFailed] = useState(false);
@@ -36,7 +38,7 @@ export default function GuidePdfViewer({ src }: { src: string }) {
         if (disposed) return;
         const accessibleText = window.document.createElement("p");
         accessibleText.className = "sr-only";
-        accessibleText.textContent = `Page ${number}. ` + text.items.map(item => "str" in item ? item.str : "").join(" ");
+        accessibleText.textContent = t("Page {number}", {number}) + ". " + text.items.map(item => "str" in item ? item.str : "").join(" ");
         pages.append(canvas, accessibleText);
       }
       if (!disposed) setStatus("");
@@ -44,11 +46,11 @@ export default function GuidePdfViewer({ src }: { src: string }) {
       if (!disposed) { setFailed(true); setStatus("The guide could not be displayed. Close it and try again."); }
     });
     return () => { disposed = true; void task?.destroy(); pages?.replaceChildren(); };
-  }, [src]);
+  }, [src, t]);
   return (
     <div className="min-h-0 flex-1 overflow-auto bg-slate-800 p-2">
-      {status && <p role={failed ? "alert" : "status"} className="p-3 text-sm text-white">{status}</p>}
-      <div ref={pagesRef} data-guide-pdf={src} aria-label="Guide pages" />
+      {status && <p role={failed ? "alert" : "status"} className="p-3 text-sm text-white">{t(status)}</p>}
+      <div ref={pagesRef} data-guide-pdf={src} aria-label={t("Guide pages")} />
     </div>
   );
 }

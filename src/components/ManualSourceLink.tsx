@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import {useEffect,useRef,useState,type ReactNode} from 'react';
 import {createClient,getValidSession} from '@/lib/supabase/client';
 
@@ -24,6 +25,7 @@ async function currentSource(url:string,signal:AbortSignal,userId?:string){
   return opened.href;
 }
 export default function ManualSourceLink({href,children,className,userId}:{href:string;children:ReactNode;className?:string;userId?:string}){
+  const { t } = useUiLanguage();
   const scope=JSON.stringify([href,userId]);
   const [error,setError]=useState<{scope:string;message:string}|null>(null);
   const pending=useRef<AbortController|null>(null);
@@ -42,9 +44,10 @@ export default function ManualSourceLink({href,children,className,userId}:{href:
       opened.location.replace(url);
     }).catch(e=>{opened.close();if(!controller.signal.aborted)setError({scope,message:e instanceof Error?e.message:'Source unavailable.'});})
       .finally(()=>{controller.signal.removeEventListener('abort',closePending);if(pending.current===controller)pending.current=null;});
-  }}>{children}</a>{error?.scope===scope&&<span role="alert" className="ml-2 text-xs text-amber-200">{error.message}</span>}</>;
+  }}>{children}</a>{error?.scope===scope&&<span role="alert" className="ml-2 text-xs text-amber-200">{t(error.message)}</span>}</>;
 }
 export function ManualSourceFrame({href,title,userId}:{href:string;title:string;userId?:string}){
+  const { t } = useUiLanguage();
   const scope=JSON.stringify([href,userId]);
   const [open,setOpen]=useState(false);
   const [result,setResult]=useState<{scope:string;url?:string;error?:string}|null>(null);
@@ -59,5 +62,5 @@ export function ManualSourceFrame({href,title,userId}:{href:string;title:string;
     return()=>{controller.abort();subscription?.unsubscribe();};
   },[open,href,userId,scope]);
   const current=result?.scope===scope?result:null;
-  return <details className="text-xs text-sky-300" onToggle={event=>{setResult(null);setOpen(event.currentTarget.open);}}><summary className="cursor-pointer">{title}</summary>{open&&(current?.error?<p role="alert">{current.error}</p>:current?.url?<iframe title={title} src={current.url} loading="lazy" className="h-64 w-full border-0"/>:<p>Opening original source…</p>)}</details>;
+  return <details className="text-xs text-sky-300" onToggle={event=>{setResult(null);setOpen(event.currentTarget.open);}}><summary className="cursor-pointer">{title}</summary>{open&&(current?.error?<p role="alert">{t(current.error)}</p>:current?.url?<iframe title={title} src={current.url} loading="lazy" className="h-64 w-full border-0"/>:<p>{t("Opening original source…")}</p>)}</details>;
 }

@@ -1,4 +1,6 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+
 
 import {modalTitleStyle,modalThemeStyle,modalActionForRoute,modalDisplayTitle,hasBonvoyTierHelp} from "@/lib/ui/header-palette";
 import WorkOrderTierKey from "@/components/WorkOrderTierKey";
@@ -54,6 +56,7 @@ export default function DesktopWindow({
   guest?: Record<string,unknown>;
   belowTitlebar?: ReactNode;
 }) {
+  const { t, tt } = useUiLanguage();
   const titleId = useId();
   const displayTitle = modalDisplayTitle(windowKey,title);
   const interactionRef = useRef<Interaction | null>(null);
@@ -122,12 +125,12 @@ export default function DesktopWindow({
       >
         <span aria-hidden="true" style={{backgroundColor:modalTitleStyle(modalActionForRoute(windowKey,title)).borderColor}} className={`size-2 shrink-0 rounded-full ${accentClass}`} />
         <span className="cmpri-title-content">
-          <span id={titleId} className="min-w-0 flex-1 truncate">{displayTitle}</span>
+          <span id={titleId} className="min-w-0 flex-1 truncate">{t(displayTitle)}</span>
           {guest && <WorkOrderTitleGuest guest={guest} />}
         </span>
         {hasBonvoyTierHelp(windowKey) && <WorkOrderTierKey />}
         {windowKey.split(/[?#]/)[0] === "/engineering/room-ranking" && <RoomRankerKey />}
-        <button type="button" data-cmpri-window-close="true" aria-label={`Close ${displayTitle}`} title="Close" onClick={onClose} className="cmpri-desktop-close">
+        <button type="button" data-cmpri-window-close="true" aria-label={t("Close {value0}", { value0: String(t(displayTitle)) })} title={tt("Close")} onClick={onClose} className="cmpri-desktop-close">
           <svg aria-hidden="true" viewBox="0 0 10 10" className="size-2.5"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
         </button>
       </div>

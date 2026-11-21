@@ -6,9 +6,12 @@
  * @param {(action:Action, clickedAt:number, button:HTMLButtonElement)=>void} onLaunch
  * @param {import('../header-layout').HeaderLayout} layout
  * @param {(layout:import('../header-layout').HeaderLayout)=>void} onSave
- * @param {{canDrop?:(key:string, label:string)=>boolean}} [options]
+ * @param {{canDrop?:(key:string, label:string)=>boolean, t?:(text:string, values?:Record<string,string|number>)=>string, tt?:(text:string, values?:Record<string,string|number>)=>string}} [options]
  */
-export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { canDrop = () => true } = {}) {
+export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { canDrop = () => true, t: initialTranslate, tt: initialTooltip } = {}) {
+  const identity = (text, values = {}) => text.replace(/\{(\w+)\}/g, (token, key) => Object.hasOwn(values, key) ? String(values[key]) : token);
+  let translate = initialTranslate || identity, tooltip = initialTooltip || translate;
+  const presentationLabels = [];
   const PRESS_MS = 320, SLIDE_MS = 240, MOUSE_DRAG_PX = 12, TOUCH_DRAG_PX = 8;
   const TAB_INSET = 15, TAB_GAP = 5, TAB_HEIGHT = 14;
   let observer, suppressedClick, cancelGesture, active = null, zIndex = 1, suppressRailClickUntil = 0;
@@ -27,11 +30,12 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   railScroll.type = 'range';
   railScroll.min = '0';
   railScroll.className = 'cmpri-menu-rail-scroll';
-  railScroll.setAttribute('aria-label', 'Scroll menu tabs');
+  const updateRailLabel = () => railScroll.setAttribute('aria-label', translate('Scroll menu tabs'));
+  presentationLabels.push(updateRailLabel); updateRailLabel();
   railScroll.hidden = true;
   railScroll.oninput = () => { root.scrollLeft = railScroll.valueAsNumber; };
   root.after(railScroll);
-  const label = group => group.querySelector('legend').textContent;
+  const label = group => group.dataset.layoutLabel || group.querySelector('legend').textContent;
   const fields = () => Array.from(bar.children);
   const isOpen = field => !field.classList.contains('collapsed');
   const emit = () => onSave({
@@ -318,7 +322,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     else if (!empty) {
       const notice = document.createElement('span');
       notice.className = 'menu-empty';
-      notice.textContent = 'No buttons for this role';
+      notice.textContent = translate('No buttons for this role');
       buttons.append(notice);
     }
     const widths = Array.from(buttons.children, button => {
@@ -377,8 +381,8 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     edge.tabIndex = 0;
     edge.setAttribute('role', 'separator');
     edge.setAttribute('aria-orientation', 'vertical');
-    edge.setAttribute('aria-label', title);
-    edge.title = title;
+    const updateLabel = () => { const value = title(); edge.setAttribute('aria-label', value); edge.title = tooltip(value); };
+    presentationLabels.push(updateLabel); updateLabel();
     edge.onkeydown = event => {
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
       event.preventDefault();
@@ -542,15 +546,19 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   for (const group of groups) {
     const field = document.createElement('fieldset');
     field.className = 'group';
+    field.dataset.layoutLabel = group.label;
     if (group.centered)
       field.dataset.centered = 'true';
     const title = document.createElement('legend');
     title.className = 'group-title';
-    title.textContent = group.label;
+    const updateTitle = () => {
+      title.textContent = translate(group.label);
+      title.title = tooltip('Open or close {group}; drag to move (touch: long press)', { group: translate(group.label) });
+    };
+    presentationLabels.push(updateTitle); updateTitle();
     title.tabIndex = 0;
     title.setAttribute('role', 'button');
     title.setAttribute('aria-expanded', 'true');
-    title.title = 'Open or close ' + group.label + '; drag to move (touch: long press)';
     title.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
     const buttons = document.createElement('div');
     buttons.className = 'buttons';
@@ -561,10 +569,10 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       b.dataset.key = action.key;
       b.dataset.layoutKey = action.key + '::' + action.label.replace(/ \(\d+\)$/, '');
       b.dataset.control = action.label;
-      b.textContent = action.label;
+      const updateButton = () => { b.textContent = translate(action.label); b.title = tooltip('Drag to reorder or move to another tab (touch: long press)'); delete b.dataset.staffNotesBaseTitle; };
+      presentationLabels.push(updateButton); updateButton();
       for (const [key, value] of Object.entries(action.style || {}))
         b.style.setProperty(key, value);
-      b.title = 'Drag to reorder or move to another tab (touch: long press)';
       b.oncontextmenu = e => e.preventDefault();
       b.onpointerdown = e => startButtonDrag(e, b, b.parentElement);
       b.onclick = e => { if (!shouldSuppress(b, e))
@@ -605,7 +613,8 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     scroll.step = 1;
     scroll.value = 0;
     scroll.className = 'group-scroll';
-    scroll.setAttribute('aria-label', 'Scroll ' + group.label + ' buttons');
+    const updateScrollLabel = () => scroll.setAttribute('aria-label', translate('Scroll {group} buttons', { group: translate(group.label) }));
+    presentationLabels.push(updateScrollLabel); updateScrollLabel();
     field.append(scroll);
     field.drawOutline = () => {
       if (!isOpen(field)) {
@@ -655,7 +664,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       setActive(field);
       emit();
     }, true);
-    const tabEdge = resizeHandle('tab-resize-edge', 'Resize ' + group.label + ' tab',
+    const tabEdge = resizeHandle('tab-resize-edge', () => translate('Resize {group} tab', { group: translate(group.label) }),
       () => title.offsetWidth,
       width => {
         const limit = Math.max(field.minimumTabWidth, root.clientWidth - TAB_INSET - 12);
@@ -665,7 +674,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       () => field.requestedTabWidth,
       width => { field.requestedTabWidth = width; place(); },
     );
-    const rowEdge = resizeHandle('resize-edge', 'Resize ' + group.label + ' button row',
+    const rowEdge = resizeHandle('resize-edge', () => translate('Resize {group} button row', { group: translate(group.label) }),
       () => field.offsetWidth,
       width => {
         const limit = widthLimit(field);
@@ -711,5 +720,19 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   cleanups.push(listen('pointerdown', leave, true), listen('focusin', leave));
   const unmount = () => { cancelGesture?.(); observer.disconnect(); cleanups.forEach(fn => fn()); for (const ghost of ghosts)
     ghost.remove(); document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering'); root.replaceChildren(); railScroll.remove(); };
+  // Language changes preserve the canonical layout, controls and pending drag/save work.
+  unmount.setPresentation = next => {
+    translate = next.t || identity; tooltip = next.tt || translate;
+    presentationLabels.forEach(update => update());
+    for (const field of fields()) {
+      const title = field.querySelector('legend');
+      title.style.width = 'max-content';
+      field.minimumTabWidth = title.offsetWidth;
+      const empty = field.querySelector('.menu-empty');
+      if (empty) empty.textContent = translate('No buttons for this role');
+      refitButtonRow(field);
+    }
+    if (!cancelGesture) place();
+  };
   return unmount;
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {JSDOM} from 'jsdom';
 import {loadTs} from './helpers/load-ts.mjs';
+import {uiLanguageDependency} from './helpers/ui-language.mjs';
 import * as notes from '../src/lib/general-notes.ts';
 import * as formatting from '../src/lib/general-note-formatting.ts';
 import * as mentions from '../src/lib/staff-note-targets.ts';
@@ -14,7 +15,7 @@ Object.assign(globalThis,{window:dom.window,document:dom.window.document,HTMLEle
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
 const React=await import('react'),{createRoot}=await import('react-dom/client');
 const baseGlobals={window,document,localStorage:window.localStorage,NodeFilter:dom.window.NodeFilter,getComputedStyle:dom.window.getComputedStyle,crypto:globalThis.crypto,structuredClone,setTimeout,clearTimeout,requestAnimationFrame:callback=>setTimeout(callback,0),HTMLElement,Element,Event};
-const deps={'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/general-note-formatting':formatting};
+const deps={'@/components/UiLanguageProvider':uiLanguageDependency,'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/general-note-formatting':formatting};
 const textModule=loadTs('src/components/GeneralNotesText.tsx',deps,baseGlobals);
 const scope={hotelId:'hotel-a',userId:'user-a'};
 const saved=(id='older')=>({id,title:id,text:'☑ Inspect seals',fontSize:16,textStyles:[{start:2,end:15,fontSize:24,color:'rgb(10, 100, 200)'}],strokes:[],revision:1,updated:id==='older'?1:2,titleAutomatic:false});

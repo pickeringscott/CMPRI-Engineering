@@ -13,9 +13,10 @@ const names=['setOrder','saveTicket','persistTicket','saveReportedIssue','claimU
 const functions={};let blur;
 function walk(n){
  if(ts.isFunctionDeclaration(n)&&names.includes(n.name?.text))functions[n.name.text]=n.getText(ast);
- if(ts.isJsxSelfClosingElement(n)&&n.tagName.getText(ast)==='textarea'&&n.getText(ast).includes('aria-label="Reported Issue"'))blur=n.attributes.properties.find(p=>p.name?.text==='onBlur').initializer.expression.getText(ast);
+ if(ts.isJsxSelfClosingElement(n)&&n.tagName.getText(ast)==='textarea'&&n.attributes.properties.some(p=>ts.isJsxAttribute(p)&&p.name.text==='aria-label'&&p.initializer?.getText(ast).includes('"Reported Issue"')))blur=n.attributes.properties.find(p=>p.name?.text==='onBlur').initializer.expression.getText(ast);
  ts.forEachChild(n,walk);
 }walk(ast);
+assert.ok(blur, 'The Reported Issue textarea must expose its actual blur handler');
 const code=ts.transpileModule(Object.values(functions).join('\n')+`\nexports.blur=${blur};exports.save=saveTicket;exports.issue=saveReportedIssue;exports.claim=claimUnassignedWorkOrder;`,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const id='00000000-0000-4000-8000-000000000001';
 const roles=loadTs('src/lib/server/roles.ts');

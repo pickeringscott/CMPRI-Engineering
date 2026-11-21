@@ -18,6 +18,7 @@ const compile = source => ts.transpileModule(source, {
 }).outputText;
 const frameGlobals = { exports: {}, window, document, URL, require(name) {
   if (['react', 'react/jsx-runtime'].includes(name)) return require(name);
+    if (name === '@/components/UiLanguageProvider') return {useUiLanguage:()=>({language:'en', locale:'en-US', t:(text,values={})=>text.replace(/\{(\w+)\}/g,(token,key)=>Object.hasOwn(values,key)?String(values[key]):token), tt:text=>text})};
   if (name === '@/lib/ui/desktop-windows') return { isDesktopRoute };
   throw Error('Unexpected import ' + name);
 } };

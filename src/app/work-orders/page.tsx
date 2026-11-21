@@ -1,4 +1,6 @@
 "use client";
+
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import WorkOrderMediaControl from "@/components/WorkOrderMediaControl";
 import WorkOrderStepMedia from "@/components/WorkOrderStepMedia";
 import { subscribeResources } from "@/lib/events/browser";
@@ -119,11 +121,12 @@ type SelectedWorkOrderPhoto = { file: File; previewUrl: string; uploadId: string
 type PendingPhotoUpload = Pick<CreatedWorkOrder, "id" | "display_id"> & { photo: SelectedWorkOrderPhoto };
 
 function WorkOrderPhotoPreview({ photo, onRemove, removeLabel }: { photo: SelectedWorkOrderPhoto; onRemove?: () => void; removeLabel: string }) {
+  const { tt } = useUiLanguage();
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md border border-slate-700 bg-slate-950/70 p-1.5">
       <div className="relative shrink-0">
         {photo.file.type.startsWith("video/")?<video src={photo.previewUrl} controls className="size-12 rounded object-cover"/>:<Image unoptimized src={photo.previewUrl} alt="" width={48} height={48} className="size-12 rounded object-cover"/>}
-        {onRemove && <button type="button" onClick={onRemove} aria-label={`${removeLabel}: ${photo.file.name}`} title={removeLabel} className="absolute -left-1 -top-1 grid size-6 place-items-center rounded-full border border-red-500/70 bg-slate-950 text-base font-bold leading-none text-red-500 shadow hover:bg-slate-900 focus-visible:outline-2 focus-visible:outline-white">×</button>}
+        {onRemove && <button type="button" onClick={onRemove} aria-label={`${removeLabel}: ${photo.file.name}`} title={tt(removeLabel)} className="absolute -left-1 -top-1 grid size-6 place-items-center rounded-full border border-red-500/70 bg-slate-950 text-base font-bold leading-none text-red-500 shadow hover:bg-slate-900 focus-visible:outline-2 focus-visible:outline-white">×</button>}
       </div>
       <span className="min-w-0 max-w-40 truncate text-xs text-slate-300" title={photo.file.name}>{photo.file.name}</span>
     </div>
@@ -535,17 +538,7 @@ export default function WorkOrdersPage() {
     error: string;
     reason?: string;
   } | null>(null);
-  const [formLanguage, setFormLanguage] = useState<"en" | "es">("en");
-  useEffect(() => {
-    // Defer browser-only preferences until after the server markup is hydrated.
-    const timer = window.setTimeout(() => {
-      try {
-        const saved = window.localStorage.getItem("cmpri:work-order-language");
-        if (saved === "en" || saved === "es") setFormLanguage(saved);
-      } catch {}
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
+  const { language: formLanguage, locale, t: tx } = useUiLanguage();
   const [staffFirstName, setStaffFirstName] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const [drafts, setDrafts] = useState<WorkOrderDraft[]>([]);
@@ -644,18 +637,6 @@ export default function WorkOrdersPage() {
       return false;
     }
   }, []);
-
-  async function loadProfilePreference() {
-    try {
-      const session = await getValidSession();
-      if (!session?.access_token) return;
-      const response = await fetch("/api/profile", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" });
-      if (!response.ok) return;
-      const payload = await response.json().catch(() => ({}));
-      if (payload.preferences?.language === "es" || payload.preferences?.language === "en") setFormLanguage(payload.preferences.language);
-    } catch {}
-  }
-
 
   useEffect(() => {
     if (!showRelatedWorkOrderDialog && !showBatchCreateDialog) return;
@@ -761,7 +742,6 @@ export default function WorkOrdersPage() {
         setCurrentRole(session.user.role || "");
         await Promise.all([
           loadDrafts(),
-          loadProfilePreference(),
         ]);
       } catch {
         if (current) window.location.replace("/");
@@ -1115,7 +1095,7 @@ export default function WorkOrdersPage() {
       setMessage("Selected photos are not part of a saved draft. Remove or submit them before loading a different draft.");
       return;
     }
-    if ((issue.trim() || notes.trim() || locationId) && !window.confirm("Loading this draft replaces the text currently in the form. Copy any unsaved changes first. Continue?")) return;
+    if ((issue.trim() || notes.trim() || locationId) && !window.confirm(tx("Loading this draft replaces the text currently in the form. Copy any unsaved changes first. Continue?"))) return;
     if (draft.id === unconfirmedCreationId) {
       try { sessionStorage.removeItem(`cmpri:unconfirmed-draft:${draftIdentityScope.current}`); } catch {}
       setUnconfirmedCreationId("");
@@ -1136,7 +1116,7 @@ export default function WorkOrdersPage() {
     setManualCategory(false);
     setManualPriority(false);
     setMessage(`Draft loaded${draft.creator_name ? ` — ${draft.creator_name}` : ""}.`);
-  }, [cmpriSession?.user.id, photos.length, issue, notes, locationId, unconfirmedCreationId]);
+  }, [cmpriSession?.user.id, photos.length, issue, notes, locationId, unconfirmedCreationId, tx]);
 
   useEffect(() => {
     if (!cmpriSession) return;
@@ -1628,7 +1608,7 @@ export default function WorkOrdersPage() {
       resetWorkOrderForm(true);
       setCreateState("idle");
       const ids = displayId ? formatWorkOrder(displayId) : submittedDisplayIdsRef.current.join(", ");
-      setMessage(tx(`Submitted successfully${ids ? `: ${ids}` : ""}. Ready for the next ticket.`, `Enviado correctamente${ids ? `: ${ids}` : ""}. Listo para la siguiente orden.`));
+      setMessage(ids ? `Submitted successfully: ${ids}. Ready for the next work order.` : "Submitted successfully. Ready for the next work order.");
       return true;
     }
     if (!embedded || window.parent === window || !modalToken) return false;
@@ -1678,17 +1658,6 @@ export default function WorkOrdersPage() {
     document.addEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
     return () => document.removeEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
   }, [embedded]);
-
-  useEffect(() => {
-    const updateLanguage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.data?.type !== "cmpri-profile-preferences-updated") return;
-      if (event.data.preferences?.language === "en" || event.data.preferences?.language === "es") {
-        setFormLanguage(event.data.preferences.language);
-      }
-    };
-    window.addEventListener("message", updateLanguage);
-    return () => window.removeEventListener("message", updateLanguage);
-  }, []);
 
   async function confirmCancelCreateForm() {
     if (loading || draftBusy || retryingPhotoUpload) return;
@@ -2354,19 +2323,22 @@ export default function WorkOrdersPage() {
         if (preferredDiff !== 0) return preferredDiff;
         return a.name.localeCompare(b.name, undefined, { numeric: true });
       })
-      .map((location) => ({
+      .map((location) => {
+        const badge = roomStatusBadge(location.room_status);
+        return {
         value: location.id,
         label: location.name,
-        group: cmpriLocationSection(location),
-        badge: roomStatusBadge(location.room_status) || undefined,
+        group: tx(cmpriLocationSection(location)),
+        badge: badge ? { ...badge, label: tx(badge.label) } : undefined,
         keywords: [
           location.room_number ?? "",
           location.area ?? "",
           location.location_type ?? "",
           location.room_status ?? "",
         ],
-      }));
-  }, [locations]);
+        };
+      });
+  }, [locations, tx]);
   const createHasUnsavedChanges = Boolean(
     issue.trim() || locationId || notes.trim() || assetId || staffFirstName.trim() || photos.length > 0
   );
@@ -2403,17 +2375,15 @@ export default function WorkOrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createHasUnsavedChanges, locationId, issue, notes, assetId, category, priority, staffFirstName, photos, loading, draftBusy, activeDraftId, currentDraftKey, lastSavedDraftKey, cmpriSession?.user.id, createState, mainWorkOrderCreated, pendingPhotoUploads.length]);
   const isSpanish = formLanguage === "es";
-  const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
-  const categoryLabelEs: Record<string, string> = {
-    General: "General", HVAC: "Climatización / HVAC", Plumbing: "Plomería", Electrical: "Electricidad",
-    Appliances: "Electrodomésticos", "Doors/Locks": "Puertas / Cerraduras", "Pool/Spa": "Piscina / Spa",
-    Laundry: "Lavandería", "Public Area": "Área pública", Safety: "Seguridad", "TV / AV": "TV / AV", Furniture: "Muebles",
-  };
+  const categoryLabelEs: Record<string, string> = Object.fromEntries([
+    "General", "HVAC", "Plumbing", "Electrical", "Appliances", "Doors/Locks", "Pool/Spa",
+    "Laundry", "Public Area", "Safety", "TV / AV", "Furniture",
+  ].map(value => [value, tx(value)]));
 
   const createAssetOptions = [
     ...availableAssets.map((asset) => ({
       value: asset.id,
-      label: `${equipmentOptionLabel(asset)}${asset.location_id === null ? " (Template - no room assignment)" : asset.location_id !== locationId ? ` — ${locations.find(location => location.id === asset.location_id)?.name || "Common area"}` : ""}`,
+      label: `${equipmentOptionLabel(asset)}${asset.location_id === null ? tx(" (Template - no room assignment)") : asset.location_id !== locationId ? ` — ${locations.find(location => location.id === asset.location_id)?.name || tx("Common area")}` : ""}`,
       group: asset.location_id !== locationId ? cmpriLocationSection(locations.find(location => location.id === asset.location_id) || selectedLocation!) : undefined,
       keywords: [
         asset.asset_type,
@@ -2447,19 +2417,19 @@ export default function WorkOrdersPage() {
 
   return (
     <main className="min-h-[100svh] bg-slate-950 p-1 text-white">
-      {activeDraftId && <p role="status" className="mb-2 font-semibold text-amber-200">Draft — awaiting approval</p>}
+      {activeDraftId && <p role="status" className="mb-2 font-semibold text-amber-200">{tx("Draft — awaiting approval")}</p>}
       <div data-work-order-form-layout className="mx-auto w-full max-w-none lg:w-[66vw]">
         {creationRecoveryConflict && <section role="status" className="mb-2 rounded-lg border border-amber-600 p-3 text-sm text-amber-100">
-          <p className="font-semibold">Recovered Work Needs Review</p>
-          <p className="mt-1 text-xs">A saved draft changed, another draft was requested, or this form already has edits. Your recovered text has been kept separately.</p>
-          <details className="mt-2 text-xs"><summary className="cursor-pointer">Recovered Text</summary><p className="mt-2 whitespace-pre-wrap break-words">{creationRecoveryConflict.fields.issue}</p><p className="mt-1 whitespace-pre-wrap break-words">{creationRecoveryConflict.fields.notes}</p></details>
+          <p className="font-semibold">{tx("Recovered Work Needs Review")}</p>
+          <p className="mt-1 text-xs">{tx("A saved draft changed, another draft was requested, or this form already has edits. Your recovered text has been kept separately.")}</p>
+          <details className="mt-2 text-xs"><summary className="cursor-pointer">{tx("Recovered Text")}</summary><p className="mt-2 whitespace-pre-wrap break-words">{creationRecoveryConflict.fields.issue}</p><p className="mt-1 whitespace-pre-wrap break-words">{creationRecoveryConflict.fields.notes}</p></details>
           <div className="mt-2 flex flex-wrap gap-3 text-xs">
             <button type="button" className="underline" onClick={() => {
-              if (!window.confirm("Replace this form with the recovered text? A changed saved draft still requires comparison before its next save.")) return;
+              if (!window.confirm(tx("Replace this form with the recovered text? A changed saved draft still requires comparison before its next save."))) return;
               restoreLocalCreation(creationRecoveryConflict);
-            }}>Restore Recovered Form</button>
+            }}>{tx("Restore Recovered Form")}</button>
             <button type="button" className="underline" onClick={async () => {
-              if (!cmpriSession || !window.confirm("Discard the recovered text and attachments from this device and keep the form shown here?")) return;
+              if (!cmpriSession || !window.confirm(tx("Discard the recovered text and attachments from this device and keep the form shown here?"))) return;
               try {
                 await clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" });
                 if (draftIdentityScope.current !== creationScope || creationRecoveryStopped.current) return;
@@ -2467,32 +2437,32 @@ export default function WorkOrdersPage() {
                 attachmentDiscarded.current = true;
                 setAttachmentRecoveryReady(creationScope); setCreationRecoveryConflict(null);
               } catch (error) { setPhotoUploadError(error instanceof Error ? error.message : "Recovered attachments could not be discarded. Your work is still here."); }
-            }}>Discard Recovered Copy</button>
+            }}>{tx("Discard Recovered Copy")}</button>
           </div>
         </section>}
         {attachmentRecoveryFailed && <section role="alert" className="mb-2 rounded-lg border border-amber-600 p-3 text-xs text-amber-100">
-          <p>Saved attachment recovery could not be read. Your previous files have been kept separately.</p>
-          <button type="button" className="mt-2 underline" onClick={() => { if (cmpriSession) void restoreCreationAttachments(readCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id })); }}>Retry Attachment Recovery</button>
+          <p>{tx("Saved attachment recovery could not be read. Your previous files have been kept separately.")}</p>
+          <button type="button" className="mt-2 underline" onClick={() => { if (cmpriSession) void restoreCreationAttachments(readCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id })); }}>{tx("Retry Attachment Recovery")}</button>
         </section>}
         {attachmentRecoveryConflict && <section role="alert" className="mb-2 rounded-lg border border-amber-600 p-3 text-xs text-amber-100">
-          <p>Recovered attachments belong to an earlier draft revision. Compare their names before attaching them to this form.</p>
+          <p>{tx("Recovered attachments belong to an earlier draft revision. Compare their names before attaching them to this form.")}</p>
           <p className="mt-1">{attachmentRecoveryConflict.files.map(item => item.file.name).join(", ")}</p>
-          <button type="button" className="mt-2 underline" onClick={() => applyCreationAttachments(attachmentRecoveryConflict)}>Use Recovered Attachments</button>
+          <button type="button" className="mt-2 underline" onClick={() => applyCreationAttachments(attachmentRecoveryConflict)}>{tx("Use Recovered Attachments")}</button>
           <button type="button" className="ml-3 underline" onClick={() => {
-            if (!cmpriSession || !window.confirm("Discard the recovered attachments from this device?")) return;
+            if (!cmpriSession || !window.confirm(tx("Discard the recovered attachments from this device?"))) return;
             void clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" }).then(() => { if (draftIdentityScope.current === creationScope && !creationRecoveryStopped.current) setAttachmentRecoveryConflict(null); }, error => setPhotoUploadError(error instanceof Error ? error.message : "Attachments could not be discarded."));
-          }}>Discard Recovered Attachments</button>
+          }}>{tx("Discard Recovered Attachments")}</button>
         </section>}
         {creationSubmissionUncertain && <section role="alert" className="mb-2 rounded-lg border border-amber-600 p-3 text-xs text-amber-100">
-          <p>A submission was in progress when this form closed. Check the work-order list before submitting again.</p>
-          <button type="button" className="mt-2 underline" onClick={() => { if (window.confirm("Have you checked the work-order list and confirmed this work was not submitted?")) setCreationSubmissionUncertain(false); }}>I Checked The List; Keep Editing</button>
+          <p>{tx("A submission was in progress when this form closed. Check the work-order list before submitting again.")}</p>
+          <button type="button" className="mt-2 underline" onClick={() => { if (window.confirm(tx("Have you checked the work-order list and confirmed this work was not submitted?"))) setCreationSubmissionUncertain(false); }}>{tx("I Checked The List; Keep Editing")}</button>
         </section>}
         {drafts.length > 0 && (
           <section className="mb-2 rounded-xl border border-slate-800 bg-slate-900 p-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-base font-bold text-white">Saved Drafts</h2>
-                <p className="text-xs text-slate-400">Your saved drafts. Authorized draft review is available from the Engineering dashboard.</p>
+                <h2 className="text-base font-bold text-white">{tx("Saved Drafts")}</h2>
+                <p className="text-xs text-slate-400">{tx("Your saved drafts. Authorized draft review is available from the Engineering dashboard.")}</p>
               </div>
               <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-300">{drafts.length}</span>
             </div>
@@ -2505,14 +2475,14 @@ export default function WorkOrdersPage() {
                   <div key={draft.id} className={`rounded-xl border p-3 ${active ? "border-sky-500 bg-sky-950/25" : "border-slate-800 bg-slate-950/55"}`}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-bold text-slate-100">{draft.room || "Room / Location"} · {draft.issue}</p>
-                        <p className="mt-1 text-xs text-slate-500">{ownDraft ? "Your draft" : `Created by ${draft.creator_name || "another employee"}${draft.creator_display_role ? ` · ${draft.creator_display_role}` : ""}`}{draft.updated_at ? ` · Updated ${new Date(draft.updated_at).toLocaleString()}` : ""}</p>
+                        <p className="truncate text-sm font-bold text-slate-100">{draft.room || tx("Room / Location")} · {draft.issue}</p>
+                        <p className="mt-1 text-xs text-slate-500">{ownDraft ? tx("Your draft") : tx("Created by {value1}{value2}", { value1: draft.creator_name || tx("another employee"), value2: draft.creator_display_role ? ` · ${tx(draft.creator_display_role)}` : "" })}{draft.updated_at ? tx(" · Updated {value1}", { value1: new Date(draft.updated_at).toLocaleString(locale) }) : ""}</p>
                       </div>
                       <div className="flex shrink-0 gap-2">
                         {canEditDraft
-                          ? <button type="button" disabled={draftBusy} onClick={() => restoreDraft(draft)} className="rounded-lg border border-sky-600/60 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-950/60 disabled:opacity-50">{ownDraft ? "Load" : "Review / Edit"}</button>
-                          : <span className="px-3 py-1.5 text-xs font-semibold text-slate-500">Read-only</span>}
-                        {draft.can_delete && <button type="button" disabled={draftBusy} onClick={() => void deleteDraft(draft)} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-50">Discard</button>}
+                          ? <button type="button" disabled={draftBusy} onClick={() => restoreDraft(draft)} className="rounded-lg border border-sky-600/60 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-950/60 disabled:opacity-50">{ownDraft ? tx("Load") : tx("Review / Edit")}</button>
+                          : <span className="px-3 py-1.5 text-xs font-semibold text-slate-500">{tx("Read-only")}</span>}
+                        {draft.can_delete && <button type="button" disabled={draftBusy} onClick={() => void deleteDraft(draft)} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-50">{tx("Discard")}</button>}
                       </div>
                     </div>
                   </div>
@@ -2530,7 +2500,7 @@ export default function WorkOrdersPage() {
             <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950 px-3 py-2 md:static">
               {cmpriSession && !embedded && (
                 <div className="mr-auto flex min-w-0 flex-col items-start leading-tight">
-                  <p className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></p>
+                  <p className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">{tx("CMPRI")}</span>{" "}<span className="text-amber-300">{tx("Engineering")}</span></p>
                   <AccountSummary user={cmpriSession.user} />
                   {isSubmitOnlyUser && !isFrontDeskUser && <ModalNavigationButton href="/profile" className="mt-1 rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
                 </div>
@@ -2550,7 +2520,7 @@ export default function WorkOrdersPage() {
 
             {!isSubmitOnlyUser && <p className="text-xs text-slate-400">{tx("Saved drafts keep text on the server. Selected attachments stay on this device until uploaded or discarded. Autosave runs after 30 minutes of inactivity once a location and issue are entered.", "Los borradores guardan texto en el servidor. Los archivos seleccionados se conservan en este dispositivo hasta cargarlos o descartarlos. El guardado automático ocurre tras 30 minutos de inactividad cuando hay ubicación y problema.")}</p>}
             {pendingDraftSave.current && <button type="button" disabled={draftBusy} className="text-xs text-amber-300 underline" onClick={() => {
-              if (!window.confirm("Stop retrying this save? It may have succeeded. Your current text will stay here. Check Saved Drafts before creating another to avoid a duplicate.")) return;
+              if (!window.confirm(tx("Stop retrying this save? It may have succeeded. Your current text will stay here. Check Saved Drafts before creating another to avoid a duplicate."))) return;
               pendingDraftSave.current = null;
               setMessage("Retry stopped. Your text is still here. Check Saved Drafts and compare before continuing.");
             }}>{tx("Stop retrying and check saved drafts", "Detener reintentos y revisar borradores")}</button>}
@@ -2558,14 +2528,14 @@ export default function WorkOrdersPage() {
               <p>{tx("A previous draft save was not confirmed. Check Saved Drafts and load the matching draft before starting another one.", "No se confirmó un guardado anterior. Revisa los borradores y carga el correspondiente antes de crear otro.")}</p>
               <button type="button" className="mr-3 mt-2 underline" onClick={() => void loadDrafts()}>{tx("Refresh saved drafts", "Actualizar borradores")}</button>
               <button type="button" className="mt-2 underline" onClick={() => {
-                if (!window.confirm("Clear this reminder? If the previous save succeeded, creating another draft can make a duplicate.")) return;
+                if (!window.confirm(tx("Clear this reminder? If the previous save succeeded, creating another draft can make a duplicate."))) return;
                 try { sessionStorage.removeItem(`cmpri:unconfirmed-draft:${draftIdentityScope.current}`); } catch {}
                 setUnconfirmedCreationId("");
               }}>{tx("Clear reminder and start another draft", "Borrar aviso y crear otro borrador")}</button>
             </div>}
             {(photos.length > 0 || photoUploadError) && <div className="space-y-2">
-              {photos.length > 0 && <div className="flex flex-wrap gap-2" aria-label="Selected photo previews">{photos.map((photo) => <WorkOrderPhotoPreview key={photo.uploadId} photo={photo} removeLabel={tx("Remove selected photo", "Quitar foto seleccionada")} onRemove={!loading && createState === "idle" && !mainWorkOrderCreated && !retryingPhotoUpload && pendingPhotoUploads.length === 0 ? () => removeSelectedPhoto(photo.uploadId) : undefined} />)}</div>}
-              {photoUploadError && <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]"><span role="alert" className="text-amber-300">{photoUploadError}</span>{canReplacePhoto && pendingPhotoUploads.length > 0 && <><button type="button" onClick={chooseReplacementPhoto} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40">Choose a different photo</button><button type="button" onClick={continueWithoutPhoto} disabled={retryingPhotoUpload} className="rounded border border-slate-500/70 px-2 py-1 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">Continue without photo</button></>}{pendingPhotoUploads.length > 0 && !canReplacePhoto && <button type="button" onClick={() => void retryPendingPhotoUploads()} disabled={retryingPhotoUpload} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40 disabled:opacity-60">{retryingPhotoUpload ? "Retrying photo upload..." : "Retry photo upload"}</button>}</div>}
+              {photos.length > 0 && <div className="flex flex-wrap gap-2" aria-label={tx("Selected photo previews")}>{photos.map((photo) => <WorkOrderPhotoPreview key={photo.uploadId} photo={photo} removeLabel={tx("Remove selected photo", "Quitar foto seleccionada")} onRemove={!loading && createState === "idle" && !mainWorkOrderCreated && !retryingPhotoUpload && pendingPhotoUploads.length === 0 ? () => removeSelectedPhoto(photo.uploadId) : undefined} />)}</div>}
+              {photoUploadError && <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]"><span role="alert" className="text-amber-300">{tx(photoUploadError)}</span>{canReplacePhoto && pendingPhotoUploads.length > 0 && <><button type="button" onClick={chooseReplacementPhoto} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40">{tx("Choose a different photo")}</button><button type="button" onClick={continueWithoutPhoto} disabled={retryingPhotoUpload} className="rounded border border-slate-500/70 px-2 py-1 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Continue without photo")}</button></>}{pendingPhotoUploads.length > 0 && !canReplacePhoto && <button type="button" onClick={() => void retryPendingPhotoUploads()} disabled={retryingPhotoUpload} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40 disabled:opacity-60">{retryingPhotoUpload ? tx("Retrying photo upload...") : tx("Retry photo upload")}</button>}</div>}
             </div>}
 
             {isFrontDeskUser && <label className="block">
@@ -2587,9 +2557,9 @@ export default function WorkOrdersPage() {
               />
               {selectedLocation && (selectedLocationStatus ? (
                 <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${selectedLocationStatus.className}`}>
-                  Room condition: {selectedLocationStatus.label}
+                  {tx("Room condition:")}{" "}{tx(selectedLocationStatus.label)}
                 </span>
-              ) : <span className="mt-1 block text-xs text-slate-500">Room status not reported today.</span>)}
+              ) : <span className="mt-1 block text-xs text-slate-500">{tx("Room status not reported today.")}</span>)}
             </label>
 
             <label className="block">
@@ -2605,7 +2575,7 @@ export default function WorkOrdersPage() {
               />
               {detectedCreateIssues.length >= 2 && (
                 <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-950/25 px-3 py-2">
-                  <p className="text-sm font-bold text-amber-200">This report will create {detectedCreateIssues.length} work orders.</p>
+                  <p className="text-sm font-bold text-amber-200">{tx("This report will create")}{" "}{detectedCreateIssues.length} {tx("work orders.")}</p>
                   <p className="mt-1 text-xs text-amber-100/70">{detectedCreateIssues.map((item) => item.category).join(" · ")}</p>
                 </div>
               )}
@@ -2614,7 +2584,7 @@ export default function WorkOrdersPage() {
             <div className="grid gap-2 md:grid-cols-3">
               <label className="block md:col-span-1">
                 <span className="mb-1 block text-sm font-medium"> {tx("Asset / Equipment", "Equipo / Activo")} </span>
-                {assetRefreshError && <p role="alert" className="mb-2 text-xs text-amber-200">{assetRefreshError} <button type="button" onClick={() => void loadAssets()} className="underline">Retry equipment list</button></p>}
+                {assetRefreshError && <p role="alert" className="mb-2 text-xs text-amber-200">{assetRefreshError} <button type="button" onClick={() => void loadAssets()} className="underline">{tx("Retry equipment list")}</button></p>}
                 {locationId && issue.trim() && !assetId && <p role="status" className="mb-2 text-xs text-amber-200">{tx("No confirmed equipment match for this location. You can submit; Engineering will verify the equipment.", "No hay equipo confirmado para esta ubicación. Puedes enviar; Ingeniería verificará el equipo.")}</p>}
                 {!canSetEngineeringFields ? (
                   <output className="block w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200">
@@ -2687,21 +2657,21 @@ export default function WorkOrdersPage() {
             </label>
 
             {canViewTroubleshootingGuide && (
-              <section aria-label="Troubleshooting Guide" className="rounded-xl border border-amber-500/30 bg-slate-950/70 p-2">
+              <section aria-label={tx("Troubleshooting Guide")} className="rounded-xl border border-amber-500/30 bg-slate-950/70 p-2">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-lg font-bold text-amber-300">Suggested Troubleshooting</h2>
-                    <p className="mt-1 text-xs text-slate-400">Only instructions from this equipment&apos;s approved uploaded document are shown. No AI-generated instructions.</p>
+                    <h2 className="text-lg font-bold text-amber-300">{tx("Suggested Troubleshooting")}</h2>
+                    <p className="mt-1 text-xs text-slate-400">{tx("Only instructions from this equipment's approved uploaded document are shown. No AI-generated instructions.")}</p>
                   </div>
-                  {troubleshootingLoading && <span className="text-xs text-slate-400">Loading equipment guidance...</span>}
+                  {troubleshootingLoading && <span className="text-xs text-slate-400">{tx("Loading equipment guidance...")}</span>}
                 </div>
                 {selectedCreateAsset && trustedTroubleshootingKnowledge?.source?.title && (
-                  <ul className="mt-2 text-xs text-slate-300">{trustedSources.map(source => <li key={source.registered_file_id}>Source: <a href={source.file_url || source.pdf_url} target="_blank" rel="noreferrer" className="font-semibold text-sky-300 underline">{source.source_file_name || source.title}</a></li>)}</ul>
+                  <ul className="mt-2 text-xs text-slate-300">{trustedSources.map(source => <li key={source.registered_file_id}>{tx("Source:")}{" "}<a href={source.file_url || source.pdf_url} target="_blank" rel="noreferrer" className="font-semibold text-sky-300 underline">{source.source_file_name || source.title}</a></li>)}</ul>
                 )}
                 {selectedCreateAsset && troubleshootingKnowledge?.source?.title && !trustedTroubleshootingKnowledge && (
-                  <p className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-400">Equipment reference available; its extracted guidance is hidden until Engineering verifies the documentation.</p>
+                  <p className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-400">{tx("Equipment reference available; its extracted guidance is hidden until Engineering verifies the documentation.")}</p>
                 )}
-                {!selectedCreateAsset && <p className="mt-3 text-xs text-slate-400">Select equipment to check for an exact verified manual match.</p>}
+                {!selectedCreateAsset && <p className="mt-3 text-xs text-slate-400">{tx("Select equipment to check for an exact verified manual match.")}</p>}
                 {troubleshootingError && <p role="status" className="mt-3 text-xs text-amber-200">{troubleshootingError}</p>}
                 {trustedTroubleshootingKnowledge && troubleshootingReason && <p role="status" className="mt-2 text-xs text-amber-200">{troubleshootingReason}</p>}
                 {troubleshootingSteps.length > 0
@@ -2712,7 +2682,7 @@ export default function WorkOrdersPage() {
                       <li key={`${step}-${index}`} className="flex gap-2">
                         <span className="font-semibold text-amber-400">{index + 1}.</span>
                         <div className="min-w-0">
-                          <span>{step}</span>{semantics && <span data-source-semantics={semantics.kind} aria-label={`Source label: ${semantics.label}`} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}
+                          <span>{step}</span>{semantics && <span data-source-semantics={semantics.kind} aria-label={tx("Source label: {value1}", { value1: semantics.label })} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}
                           {selectedCreateAsset && troubleshootingUserId && trustedTroubleshootingKnowledge?.source?.sha256 && (
                             <WorkOrderStepMedia media={(trustedTroubleshootingKnowledge.step_media || []).filter(item => item.stepLabel === step && matchingTroubleshootingRules.some(rule => rule.steps.includes(step) && rule.source_pages?.includes(item.sourcePage) && rule.source_document_id === item.source_document_id && rule.source_sha256 === item.source_sha256))} assetId={selectedCreateAsset.id}
                               sourceSha256={trustedTroubleshootingKnowledge.source.sha256} userId={troubleshootingUserId} contextIdentity={troubleshootingMediaContext} />
@@ -2724,8 +2694,8 @@ export default function WorkOrdersPage() {
                   </ol>
                   : selectedCreateAsset && !troubleshootingLoading && !troubleshootingError && (
                     <p className="mt-3 text-xs text-slate-400">{matchingTroubleshootingSteps.length
-                      ? "The matched checks are already recorded as completed or ruled out in Notes / Actions Taken."
-                      : troubleshootingReason || "No matching instructions in the attached document."}</p>
+                      ? tx("The matched checks are already recorded as completed or ruled out in Notes / Actions Taken.")
+                      : troubleshootingReason || tx("No matching instructions in the attached document.")}</p>
                   )}
               </section>
             )}
@@ -2736,7 +2706,7 @@ export default function WorkOrdersPage() {
 
         {message && (
           <p className="mt-5 rounded-lg bg-slate-900 p-4 text-sm">
-            {message}
+            {tx(message)}
           </p>
         )}
 
@@ -2769,8 +2739,8 @@ export default function WorkOrdersPage() {
             setBatchCreateSuggestions([]);
           }}>
             <div role="dialog" aria-modal="true" aria-labelledby="batch-work-orders-title" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
-              <h2 id="batch-work-orders-title" className="text-xl font-bold">{batchCreateSuggestions.length} work orders detected</h2>
-              <p className="mt-1 text-sm text-slate-400">CMPRI found multiple maintenance issues in one report. Review them before anything is submitted. You can edit an issue or remove one that should not become a separate work order.</p>
+              <h2 id="batch-work-orders-title" className="text-xl font-bold">{batchCreateSuggestions.length} {tx("work orders detected")}</h2>
+              <p className="mt-1 text-sm text-slate-400">{tx("CMPRI found multiple maintenance issues in one report. Review them before anything is submitted. You can edit an issue or remove one that should not become a separate work order.")}</p>
 
               <div className="mt-2 max-h-[58vh] space-y-1.5 overflow-y-auto pr-1">
                 {batchCreateSuggestions.map((suggestion, index) => {
@@ -2781,7 +2751,7 @@ export default function WorkOrdersPage() {
                     <div key={suggestion.key} className="rounded-xl border border-slate-700 bg-slate-950 p-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work Order {index + 1}</p>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Work Order")}{" "}{index + 1}</p>
                           <div className="mt-1">
                             <SearchableSelect
                               value={rowLocation.id}
@@ -2811,20 +2781,19 @@ export default function WorkOrdersPage() {
                           onClick={() => handleBatchSuggestionRemoval(index)}
                           className="rounded-lg border border-red-500/50 px-3 py-1 text-xs font-semibold text-red-300 hover:bg-red-950/40"
                         >
-                          Remove
-                        </button>
+                          {tx("Remove")}</button>
                       </div>
                       <div className="mt-1.5 grid gap-1.5 text-xs text-slate-300 sm:grid-cols-3">
-                        <span><span className="text-slate-500">Asset:</span> {relatedAsset?.name ?? suggestion.assetName}</span>
-                        <span><span className="text-slate-500">Category:</span> {suggestion.category}</span>
-                        <span><span className="text-slate-500">Priority:</span> {suggestion.priority}</span>
+                        <span><span className="text-slate-500">{tx("Asset:")}</span> {relatedAsset?.name ?? suggestion.assetName}</span>
+                        <span><span className="text-slate-500">{tx("Category:")}</span> {tx(suggestion.category)}</span>
+                        <span><span className="text-slate-500">{tx("Priority:")}</span> {tx(suggestion.priority)}</span>
                       </div>
                       {duplicate && (
-                        <p className="mt-1.5 rounded-lg border border-orange-500/40 bg-orange-950/30 px-2 py-1 text-xs font-semibold text-orange-200">Possible duplicate: {formatWorkOrder(duplicate.display_id, "existing work order")} — {duplicate.issue || "similar active issue"}</p>
+                        <p className="mt-1.5 rounded-lg border border-orange-500/40 bg-orange-950/30 px-2 py-1 text-xs font-semibold text-orange-200">{tx("Possible duplicate:")}{" "}{formatWorkOrder(duplicate.display_id, "existing work order")} — {duplicate.issue || tx("similar active issue")}</p>
                       )}
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        <button type="button" onClick={() => void createSingleBatchWorkOrder(suggestion)} className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-1 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Submit This</button>
-                        <button type="button" onClick={() => handleBatchSuggestionRemoval(index)} className="rounded-lg border border-red-500/50 px-3 py-1 text-xs font-bold text-red-200 hover:bg-red-950/40">Remove</button>
+                        <button type="button" onClick={() => void createSingleBatchWorkOrder(suggestion)} className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-1 text-xs font-bold text-amber-100 hover:bg-amber-900/40">{tx("Submit This")}</button>
+                        <button type="button" onClick={() => handleBatchSuggestionRemoval(index)} className="rounded-lg border border-red-500/50 px-3 py-1 text-xs font-bold text-red-200 hover:bg-red-950/40">{tx("Remove")}</button>
                       </div>
                     </div>
                   );
@@ -2832,9 +2801,9 @@ export default function WorkOrdersPage() {
               </div>
 
               <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <button type="button" autoFocus disabled={creatingBatchWorkOrders} onClick={() => { setShowBatchCreateDialog(false); setBatchCreateSuggestions([]); }} className="rounded-lg border border-slate-600 px-4 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50">Back to Form</button>
+                <button type="button" autoFocus disabled={creatingBatchWorkOrders} onClick={() => { setShowBatchCreateDialog(false); setBatchCreateSuggestions([]); }} className="rounded-lg border border-slate-600 px-4 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50">{tx("Back to Form")}</button>
                 <button type="button" disabled={creatingBatchWorkOrders || batchCreateSuggestions.length < 2} onClick={() => void createBatchWorkOrders()} className="rounded-lg bg-amber-400 px-4 py-1.5 text-sm font-bold text-slate-950 disabled:opacity-60">
-                  {creatingBatchWorkOrders ? "Submitting..." : `Submit All (${batchCreateSuggestions.length})`}
+                  {creatingBatchWorkOrders ? tx("Submitting...") : tx("Submit All ({value1})", { value1: batchCreateSuggestions.length })}
                 </button>
               </div>
             </div>
@@ -2859,12 +2828,10 @@ export default function WorkOrdersPage() {
                   id="related-work-orders-title"
                   className="text-xl font-bold"
                 >
-                  Are you sure you want to create these work orders?
-                </h2>
+                  {tx("Are you sure you want to create these work orders?")}</h2>
 
                 <p className="mt-1 text-sm text-slate-400">
-                  Review the separate issues found in the technician notes. Category, priority, and troubleshooting will still be saved, but they are intentionally hidden from this confirmation.
-                </p>
+                  {tx("Review the separate issues found in the technician notes. Category, priority, and troubleshooting will still be saved, but they are intentionally hidden from this confirmation.")}</p>
 
                 <div className="mt-2 max-h-[55vh] space-y-1.5 overflow-y-auto pr-1">
                   {relatedIssueSuggestions.map(
@@ -2884,8 +2851,7 @@ export default function WorkOrdersPage() {
                         >
                           <div className="grid gap-1.5 sm:grid-cols-[110px_1fr]">
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Room
-                            </p>
+                              {tx("Room")}</p>
 
                             <p className="text-sm font-semibold">
                               {
@@ -2894,8 +2860,7 @@ export default function WorkOrdersPage() {
                             </p>
 
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Asset
-                            </p>
+                              {tx("Asset")}</p>
 
                             <p className="text-sm">
                               {relatedAsset?.name ??
@@ -2903,8 +2868,7 @@ export default function WorkOrdersPage() {
                             </p>
 
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Issue
-                            </p>
+                              {tx("Issue")}</p>
 
                             <p className="text-sm">
                               {
@@ -2929,8 +2893,7 @@ export default function WorkOrdersPage() {
                     }
                     className="rounded-lg border border-slate-600 px-4 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
                   >
-                    Cancel
-                  </button>
+                    {tx("Cancel")}</button>
 
                   <button
                     type="button"
@@ -2943,8 +2906,8 @@ export default function WorkOrdersPage() {
                     className="rounded-lg bg-amber-400 px-4 py-1.5 text-sm font-bold text-slate-950 disabled:opacity-60"
                   >
                     {creatingRelatedWorkOrders
-                      ? "Creating..."
-                      : `Yes, Create ${relatedIssueSuggestions.length} Work Order${relatedIssueSuggestions.length === 1 ? "" : "s"}`}
+                      ? tx("Creating...")
+                      : tx(relatedIssueSuggestions.length === 1 ? "Yes, Create 1 Work Order" : "Yes, Create {count} Work Orders", { count: relatedIssueSuggestions.length })}
                   </button>
                 </div>
               </div>

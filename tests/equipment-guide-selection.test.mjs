@@ -155,7 +155,7 @@ test('Room 410 field evidence: GE model unknown never inherits Friedrich guide',
 });
 
 test('empty-guidance footer is hidden when verified manual steps or diagnostic guidance are visible',()=>{
- const expressions=[];function visit(node){if(ts.isJsxExpression(node)&&node.getText(ast).includes('No instructions match this description yet.'))expressions.push(node);ts.forEachChild(node,visit);}visit(ast);
+ const expressions=[];function visit(node){if(ts.isJsxExpression(node)&&ts.isBinaryExpression(node.expression)&&node.getText(ast).includes('No instructions match this description yet.'))expressions.push(node);ts.forEachChild(node,visit);}visit(ast);
  const node=expressions.sort((a,b)=>a.getWidth(ast)-b.getWidth(ast))[0];assert.ok(node&&ts.isBinaryExpression(node.expression));const condition=node.expression.left.getText(ast);
  const shown=(manual,displayed,codes,loading,trusted=true)=>vm.runInNewContext(condition,{trustedManualKnowledge:trusted,manualSteps:Array(manual),displayedSteps:Array(displayed),relevantErrorCodes:Array(codes),manualLoading:loading,manualKnowledge:null});
  assert.equal(shown(1,0,0,false),false);assert.equal(shown(0,1,0,false),false);assert.equal(shown(0,0,1,false),false);assert.equal(shown(0,0,0,true),false);assert.equal(shown(0,0,0,false),true);assert.equal(shown(0,0,0,false,false),false);

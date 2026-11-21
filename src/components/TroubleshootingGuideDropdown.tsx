@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -317,13 +318,14 @@ const INVALID_MODE_ENTRIES: DormakabaEntry[] = [
 const LED_NAMES: Record<LedColor, string> = { G: "Green", Y: "Yellow", R: "Red" };
 
 function SignalDiagram({ signal }: { signal: Signal }) {
+  const { t } = useUiLanguage();
   return (
     <div className={styles.signal}>
       {signal.groups.map((group, index) => (
         <div className={styles.signalStep} key={`${group.detail}-${index}`}>
           {index > 0 && (
             <span className={styles.signalConnector} aria-label={
-              signal.connector === "alternating" ? "alternates with" : signal.connector === "plus" ? "plus" : "then"
+              signal.connector === "alternating" ? t("alternates with") : signal.connector === "plus" ? t("plus") : t("then")
             }>
               {signal.connector === "alternating" ? "↔" : signal.connector === "plus" ? "+" : "→"}
             </span>
@@ -333,9 +335,9 @@ function SignalDiagram({ signal }: { signal: Signal }) {
               <div className={styles.ledTokens}>
                 {group.colors.map((color, colorIndex) => (
                   <span className={styles.ledToken} key={`${color}-${colorIndex}`}>
-                    {colorIndex > 0 && group.colorRelation === "plus" && <span aria-label="plus">+</span>}
+                    {colorIndex > 0 && group.colorRelation === "plus" && <span aria-label={t("plus")}>+</span>}
                     <span className={`${styles.ledDot} ${styles[`led${color}`]}`} aria-hidden="true" />
-                    <span>{LED_NAMES[color]} ({color})</span>
+                    <span>{t(LED_NAMES[color])} ({color})</span>
                   </span>
                 ))}
               </div>
@@ -649,6 +651,7 @@ export function GuideContent({ guide }: { guide: GuideId }) {
 
 /** PDF exports of the existing guide content, shown inside CMPRI. */
 export default function TroubleshootingGuideDropdown() {
+  const { t } = useUiLanguage();
   const [selected, setSelected] = useState<(typeof GUIDE_OPTIONS)[number] | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const selectRef = useRef<HTMLSelectElement>(null);
@@ -665,7 +668,7 @@ export default function TroubleshootingGuideDropdown() {
     <>
       <select
         ref={selectRef}
-        aria-label="Front Desk Quick Guides"
+        aria-label={t("Front Desk Quick Guides")}
         defaultValue=""
         onChange={(event) => {
           const option = GUIDE_OPTIONS.find((guide) => guide.id === event.currentTarget.value);
@@ -674,15 +677,15 @@ export default function TroubleshootingGuideDropdown() {
         }}
         className="min-h-9 max-w-full rounded border border-slate-600 bg-slate-900 px-2 py-1 text-xs text-slate-100"
       >
-        <option value="" disabled>Front Desk Quick Guides</option>
-        {GUIDE_OPTIONS.map((option) => <option key={option.id} value={option.id}>{option.title}</option>)}
+        <option value="" disabled>{t("Front Desk Quick Guides")}</option>
+        {GUIDE_OPTIONS.map((option) => <option key={option.id} value={option.id}>{t(option.title)}</option>)}
       </select>
       {selected && createPortal(
         <dialog ref={dialogRef} data-cmpri-modal-theme="true" style={modalThemeStyle("Front Desk Quick Guides")} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); closeViewer(); }} onClose={closeViewer} className="fixed inset-0 m-auto h-[90dvh] w-[94vw] max-w-6xl overflow-hidden rounded-xl border border-slate-600 bg-slate-950 p-0 text-white backdrop:bg-black/70">
           <div className="flex h-full min-h-0 flex-col">
             <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-700 p-3">
-              <h2 id={titleId} className="mr-auto text-sm font-bold">{selected.title}</h2>
-              <button type="button" autoFocus onClick={closeViewer} aria-label="Close guide" className="rounded border border-slate-600 px-3 py-2 text-sm">Close</button>
+              <h2 id={titleId} className="mr-auto text-sm font-bold">{t(selected.title)}</h2>
+              <button type="button" autoFocus onClick={closeViewer} aria-label={t("Close guide")} className="rounded border border-slate-600 px-3 py-2 text-sm">{t("Close")}</button>
             </header>
             <GuidePdfViewer key={selected.id} src={selected.href} />
           </div>

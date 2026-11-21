@@ -1,4 +1,7 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { translateNotificationMessage } from "@/lib/i18n/notification-text";
+
 import Link from "next/link";
 import { subscribeResources } from "@/lib/events/browser";
 import { getValidSession } from "@/lib/supabase/client";
@@ -9,6 +12,7 @@ import { formatWorkOrderNotification } from "@/lib/work-order-reference.js";
 type MentionNotification = { notification_key: string; work_order_id: string; message: string; recorded_at: string };
 /** Targeted ticket mentions are available even to staff without a dashboard. */
 export default function WorkOrderMentionsInbox() {
+  const { t } = useUiLanguage();
   const [notifications, setNotifications] = useState<MentionNotification[]>([]);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
@@ -36,14 +40,14 @@ export default function WorkOrderMentionsInbox() {
     } catch { setError("The mention could not be marked read. Try again."); }
   }
   if (!notifications.length && !error) return null;
-  return <aside aria-label="Work order mentions" className="fixed bottom-3 right-3 z-[90] max-w-[calc(100vw-1.5rem)] rounded-xl border border-sky-500/50 bg-slate-950 p-2 text-sm text-white shadow-xl">
-    <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="rounded-lg px-2 py-1 font-semibold text-sky-200">@ Ticket mentions ({notifications.length})</button>
+  return <aside aria-label={t("Work order mentions")} className="fixed bottom-3 right-3 z-[90] max-w-[calc(100vw-1.5rem)] rounded-xl border border-sky-500/50 bg-slate-950 p-2 text-sm text-white shadow-xl">
+    <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="rounded-lg px-2 py-1 font-semibold text-sky-200">{t("@ Ticket mentions (")}{notifications.length})</button>
     {open && <div className="max-h-64 w-80 max-w-full overflow-y-auto">
       <ul>{notifications.map(item => <li key={item.notification_key} className="border-t border-slate-800 py-2">
-        <Link href={`/work-orders/${encodeURIComponent(item.work_order_id)}`} onClick={() => { void read([item.notification_key]); setOpen(false); }} className="text-sky-200 hover:underline">{formatWorkOrderNotification(item)}</Link>
+        <Link href={`/work-orders/${encodeURIComponent(item.work_order_id)}`} onClick={() => { void read([item.notification_key]); setOpen(false); }} className="text-sky-200 hover:underline">{translateNotificationMessage(formatWorkOrderNotification(item), t)}</Link>
       </li>)}</ul>
-      <button type="button" onClick={() => void read(notifications.map(item => item.notification_key))} className="text-xs underline">Mark mentions read</button>
+      <button type="button" onClick={() => void read(notifications.map(item => item.notification_key))} className="text-xs underline">{t("Mark mentions read")}</button>
     </div>}
-    {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
+    {error && <p role="alert" className="text-xs text-red-300">{t(error)}</p>}
   </aside>;
 }

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {makeUiTranslator} from '../src/lib/i18n/ui.ts';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
@@ -23,6 +24,7 @@ test('report file import accepts CSV only; images remain in the separate local O
   require(name){
    if(name==='@/lib/import-response')return {readImportResponse:async response=>response.json()};
    if(name==='@/lib/import-upload')return {uploadImportFile:async(file,kind)=>({kind,id:'upload-fixture',name:file.name,size:file.size,sha256:'a'.repeat(64)})};
+   if(name==='@/components/UiLanguageProvider')return {useUiLanguage:()=>({t:makeUiTranslator('en')})};
    if(name==='react')return React;
    if(name==='react/jsx-runtime')return jsx;
    if(name==='@/lib/auth/client-session')return {authorizationHeaders:async()=>({Authorization:'Bearer fixture'})};

@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./asset-browser.css";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
@@ -80,6 +81,7 @@ const blankAsset: Asset = {
 };
 
 export default function ManageEquipmentPage() {
+  const {t: ui, locale} = useUiLanguage();
   const embedded = useEmbeddedModal();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -549,7 +551,7 @@ export default function ManageEquipmentPage() {
       setDialogMessage("No supported labeled equipment values were found in the reviewed text. The text is still available above for manual entry; no equipment fields were changed.");
       return;
     }
-    if (extracted && !window.confirm("Replace the suggestions currently under review? Equipment fields already entered will not be changed.")) return;
+    if (extracted && !window.confirm(ui("Replace the suggestions currently under review? Equipment fields already entered will not be changed."))) return;
     setExtracted(suggestions);
     setExtractedDraft(suggestions);
     setDialogMessage("On-device OCR suggestions are unverified. Compare them with the original equipment label or manual before applying. The OCR file has not been uploaded or attached.");
@@ -614,39 +616,39 @@ export default function ManageEquipmentPage() {
       <div className="mx-auto w-full px-3 py-4 sm:px-4">
         {!embedded && <header className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-800 pb-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">CMPRI Engineering</p>
-            <h1 className="mt-1 text-3xl font-bold">Assets</h1>
-            <p className="mt-1 text-sm text-slate-400">Equipment records, manufacturer documentation, and verified information.</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">{ui("CMPRI Engineering")}</p>
+            <h1 className="mt-1 text-3xl font-bold">{ui("Assets")}</h1>
+            <p className="mt-1 text-sm text-slate-400">{ui("Equipment records, manufacturer documentation, and verified information.")}</p>
           </div>
         </header>}
         
 
-        {message && <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{message}</div>}
+        {message && <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-200">{ui(message)}</div>}
 
         <div className="asset-layout grid gap-4 pt-2 md:grid-cols-[minmax(260px,34%)_minmax(0,1fr)]">
           <section className="asset-picker min-w-0 bg-slate-900">
             <div className="px-3 py-2">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xl font-bold">All Equipment <span aria-hidden="true" className="asset-heading-chevron">⌄</span></h2>
-                <span className="asset-result-count">{loading ? "Loading…" : assetLoadError ? "Unavailable" : `${resultCount} ${resultCount === 1 ? "result" : "results"}`}</span>
-                {canManage && <button type="button" disabled={loading || adding} onClick={() => void startAdding()} className="rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold disabled:opacity-50">Add Asset</button>}
+                <h2 className="text-xl font-bold">{ui("All Equipment ")}<span aria-hidden="true" className="asset-heading-chevron">⌄</span></h2>
+                <span className="asset-result-count">{loading ? ui("Loading…") : assetLoadError ? ui("Unavailable") : ui("{value0} {value1}",{value0:String(resultCount),value1:String(resultCount === 1 ? "result" : "results")})}</span>
+                {canManage && <button type="button" disabled={loading || adding} onClick={() => void startAdding()} className="rounded-lg bg-cyan-600 px-3 py-2 text-sm font-bold disabled:opacity-50">{ui("Add Asset")}</button>}
               </div>
               
             </div>
             <div className="px-3 pb-3">
-              <label className="sr-only" htmlFor="asset-search">Search equipment</label>
-              <span className="asset-search-wrap"><AssetIcon name="search" /><input id="asset-search" value={assetSearch} onChange={event => setAssetSearch(event.target.value)} placeholder="Search room, equipment, model or serial…" className="asset-search min-h-10 w-full rounded px-3 text-sm text-white" /></span>
+              <label className="sr-only" htmlFor="asset-search">{ui("Search equipment")}</label>
+              <span className="asset-search-wrap"><AssetIcon name="search" /><input id="asset-search" value={assetSearch} onChange={event => setAssetSearch(event.target.value)} placeholder={ui("Search room, equipment, model or serial…")} className="asset-search min-h-10 w-full rounded px-3 text-sm text-white" /></span>
               <div className="asset-filters mt-2 text-sm">
-                <label><AssetIcon name="location" /><span className="sr-only">Location</span><select aria-label="Location" value={locationFilter} onChange={event => setLocationFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">Location</option>{browseLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
-                <label><AssetIcon name="layers" /><span className="sr-only">Type</span><select aria-label="Type" value={typeFilter} onChange={event => setTypeFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">Type</option>{[...new Set(assets.map(item => item.asset_type).filter(Boolean))].sort().map(type => <option key={type} value={type}>{type}</option>)}</select></label>
-                <label><AssetIcon name="status" /><span className="sr-only">Status</span><select aria-label="Status" value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">Status</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+                <label><AssetIcon name="location" /><span className="sr-only">{ui("Location")}</span><select aria-label={ui("Location")} value={locationFilter} onChange={event => setLocationFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">{ui("Location")}</option>{browseLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+                <label><AssetIcon name="layers" /><span className="sr-only">{ui("Type")}</span><select aria-label={ui("Type")} value={typeFilter} onChange={event => setTypeFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">{ui("Type")}</option>{[...new Set(assets.map(item => item.asset_type).filter(Boolean))].sort().map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+                <label><AssetIcon name="status" /><span className="sr-only">{ui("Status")}</span><select aria-label={ui("Status")} value={statusFilter} onChange={event => setStatusFilter(event.target.value)} className="bg-slate-950 p-1"><option value="">{ui("Status")}</option><option value="active">{ui("Active")}</option><option value="inactive">{ui("Inactive")}</option></select></label>
               </div>
               <div className="mt-3 max-h-[60vh] overflow-y-auto text-sm">
-                {loading ? <p>Loading equipment…</p> : assetLoadError ? <button type="button" onClick={() => void loadAssets()} className="underline">Retry loading equipment</button> : !groupedAssets.length ? <p>No equipment matches this search.</p> : groupedAssets.map(([area, locations]) => <details key={area} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="mb-1">
-                  <summary className="asset-group cursor-pointer rounded px-3 py-2 font-bold"><AssetIcon name="layers" /><span className="asset-group-name">{area}</span><span className="asset-group-count text-xs font-normal text-slate-400">{locations.length} {locations.length === 1 ? 'location' : 'locations'} · {locations.reduce((total, [, items]) => total + items.length, 0)} {locations.reduce((total, [, items]) => total + items.length, 0) === 1 ? 'asset' : 'assets'}</span></summary>
+                {loading ? <p>{ui("Loading equipment…")}</p> : assetLoadError ? <button type="button" onClick={() => void loadAssets()} className="underline">{ui("Retry loading equipment")}</button> : !groupedAssets.length ? <p>{ui("No equipment matches this search.")}</p> : groupedAssets.map(([area, locations]) => <details key={area} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="mb-1">
+                  <summary className="asset-group cursor-pointer rounded px-3 py-2 font-bold"><AssetIcon name="layers" /><span className="asset-group-name">{area}</span><span className="asset-group-count text-xs font-normal text-slate-400">{locations.length} {locations.length === 1 ? ui("location") : ui("locations")} · {locations.reduce((total, [, items]) => total + items.length, 0)} {locations.reduce((total, [, items]) => total + items.length, 0) === 1 ? ui("asset") : ui("assets")}</span></summary>
                   {locations.map(([location, items]) => <details key={location} open={assetSearch || locationFilter || typeFilter || statusFilter ? true : undefined} className="ml-3">
-                    <summary className="asset-location cursor-pointer rounded px-2 py-2 text-slate-300"><AssetIcon name="location" /><span className="asset-location-name">{location}</span><span className="asset-location-count">{items.length} {items.length === 1 ? "asset" : "assets"}</span></summary>
-                    {items.map(item => <button type="button" key={item.id} disabled={photoBusy || moveBusy} onClick={() => { if (unsavedEquipment && !window.confirm("Discard unsaved equipment changes?")) return; selectAsset(item); }} className={`asset-result block w-full px-3 py-2 text-left ${selectedId === item.id ? "asset-result-selected font-bold" : ""}`}><AssetIcon name="equipment" /><span>{item.name || item.asset_type}{item.model_number ? ` · ${item.model_number}` : ""}</span><span className="asset-result-arrow" aria-hidden="true">›</span></button>)}
+                    <summary className="asset-location cursor-pointer rounded px-2 py-2 text-slate-300"><AssetIcon name="location" /><span className="asset-location-name">{location}</span><span className="asset-location-count">{items.length} {items.length === 1 ? ui("asset") : ui("assets")}</span></summary>
+                    {items.map(item => <button type="button" key={item.id} disabled={photoBusy || moveBusy} onClick={() => { if (unsavedEquipment && !window.confirm(ui("Discard unsaved equipment changes?"))) return; selectAsset(item); }} className={`asset-result block w-full px-3 py-2 text-left ${selectedId === item.id ? "asset-result-selected font-bold" : ""}`}><AssetIcon name="equipment" /><span>{item.name || item.asset_type}{item.model_number ? ui(" · {value0}",{value0:String(item.model_number)}) : ""}</span><span className="asset-result-arrow" aria-hidden="true">›</span></button>)}
                   </details>)}
                 </details>)}
               </div>
@@ -654,78 +656,78 @@ export default function ManageEquipmentPage() {
           </section>
 
           <section className="asset-detail min-w-0 bg-slate-900 p-3">
-            {!selected ? <p className="text-slate-400">Select equipment to review it.</p> : <>
+            {!selected ? <p className="text-slate-400">{ui("Select equipment to review it.")}</p> : <>
               <div className="asset-overview flex flex-wrap items-start gap-4">
                 <label className={`relative block shrink-0 ${canManage ? "cursor-pointer" : ""}`}>
                   {/* eslint-disable-next-line @next/next/no-img-element -- Signed private asset photos retain their original browser request. */}
-                  {photo ? <img src={photo} alt={`Photo of ${selected.name}`} className="asset-photo rounded object-cover" /> : <span className="asset-photo asset-photo-placeholder flex items-center justify-center rounded text-sm text-slate-400">{canManage ? "Add photo" : "No photo"}</span>}
-                  {canManage && <><span className="sr-only">{photoBusy ? "Saving photo…" : photo ? "Replace photo" : "Select a photo"}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} className="sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} /></>}
+                  {photo ? <img src={photo} alt={ui("Photo of {value0}",{value0:String(selected.name)})} className="asset-photo rounded object-cover" /> : <span className="asset-photo asset-photo-placeholder flex items-center justify-center rounded text-sm text-slate-400">{canManage ? ui("Add photo") : ui("No photo")}</span>}
+                  {canManage && <><span className="sr-only">{photoBusy ? ui("Saving photo…") : photo ? ui("Replace photo") : ui("Select a photo")}</span><input type="file" accept="image/jpeg,image/png,image/webp" disabled={photoBusy} className="sr-only" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadPhoto(file); event.target.value = ""; }} /></>}
                 </label>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <h2 className="asset-title font-bold">{selected.name || selected.asset_type}</h2>
                     <div className="flex flex-wrap gap-3 text-sm font-semibold">
-                      {canManage && !verified && !editing && <button type="button" onClick={() => { setEditing(true); setAssetPanel("details"); }} className="asset-header-action px-2 py-1 text-cyan-200"><AssetIcon name="edit" />Edit Details</button>}
-                      {canManage && !verified && editing && <button type="button" disabled={saving} onClick={() => void save()} className="px-2 py-1 text-cyan-200 disabled:opacity-50">{saving ? "Saving…" : "Save Equipment"}</button>}
-                      {canManage && <button type="button" disabled={moveBusy || unsavedEquipment} onClick={() => { setMoveError(""); setMoving(value => !value); }} className="asset-header-action px-2 py-1 text-cyan-200 disabled:opacity-50"><AssetIcon name="move" />Move Asset</button>}
+                      {canManage && !verified && !editing && <button type="button" onClick={() => { setEditing(true); setAssetPanel("details"); }} className="asset-header-action px-2 py-1 text-cyan-200"><AssetIcon name="edit" />{ui("Edit Details")}</button>}
+                      {canManage && !verified && editing && <button type="button" disabled={saving} onClick={() => void save()} className="px-2 py-1 text-cyan-200 disabled:opacity-50">{saving ? ui("Saving…") : ui("Save Equipment")}</button>}
+                      {canManage && <button type="button" disabled={moveBusy || unsavedEquipment} onClick={() => { setMoveError(""); setMoving(value => !value); }} className="asset-header-action px-2 py-1 text-cyan-200 disabled:opacity-50"><AssetIcon name="move" />{ui("Move Asset")}</button>}
                     </div>
                   </div>
-                  <p className="asset-meta mt-2 text-sm text-slate-300"><AssetIcon name="location" />Current location: {browseLocations.find(location => location.id === selected.location_id)?.name || (selected.location_id ? "Location unavailable" : "Unassigned")}</p>
-                  <p className="asset-meta mt-1 text-sm text-slate-300"><AssetIcon name="layers" />Serial: {selected.serial_number || "Not yet recorded"}</p>
-                  <p className="asset-meta asset-service-status mt-1 text-sm text-slate-300"><span aria-hidden="true">✓</span>{selected.status || (selected.active ? "Active" : "Inactive")}{verified ? " · Verified documentation" : ""}</p>
-                  {photoMessage && <span role="status" className="text-sm">{photoMessage}</span>}
-                  {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">No confirmed location is assigned. This record is available as an unassigned template for work orders.</p>}
+                  <p className="asset-meta mt-2 text-sm text-slate-300"><AssetIcon name="location" />{ui("Current location: ")}{browseLocations.find(location => location.id === selected.location_id)?.name || (selected.location_id ? ui("Location unavailable") : ui("Unassigned"))}</p>
+                  <p className="asset-meta mt-1 text-sm text-slate-300"><AssetIcon name="layers" />{ui("Serial: ")}{selected.serial_number || ui("Not yet recorded")}</p>
+                  <p className="asset-meta asset-service-status mt-1 text-sm text-slate-300"><span aria-hidden="true">✓</span>{ui(selected.status || (selected.active ? "Active" : "Inactive"))}{verified ? ui(" · Verified documentation") : ""}</p>
+                  {photoMessage && <span role="status" className="text-sm">{ui(photoMessage)}</span>}
+                  {!selected.location_id && <p role="status" className="mt-2 text-sm text-amber-200">{ui("No confirmed location is assigned. This record is available as an unassigned template for work orders.")}</p>}
                   {(selected.binder_tag || selected.quantity != null) && <p className="mt-2 text-sm text-slate-300">{equipmentOptionLabel(selected)}</p>}
                   <div className="sr-only break-all">{documents.map((doc) => doc.url && (<a key={statusKey(doc)} href={doc.url}>{doc.name}</a>))}</div>
                 </div>
               </div>
 
-              {moving && <section className="mt-4 rounded bg-slate-950 p-3" aria-label="Move asset">
-                <label className="block text-sm">Destination<select value={destinationId} onChange={event => setDestinationId(event.target.value)} className="mt-1 w-full rounded bg-slate-900 p-2"><option value="">Select a location</option>{browseLocations.filter(location => location.id !== selected.location_id).map(location => <option key={location.id} value={location.id}>{location.area ? `${location.area} · ` : ""}{location.name}</option>)}</select></label>
-                <label className="mt-3 block text-sm">Work order to move with this asset<select value={moveOrderId} onChange={event => setMoveOrderId(event.target.value)} className="mt-1 w-full rounded bg-slate-900 p-2"><option value="">Select an option</option><option value="none">Move without a work order</option>{assetOrders.map(order => <option key={order.id} value={order.id}>#{order.display_id} · {order.issue}</option>)}</select></label>
-                <p className="mt-2 text-xs text-slate-400">The selected work order will move with the asset and receive a note. Other work orders are unchanged.</p>
-                {ordersLoading && <p role="status" className="mt-2 text-xs">Loading linked work orders…</p>}
-                {ordersError && <p role="alert" className="mt-2 text-xs text-amber-200">Work orders could not be loaded; reload before moving.</p>}
-                {moveError && <p role="alert" className="mt-2 text-sm text-amber-200">{moveError}</p>}
-                <button type="button" onClick={() => void moveAsset()} disabled={!destinationId || !moveOrderId || ordersLoading || Boolean(ordersError) || moveBusy || !selected.updated_at} className="mt-3 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{moveBusy ? "Moving…" : "Confirm Move"}</button>
+              {moving && <section className="mt-4 rounded bg-slate-950 p-3" aria-label={ui("Move asset")}>
+                <label className="block text-sm">{ui("Destination")}<select value={destinationId} onChange={event => setDestinationId(event.target.value)} className="mt-1 w-full rounded bg-slate-900 p-2"><option value="">{ui("Select a location")}</option>{browseLocations.filter(location => location.id !== selected.location_id).map(location => <option key={location.id} value={location.id}>{location.area ? ui("{value0} · ",{value0:String(location.area)}) : ""}{location.name}</option>)}</select></label>
+                <label className="mt-3 block text-sm">{ui("Work order to move with this asset")}<select value={moveOrderId} onChange={event => setMoveOrderId(event.target.value)} className="mt-1 w-full rounded bg-slate-900 p-2"><option value="">{ui("Select an option")}</option><option value="none">{ui("Move without a work order")}</option>{assetOrders.map(order => <option key={order.id} value={order.id}>#{order.display_id} · {order.issue}</option>)}</select></label>
+                <p className="mt-2 text-xs text-slate-400">{ui("The selected work order will move with the asset and receive a note. Other work orders are unchanged.")}</p>
+                {ordersLoading && <p role="status" className="mt-2 text-xs">{ui("Loading linked work orders…")}</p>}
+                {ordersError && <p role="alert" className="mt-2 text-xs text-amber-200">{ui("Work orders could not be loaded; reload before moving.")}</p>}
+                {moveError && <p role="alert" className="mt-2 text-sm text-amber-200">{ui(moveError)}</p>}
+                <button type="button" onClick={() => void moveAsset()} disabled={!destinationId || !moveOrderId || ordersLoading || Boolean(ordersError) || moveBusy || !selected.updated_at} className="mt-3 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{moveBusy ? ui("Moving…") : ui("Confirm Move")}</button>
               </section>}
-              <nav aria-label="Asset sections" className="asset-tabs mt-3 flex flex-wrap gap-x-6 text-sm">{([['details','Details'],['orders','Work Orders & Repairs'],['documents','Documentation']] as const).map(([key,label]) => <button type="button" key={key} aria-current={assetPanel === key ? "page" : undefined} onClick={() => setAssetPanel(key)} className={`min-h-10 font-semibold ${assetPanel === key ? "border-b-2 border-[rgb(var(--cmpri-action-rgb))]" : "text-slate-400"}`}><AssetIcon name={key === "details" ? "details" : key === "orders" ? "repair" : "document"} />{label}</button>)}</nav>
+              <nav aria-label={ui("Asset sections")} className="asset-tabs mt-3 flex flex-wrap gap-x-6 text-sm">{([['details','Details'],['orders','Work Orders & Repairs'],['documents','Documentation']] as const).map(([key,label]) => <button type="button" key={key} aria-current={assetPanel === key ? "page" : undefined} onClick={() => setAssetPanel(key)} className={`min-h-10 font-semibold ${assetPanel === key ? "border-b-2 border-[rgb(var(--cmpri-action-rgb))]" : "text-slate-400"}`}><AssetIcon name={key === "details" ? "details" : key === "orders" ? "repair" : "document"} />{ui(label)}</button>)}</nav>
               <div hidden={assetPanel !== "details"}>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {([['name','Equipment name'],['asset_type','Equipment type'],['manufacturer','Manufacturer'],['model_family','Exact model family'],['model_number','Model number'],['serial_number','Serial number'],['generation','Generation'],['asset_tag','Asset tag'],['documentation_key','Documentation key']] as const).map(([key,label]) => (
-                  <label key={key} className="grid gap-1 text-sm text-slate-300">{label}<input disabled={!editing || verified || !canManage} value={String(draft[key] ?? "")} onChange={(e) => setField(key, e.target.value as never)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:cursor-not-allowed disabled:bg-slate-900 disabled:text-slate-500" /></label>
+                  <label key={key} className="grid gap-1 text-sm text-slate-300">{ui(label)}<input disabled={!editing || verified || !canManage} value={String(draft[key] ?? "")} onChange={(e) => setField(key, e.target.value as never)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:cursor-not-allowed disabled:bg-slate-900 disabled:text-slate-500" /></label>
                 ))}
-                <label className="grid gap-1 text-sm text-slate-300">Install year<input disabled={!editing || verified || !canManage} type="number" min="1900" max={maximumAssetInstallYear()} value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>
+                <label className="grid gap-1 text-sm text-slate-300">{ui("Install year")}<input disabled={!editing || verified || !canManage} type="number" min="1900" max={maximumAssetInstallYear()} value={draft.install_year ?? ""} onChange={(e) => setField('install_year', e.target.value ? Number(e.target.value) : null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:bg-slate-900 disabled:text-slate-500" /></label>
               </div>
 
               </div>
-              <section hidden={assetPanel !== "orders"} className="mt-3" aria-label="Work orders and repairs">
-                <h3 className="sr-only">Work Orders &amp; Repairs</h3>
-                {ordersError ? <p role="alert" className="text-sm text-amber-200">{ordersError}</p> : ordersLoading ? <p role="status" className="text-sm text-slate-400">Loading work orders…</p> : assetOrders.length ? assetOrders.map(order => <div key={order.id} className="mt-3 text-sm">
-                  <div className="asset-order rounded p-3"><div className="asset-order-heading"><AssetIcon name="document" /><strong>WO #{order.display_id} · {order.issue}</strong><span className="asset-order-status">{order.status}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="asset-open-order"><AssetIcon name="external" />Open Work Order</ModalNavigationButton></div>
-                  <p className="mt-1 text-slate-400">Location: {order.room || "Not specified"}</p></div>
-                  {order.notes && <><div className="asset-notes-heading"><h4>Work order notes</h4><span>Notes are saved on the work order and shown here for this asset.</span></div><ul className="asset-note-list mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ` · ${new Date(entry.timestamp).toLocaleString()}` : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul></>}
-                </div>) : <p className="mt-2 text-sm text-slate-400">No linked work orders found.</p>}
-                {documents.length > 0 && !selected.serial_number && <div className="asset-manual-hint"><AssetIcon name="document" /><span>Manuals attached</span><button type="button" onClick={() => setAssetPanel("documents")}>View Documentation <AssetIcon name="external" /></button></div>}
+              <section hidden={assetPanel !== "orders"} className="mt-3" aria-label={ui("Work orders and repairs")}>
+                <h3 className="sr-only">{ui("Work Orders & Repairs")}</h3>
+                {ordersError ? <p role="alert" className="text-sm text-amber-200">{ui(ordersError)}</p> : ordersLoading ? <p role="status" className="text-sm text-slate-400">{ui("Loading work orders…")}</p> : assetOrders.length ? assetOrders.map(order => <div key={order.id} className="mt-3 text-sm">
+                  <div className="asset-order rounded p-3"><div className="asset-order-heading"><AssetIcon name="document" /><strong>{ui("WO #")}{order.display_id} · {order.issue}</strong><span className="asset-order-status">{ui(order.status)}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="asset-open-order"><AssetIcon name="external" />{ui("Open Work Order")}</ModalNavigationButton></div>
+                  <p className="mt-1 text-slate-400">{ui("Location: ")}{order.room || ui("Not specified")}</p></div>
+                  {order.notes && <><div className="asset-notes-heading"><h4>{ui("Work order notes")}</h4><span>{ui("Notes are saved on the work order and shown here for this asset.")}</span></div><ul className="asset-note-list mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ui(" · {value0}",{value0:String(new Date(entry.timestamp).toLocaleString(locale))}) : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul></>}
+                </div>) : <p className="mt-2 text-sm text-slate-400">{ui("No linked work orders found.")}</p>}
+                {documents.length > 0 && !selected.serial_number && <div className="asset-manual-hint"><AssetIcon name="document" /><span>{ui("Manuals attached")}</span><button type="button" onClick={() => setAssetPanel("documents")}>{ui("View Documentation ")}<AssetIcon name="external" /></button></div>}
               </section>
 
               <div hidden={assetPanel !== "details"}>
               {canManage && verified && <div className="mt-4 rounded-lg border border-amber-600/40 p-3">
-                <p className="text-sm text-amber-100">To correct verified equipment, open a documented revision. Prior verification and saved files are retained; the revised record needs verification again.</p>
-                <label className="mt-2 block text-sm">Revision reason<input value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} maxLength={2000} className="mt-1 w-full rounded border border-slate-600 bg-slate-950 p-2" /></label>
-                <button type="button" disabled={openingRevision || revisionReason.trim().length < 5} onClick={() => void beginRevision()} className="mt-2 rounded border border-amber-500 px-3 py-2 disabled:opacity-40">{openingRevision ? "Opening revision…" : "Open Revision & Edit"}</button>
+                <p className="text-sm text-amber-100">{ui("To correct verified equipment, open a documented revision. Prior verification and saved files are retained; the revised record needs verification again.")}</p>
+                <label className="mt-2 block text-sm">{ui("Revision reason")}<input value={revisionReason} onChange={(event) => setRevisionReason(event.target.value)} maxLength={2000} className="mt-1 w-full rounded border border-slate-600 bg-slate-950 p-2" /></label>
+                <button type="button" disabled={openingRevision || revisionReason.trim().length < 5} onClick={() => void beginRevision()} className="mt-2 rounded border border-amber-500 px-3 py-2 disabled:opacity-40">{openingRevision ? ui("Opening revision…") : ui("Open Revision & Edit")}</button>
               </div>}
-              {unsavedEquipment && <p className="mt-3 text-sm text-amber-200">Save equipment changes before confirming documentation.</p>}
-              {selected?.documentation_revision_id && <p className="mt-3 text-sm text-amber-200">Documentation revision in progress. Previous verification remains in the audit history.</p>}
+              {unsavedEquipment && <p className="mt-3 text-sm text-amber-200">{ui("Save equipment changes before confirming documentation.")}</p>}
+              {selected?.documentation_revision_id && <p className="mt-3 text-sm text-amber-200">{ui("Documentation revision in progress. Previous verification remains in the audit history.")}</p>}
               </div>
               <div hidden={assetPanel !== "documents"} className="mt-3">
-                <h3 className="font-bold">Documentation</h3>
-                {canManage && !verified && <button type="button" onClick={() => { setEditing(true); setShowDocumentationDialog(true); }} className="my-2 rounded bg-cyan-700 px-3 py-2 text-sm font-bold">Add Documentation</button>}
-                {verified && canManage && <div className="my-2"><p className="text-sm text-slate-400">Updating documentation opens a revision. The current files and verification history stay available; review and verify the record again when finished.</p><button type="button" disabled={openingRevision} onClick={() => void beginRevision("Update asset documentation", true)} className="mt-2 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{openingRevision ? "Opening…" : "Update Documentation"}</button></div>}
-                {documents.length ? <ul className="space-y-1 break-all">{documents.map(doc => <li key={statusKey(doc)}>{doc.url ? <a className="text-sm text-cyan-200 underline" href={doc.url} target="_blank" rel="noreferrer">{doc.name}</a> : <span>{doc.name}</span>}</li>)}</ul> : <p className="text-sm text-slate-400">No documentation attached.</p>}
+                <h3 className="font-bold">{ui("Documentation")}</h3>
+                {canManage && !verified && <button type="button" onClick={() => { setEditing(true); setShowDocumentationDialog(true); }} className="my-2 rounded bg-cyan-700 px-3 py-2 text-sm font-bold">{ui("Add Documentation")}</button>}
+                {verified && canManage && <div className="my-2"><p className="text-sm text-slate-400">{ui("Updating documentation opens a revision. The current files and verification history stay available; review and verify the record again when finished.")}</p><button type="button" disabled={openingRevision} onClick={() => void beginRevision("Update asset documentation", true)} className="mt-2 rounded bg-cyan-700 px-3 py-2 text-sm font-bold disabled:opacity-50">{openingRevision ? ui("Opening…") : ui("Update Documentation")}</button></div>}
+                {documents.length ? <ul className="space-y-1 break-all">{documents.map(doc => <li key={statusKey(doc)}>{doc.url ? <a className="text-sm text-cyan-200 underline" href={doc.url} target="_blank" rel="noreferrer">{doc.name}</a> : <span>{doc.name}</span>}</li>)}</ul> : <p className="text-sm text-slate-400">{ui("No documentation attached.")}</p>}
               {canManage && editing && !verified && <div className="mt-4 pt-3">
-                <p className="text-sm text-slate-400">Final step: after reviewing the equipment fields and saved documentation, confirm to lock the verified information.</p>
-                <div className="mt-3 flex justify-end"><button type="button" disabled={!documents.length || verifying || unsavedEquipment || saving} onClick={() => void verify()} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">{verifying ? "Confirming…" : "Confirm with Documentation & Lock Fields"}</button></div>
+                <p className="text-sm text-slate-400">{ui("Final step: after reviewing the equipment fields and saved documentation, confirm to lock the verified information.")}</p>
+                <div className="mt-3 flex justify-end"><button type="button" disabled={!documents.length || verifying || unsavedEquipment || saving} onClick={() => void verify()} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">{verifying ? ui("Confirming…") : ui("Confirm with Documentation & Lock Fields")}</button></div>
               </div>}
               </div>
             </>}
@@ -736,31 +738,30 @@ export default function ManageEquipmentPage() {
       {adding && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
         <form onSubmit={createAsset} role="dialog" aria-modal="true" aria-labelledby="add-asset-title" className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5">
           <div className="flex items-center justify-between gap-3">
-            <h2 id="add-asset-title" className="text-xl font-bold">Add Asset</h2>
-            <button type="button" disabled={creating || loadingLocations} onClick={() => setAdding(false)} className="rounded-lg border border-slate-600 px-3 py-2 disabled:opacity-50">Close</button>
+            <h2 id="add-asset-title" className="text-xl font-bold">{ui("Add Asset")}</h2>
+            <button type="button" disabled={creating || loadingLocations} onClick={() => setAdding(false)} className="rounded-lg border border-slate-600 px-3 py-2 disabled:opacity-50">{ui("Close")}</button>
           </div>
-          <p className="mt-2 text-sm text-slate-400">Choose a location, including storage, and enter the equipment type. Other details can be added later.</p>
-          {createMessage && <p role="alert" className="mt-3 text-sm text-amber-200">{createMessage}</p>}
+          <p className="mt-2 text-sm text-slate-400">{ui("Choose a location, including storage, and enter the equipment type. Other details can be added later.")}</p>
+          {createMessage && <p role="alert" className="mt-3 text-sm text-amber-200">{ui(createMessage)}</p>}
           <fieldset disabled={creating || loadingLocations} className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-1 text-sm">Room / Location
-              <select required value={newAsset.location_id || ""} onChange={(event) => setNewAsset((current) => ({ ...current, location_id: event.target.value || null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3">
-                <option value="">{loadingLocations ? "Loading locations…" : "Select a location"}</option>
+            <label className="grid gap-1 text-sm">{ui("Room / Location")}<select required value={newAsset.location_id || ""} onChange={(event) => setNewAsset((current) => ({ ...current, location_id: event.target.value || null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3">
+                <option value="">{loadingLocations ? ui("Loading locations…") : ui("Select a location")}</option>
                 {locations.map((location) => <option key={location.id} value={location.id}>{location.name}</option>)}
               </select>
             </label>
-            {([["asset_type", "Equipment type"], ["name", "Equipment name (optional)"], ["asset_tag", "Equipment label (optional)"], ["serial_number", "Serial number (optional)"]] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-sm">{label}
+            {([["asset_type", "Equipment type"], ["name", "Equipment name (optional)"], ["asset_tag", "Equipment label (optional)"], ["serial_number", "Serial number (optional)"]] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-sm">{ui(label)}
               <input required={key === "asset_type"} maxLength={key === "name" ? 500 : key === "serial_number" ? 300 : 200} value={newAsset[key] || ""} onChange={(event) => setNewAsset((current) => ({ ...current, [key]: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" />
             </label>)}
-            <details className="sm:col-span-2"><summary className="cursor-pointer text-sm font-semibold">More equipment details (optional)</summary>
+            <details className="sm:col-span-2"><summary className="cursor-pointer text-sm font-semibold">{ui("More equipment details (optional)")}</summary>
               <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                {([["manufacturer", "Manufacturer"], ["model_family", "Model family"], ["model_number", "Model number"], ["generation", "Generation"]] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-sm">{label}<input maxLength={200} value={newAsset[key] || ""} onChange={(event) => setNewAsset((current) => ({ ...current, [key]: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" /></label>)}
-                <label className="grid gap-1 text-sm">Install year<input type="number" min="1900" max={maximumAssetInstallYear()} value={newAsset.install_year ?? ""} onChange={(event) => setNewAsset((current) => ({ ...current, install_year: event.target.value ? Number(event.target.value) : null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" /></label>
+                {([["manufacturer", "Manufacturer"], ["model_family", "Model family"], ["model_number", "Model number"], ["generation", "Generation"]] as const).map(([key, label]) => <label key={key} className="grid gap-1 text-sm">{ui(label)}<input maxLength={200} value={newAsset[key] || ""} onChange={(event) => setNewAsset((current) => ({ ...current, [key]: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" /></label>)}
+                <label className="grid gap-1 text-sm">{ui("Install year")}<input type="number" min="1900" max={maximumAssetInstallYear()} value={newAsset.install_year ?? ""} onChange={(event) => setNewAsset((current) => ({ ...current, install_year: event.target.value ? Number(event.target.value) : null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3" /></label>
               </div>
             </details>
           </fieldset>
           <div className="mt-5 flex justify-end gap-2">
-            <button type="button" disabled={creating || loadingLocations} onClick={() => setAdding(false)} className="rounded-lg border border-slate-600 px-4 py-2 disabled:opacity-50">Cancel</button>
-            <button type="submit" disabled={creating || loadingLocations || !locations.length} className="rounded-lg bg-cyan-600 px-4 py-2 font-bold disabled:opacity-50">{creating ? "Adding…" : "Save Asset"}</button>
+            <button type="button" disabled={creating || loadingLocations} onClick={() => setAdding(false)} className="rounded-lg border border-slate-600 px-4 py-2 disabled:opacity-50">{ui("Cancel")}</button>
+            <button type="submit" disabled={creating || loadingLocations || !locations.length} className="rounded-lg bg-cyan-600 px-4 py-2 font-bold disabled:opacity-50">{creating ? ui("Adding…") : ui("Save Asset")}</button>
           </div>
         </form>
       </div>}
@@ -769,8 +770,8 @@ export default function ManageEquipmentPage() {
         <div className="cmpri-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-black/75">
           <div role="dialog" aria-modal="true" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
-              <div><h2 className="text-xl font-bold">Add Documentation</h2><p className="mt-1 text-sm text-slate-400">{selected.name}</p></div>
-              <button type="button" onClick={() => setShowDocumentationDialog(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">Close</button>
+              <div><h2 className="text-xl font-bold">{ui("Add Documentation")}</h2><p className="mt-1 text-sm text-slate-400">{selected.name}</p></div>
+              <button type="button" onClick={() => setShowDocumentationDialog(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm">{ui("Close")}</button>
             </div>
 
             <StagedPdfImporter key={selected.id} assetId={selected.id} assetName={selected.name} token={token} sourceFile={manualFile} onSourceFileChange={setManualFile} onSaved={(previousUpdatedAt, savedUpdatedAt) => {
@@ -781,43 +782,42 @@ export default function ManageEquipmentPage() {
             }} legacyUpload={file => { void processDocumentation({file}); }} legacyBusy={Boolean(processingKey)} />
 
             <details className="mt-4 rounded border border-slate-700 bg-slate-950 p-3">
-              <summary className="cursor-pointer font-semibold">Read the complete manual or label on this device</summary>
-              <p className="mt-2 text-sm text-slate-400">Uses the file selected above. Reading is optional and keeps the original unchanged. Upload and use above attaches a PDF; this reader does not upload it.</p>
+              <summary className="cursor-pointer font-semibold">{ui("Read the complete manual or label on this device")}</summary>
+              <p className="mt-2 text-sm text-slate-400">{ui("Uses the file selected above. Reading is optional and keeps the original unchanged. Upload and use above attaches a PDF; this reader does not upload it.")}</p>
               <LocalOcrReview key={selected.id} sourceFile={manualFile} onSourceFileChange={setManualFile} fullDocument onUseText={useReviewedOcr} onUseGuide={useReviewedGuide} useTextLabel="Suggest equipment values" />
             </details>
 
-            {dialogMessage && <div className={`mt-3 rounded-lg border px-3 py-2 text-sm ${/processed/i.test(dialogMessage) ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-200" : /failed|could not|not configured|not loaded/i.test(dialogMessage) ? "border-red-500/40 bg-red-950/25 text-red-200" : "border-slate-700 bg-slate-950 text-slate-300"}`}>{dialogMessage}</div>}
+            {dialogMessage && <div className={`mt-3 rounded-lg border px-3 py-2 text-sm ${/processed/i.test(dialogMessage) ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-200" : /failed|could not|not configured|not loaded/i.test(dialogMessage) ? "border-red-500/40 bg-red-950/25 text-red-200" : "border-slate-700 bg-slate-950 text-slate-300"}`}>{ui(dialogMessage)}</div>}
 
             {extracted && <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/15 p-4">
-              <h3 className="font-bold text-amber-100">Extracted equipment information</h3>
-              <p className="mt-1 text-xs text-amber-200/70">Extracted values are unverified. Existing equipment values were not replaced automatically; review conflicts before applying or saving.</p>
-              {extractedConflicts.length > 0 && <p role="status" className="mt-2 rounded-lg border border-amber-500/30 bg-amber-950/25 p-2 text-xs text-amber-100">Review conflicting existing fields before applying: {extractedConflicts.join(", ")}.</p>}
+              <h3 className="font-bold text-amber-100">{ui("Extracted equipment information")}</h3>
+              <p className="mt-1 text-xs text-amber-200/70">{ui("Extracted values are unverified. Existing equipment values were not replaced automatically; review conflicts before applying or saving.")}</p>
+              {extractedConflicts.length > 0 && <p role="status" className="mt-2 rounded-lg border border-amber-500/30 bg-amber-950/25 p-2 text-xs text-amber-100">{ui("Review conflicting existing fields before applying: ")}{extractedConflicts.join(", ")}.</p>}
               {(extracted.model_candidates?.length || 0) > 1 && (
-                <label className="mt-3 grid gap-1 text-xs font-semibold text-slate-300">Multiple model candidates found; select the one confirmed from the equipment label
-                  <select value={String(extractedDraft.model_number || "")} onChange={(event) => setExtractedDraft((current) => ({ ...current, model_number: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white">
-                    <option value="">Select a model</option>
+                <label className="mt-3 grid gap-1 text-xs font-semibold text-slate-300">{ui("Multiple model candidates found; select the one confirmed from the equipment label")}<select value={String(extractedDraft.model_number || "")} onChange={(event) => setExtractedDraft((current) => ({ ...current, model_number: event.target.value }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white">
+                    <option value="">{ui("Select a model")}</option>
                     {extracted.model_candidates?.map((model) => <option key={model} value={model}>{model}</option>)}
                   </select>
                 </label>
               )}
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {extractedFields.map(([key, label]) => <label key={key} className="grid gap-1 text-xs font-semibold text-slate-300">{label}<input value={String(extractedDraft[key] ?? "")} onChange={(e) => setExtractedDraft((current) => ({ ...current, [key]: e.target.value || null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white" /></label>)}
-                <label className="grid gap-1 text-xs font-semibold text-slate-300">Install year<input type="number" value={extractedDraft.install_year ?? ""} onChange={(e) => setExtractedDraft((current) => ({ ...current, install_year: e.target.value ? Number(e.target.value) : null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white" /></label>
+                {extractedFields.map(([key, label]) => <label key={key} className="grid gap-1 text-xs font-semibold text-slate-300">{ui(label)}<input value={String(extractedDraft[key] ?? "")} onChange={(e) => setExtractedDraft((current) => ({ ...current, [key]: e.target.value || null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white" /></label>)}
+                <label className="grid gap-1 text-xs font-semibold text-slate-300">{ui("Install year")}<input type="number" value={extractedDraft.install_year ?? ""} onChange={(e) => setExtractedDraft((current) => ({ ...current, install_year: e.target.value ? Number(e.target.value) : null }))} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white" /></label>
               </div>
-              <div className="mt-4 flex justify-end"><button type="button" onClick={loadExtractedIntoEquipment} className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white">Apply Reviewed Values</button></div>
+              <div className="mt-4 flex justify-end"><button type="button" onClick={loadExtractedIntoEquipment} className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-bold text-white">{ui("Apply Reviewed Values")}</button></div>
             </div>}
 
             <div className="mt-5 border-t border-slate-800 pt-4">
-              <h3 className="text-sm font-bold">Already uploaded</h3>
+              <h3 className="text-sm font-bold">{ui("Already uploaded")}</h3>
               <div className="mt-2 max-h-48 space-y-2 overflow-y-auto">
                 {documents.length ? documents.map((doc) => {
                   const key = statusKey(doc);
                   const status = docStatuses[key] || { state: "ready" as const };
                   return <div key={key} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-xs">
-                    <div className="min-w-0"><div className="truncate text-slate-300">{doc.name}</div><div className={`mt-1 font-semibold ${status.state === "processed" ? "text-emerald-300" : status.state === "failed" ? "text-red-300" : status.state === "reading" ? "text-cyan-300" : "text-slate-500"}`}>{status.message || (status.state === "reading" ? "Reading…" : status.state === "processed" ? "Processed" : status.state === "failed" ? "Failed" : status.state === "pending" ? "Pending" : "Ready")}</div></div>
-                    {doc.storage_path && <button type="button" disabled={Boolean(processingKey)} onClick={() => void processDocumentation({ storagePath: doc.storage_path })} className="rounded-md border border-slate-600 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">{status.state === "failed" ? "Try Again" : "Read Again"}</button>}
+                    <div className="min-w-0"><div className="truncate text-slate-300">{doc.name}</div><div className={`mt-1 font-semibold ${status.state === "processed" ? "text-emerald-300" : status.state === "failed" ? "text-red-300" : status.state === "reading" ? "text-cyan-300" : "text-slate-500"}`}>{status.message || (status.state === "reading" ? ui("Reading…") : status.state === "processed" ? ui("Processed") : status.state === "failed" ? ui("Failed") : status.state === "pending" ? ui("Pending") : ui("Ready"))}</div></div>
+                    {doc.storage_path && <button type="button" disabled={Boolean(processingKey)} onClick={() => void processDocumentation({ storagePath: doc.storage_path })} className="rounded-md border border-slate-600 px-2 py-1 font-bold text-slate-200 disabled:opacity-40">{status.state === "failed" ? ui("Try Again") : ui("Read Again")}</button>}
                   </div>;
-                }) : <p className="text-xs text-slate-500">No documents uploaded yet.</p>}
+                }) : <p className="text-xs text-slate-500">{ui("No documents uploaded yet.")}</p>}
               </div>
             </div>
           </div>

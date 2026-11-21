@@ -1,6 +1,7 @@
 import "./helpers/resolve-ts.mjs";
 const { projectGuestRoom } = await import("../src/lib/room-guest-reports.ts");
 import test from "node:test";
+import { makeUiTranslator, uiTitleCase } from "../src/lib/i18n/ui.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -435,9 +436,9 @@ test("room-operations uploads validate printed reports, retain history, and reco
   assert.match(snapshot, /\.lte\("report_date", requestedDate\)/);
   assert.match(snapshot, /order\("report_date", \{ ascending: false \}\)/);
   assert.match(availability, /loadEffectiveRoomOperationsSnapshot\(admin, date\)/);
-  assert.match(page, /Showing \{snapshotInfo\.sourceType === "legacy" \? "legacy room data"/);
+  assert.match(page, /snapshotInfo\.sourceType === "legacy" \? t\("legacy room data"\)/);
   assert.match(page, /selected date/);
-  assert.match(page, /displayDate\(snapshotInfo\.requestedDate\)/);
+  assert.match(page, /displayDate\(snapshotInfo\.requestedDate, locale\)/);
 });
 
 test("effective room snapshot carries forward complete history without future leakage and protects newer room state", async () => {
@@ -881,7 +882,7 @@ test("room cards and summary modal put Bonvoy after the guest and before arrival
     `${functions.join("\n")}\nexports.RoomDetails = RoomDetails;`,
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } },
   ).outputText, {
-    exports: components, React, LoyaltyBadge:({tier})=>tier?React.createElement('span',{'data-test-loyalty':tier},tier):null, GuestGroupBadge: badgeModule.exports.default, Image: props => React.createElement("img", props),
+    exports: components, React, useUiLanguage: () => ({ t: makeUiTranslator("en"), tt: (text, values) => uiTitleCase(makeUiTranslator("en")(text, values)), locale: "en-US" }), LoyaltyBadge:({tier})=>tier?React.createElement('span',{'data-test-loyalty':tier},tier):null, GuestGroupBadge: badgeModule.exports.default, Image: props => React.createElement("img", props),
     currentRoomGroupBadges, isRailwayCnGuestName, isBigTenGroup, hotelDate: () => "2026-10-05", displayDate: value => value,
   });
   const html = renderToStaticMarkup(React.createElement(components.RoomDetails, { row: {

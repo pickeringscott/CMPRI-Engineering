@@ -1,5 +1,6 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useCallback, useEffect, useMemo, useRef, useId, useState, type FormEvent } from "react";
 import { getValidSession } from "@/lib/supabase/client";
 import { hasCapability, loadCmpriSession } from "@/lib/auth/client-session";
@@ -49,21 +50,21 @@ interface PmCompletion {
   created_at: string | null;
 }
 
-function localDate(value: string | null | undefined) {
+function localDate(value: string | null | undefined, locale = "en-US") {
   if (!value) return "Not recorded";
   const [year, month, day] = value.slice(0, 10).split("-").map(Number);
   if (!year || !month || !day) return value;
-  return new Date(year, month - 1, day).toLocaleDateString();
+  return new Date(year, month - 1, day).toLocaleDateString(locale);
 }
 
-function dueState(nextDueOn: string | null) {
-  if (!nextDueOn) return { label: "Due date not set", className: "border-slate-700 bg-slate-950 text-slate-400" };
+function dueState(nextDueOn: string | null, translate: (key: string, values?: Record<string, string | number>) => string, locale: string) {
+  if (!nextDueOn) return { label: translate("Due date not set"), className: "border-slate-700 bg-slate-950 text-slate-400" };
   const due = new Date(`${nextDueOn}T23:59:59`);
   const now = new Date();
-  if (due.getTime() < now.getTime()) return { label: `Overdue · ${localDate(nextDueOn)}`, className: "border-red-500/40 bg-red-950/30 text-red-200" };
+  if (due.getTime() < now.getTime()) return { label: translate("Overdue · {date}", {date: localDate(nextDueOn, locale)}), className: "border-red-500/40 bg-red-950/30 text-red-200" };
   const days = Math.ceil((due.getTime() - now.getTime()) / 86_400_000);
-  if (days <= 30) return { label: `Due ${localDate(nextDueOn)}`, className: "border-amber-500/40 bg-amber-950/30 text-amber-200" };
-  return { label: `Due ${localDate(nextDueOn)}`, className: "border-emerald-500/30 bg-emerald-950/20 text-emerald-200" };
+  if (days <= 30) return { label: translate("Due {date}", {date: localDate(nextDueOn, locale)}), className: "border-amber-500/40 bg-amber-950/30 text-amber-200" };
+  return { label: translate("Due {date}", {date: localDate(nextDueOn, locale)}), className: "border-emerald-500/30 bg-emerald-950/20 text-emerald-200" };
 }
 
 type LocationFields = Pick<Location, "name" | "area" | "room_number" | "location_type">;
@@ -72,6 +73,7 @@ function LocationEditor({ location, areas, types, busy, error, onClose, onSave }
   location: Location | null; areas: string[]; types: string[]; busy: boolean; error: string;
   onClose: () => void; onSave: (fields: LocationFields) => Promise<void>;
 }) {
+  const {t: ui} = useUiLanguage();
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useId();
   const typeList = useId();
@@ -79,25 +81,26 @@ function LocationEditor({ location, areas, types, busy, error, onClose, onSave }
   useEffect(() => { dialog.current?.showModal(); }, []);
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (!busy) void onSave(fields); }
   return <dialog ref={dialog} aria-labelledby={title} className="location-editor" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
-    <header><h2 id={title}>{location ? "Edit Location" : "Add Location"}</h2><button type="button" aria-label={location ? "Close Edit Location" : "Close Add Location"} disabled={busy} onClick={onClose}>×</button></header>
+    <header><h2 id={title}>{location ? ui("Edit Location") : ui("Add Location")}</h2><button type="button" aria-label={location ? ui("Close Edit Location") : ui("Close Add Location")} disabled={busy} onClick={onClose}>×</button></header>
     <form onSubmit={submit}>
       <fieldset disabled={busy}>
-        <label>Name<input autoFocus required maxLength={200} value={fields.name || ""} onChange={event => setFields({ ...fields, name: event.target.value })} /></label>
-        <label>Area{location
-          ? <select required value={fields.area || ""} onChange={event => setFields({ ...fields, area: event.target.value })}><option value="" disabled>Select an area</option>{areas.map(area => <option key={area} value={area}>{area}</option>)}</select>
+        <label>{ui("Name")}<input autoFocus required maxLength={200} value={fields.name || ""} onChange={event => setFields({ ...fields, name: event.target.value })} /></label>
+        <label>{ui("Area")}{location
+          ? <select required value={fields.area || ""} onChange={event => setFields({ ...fields, area: event.target.value })}><option value="" disabled>{ui("Select an area")}</option>{areas.map(area => <option key={area} value={area}>{area}</option>)}</select>
           : <input required maxLength={200} value={fields.area || ""} onChange={event => setFields({ ...fields, area: event.target.value })} />}</label>
-        <label>Location Type{location
-          ? <select required value={fields.location_type || ""} onChange={event => setFields({ ...fields, location_type: event.target.value })}><option value="" disabled>Select a location type</option>{types.map(type => <option key={type} value={type}>{type}</option>)}</select>
+        <label>{ui("Location Type")}{location
+          ? <select required value={fields.location_type || ""} onChange={event => setFields({ ...fields, location_type: event.target.value })}><option value="" disabled>{ui("Select a location type")}</option>{types.map(type => <option key={type} value={type}>{ui(type)}</option>)}</select>
           : <><input required maxLength={200} list={typeList} value={fields.location_type || ""} onChange={event => setFields({ ...fields, location_type: event.target.value })} /><datalist id={typeList}>{types.map(type => <option key={type} value={type} />)}</datalist></>}</label>
-        <label>Room Number (optional)<input maxLength={20} pattern="[A-Za-z0-9 -]+" value={fields.room_number || ""} onChange={event => setFields({ ...fields, room_number: event.target.value })} /></label>
+        <label>{ui("Room Number (optional)")}<input maxLength={20} pattern="[A-Za-z0-9 -]+" value={fields.room_number || ""} onChange={event => setFields({ ...fields, room_number: event.target.value })} /></label>
       </fieldset>
-      {error && <p role="alert">{error}</p>}
-      <footer><button type="button" disabled={busy} onClick={onClose}>Cancel</button><button type="submit" data-cmpri-primary disabled={busy}>{busy ? "Saving…" : location ? "Save Location" : "Add Location"}</button></footer>
+      {error && <p role="alert">{ui(error)}</p>}
+      <footer><button type="button" disabled={busy} onClick={onClose}>{ui("Cancel")}</button><button type="submit" data-cmpri-primary disabled={busy}>{busy ? ui("Saving…") : location ? ui("Save Location") : ui("Add Location")}</button></footer>
     </form>
   </dialog>;
 }
 
 export default function RoomsPage() {
+  const {t: ui, locale} = useUiLanguage();
   const embedded = useEmbeddedModal();
   const [locations, setLocations] = useState<Location[]>([]);
   const [orders, setOrders] = useState<WorkOrder[]>([]);
@@ -181,72 +184,72 @@ export default function RoomsPage() {
   if (!pageAllowed) return null;
   return <main data-cmpri-action-surface className="manage-locations min-h-screen bg-slate-950 text-white">
     <div className="mx-auto w-full px-3 py-3 sm:px-4">
-      {!embedded && <header className="mb-3 flex items-center justify-between"><h1 className="text-xl font-bold">Manage Locations</h1><ModalDashboardLink /></header>}
-      {message && <p role="status" className="mb-3 text-sm">{message}</p>}
+      {!embedded && <header className="mb-3 flex items-center justify-between"><h1 className="text-xl font-bold">{ui("Manage Locations")}</h1><ModalDashboardLink /></header>}
+      {message && <p role="status" className="mb-3 text-sm">{ui(message)}</p>}
       <div className="location-groups">
-        {groups.map((group, index) => <section key={group.type} aria-labelledby={`location-type-${index}`} className="location-group">
-          <h2 id={`location-type-${index}`}>{group.type}<span>{group.locations.length}</span></h2>
+        {groups.map((group, index) => <section key={ui(group.type)} aria-labelledby={`location-type-${index}`} className="location-group">
+          <h2 id={`location-type-${index}`}>{ui(group.type)}<span>{group.locations.length}</span></h2>
           {group.locations.map(location => {
             const open = selectedId === location.id;
             const plans = pmPlans.filter(plan => plan.location_id === location.id);
             const ticketCount = workOrdersByLocation.get(location.id)?.length || 0;
             const activePlans = plans.filter(plan => plan.active);
             const nextDue = activePlans.map(plan => plan.next_due_on).filter((date): date is string => !!date).sort()[0];
-            const pmLabel = !activePlans.length ? "PM: Not scheduled" : !nextDue ? "PM: Due date not set" : dueState(nextDue).label.startsWith("Overdue") ? "PM: Overdue" : "PM: Scheduled";
+            const pmLabel = !activePlans.length ? "PM: Not scheduled" : !nextDue ? "PM: Due date not set" : new Date(`${nextDue}T23:59:59`).getTime() < Date.now() ? "PM: Overdue" : "PM: Scheduled";
             return <article key={location.id} className="location-row">
               <button type="button" className="location-toggle" aria-expanded={open} aria-controls={`location-details-${location.id}`} onClick={() => setSelectedId(current => current === location.id ? "" : location.id)}>
-                <span><span aria-hidden="true">{open ? "▾" : "▸"}</span> {location.room_number ? `Room ${location.room_number}` : location.name || "Location"}<small>{location.area}{location.room_number && location.name && location.name !== `Room ${location.room_number}` ? ` · ${location.name}` : ""}</small></span>
+                <span><span aria-hidden="true">{open ? "▾" : "▸"}</span> {location.room_number ? ui("Room {value0}",{value0:String(location.room_number)}) : location.name || ui("Location")}<small>{location.area}{location.room_number && location.name && location.name !== `Room ${location.room_number}` ? ui(" · {value0}",{value0:String(location.name)}) : ""}</small></span>
                 <span className="location-indicators">
-                  <span className="location-work-order-count">{ticketCount} Work Order{ticketCount === 1 ? "" : "s"}</span>
-                  {canViewPm && <span className="location-pm-status" style={modalTitleStyle("Preventive Maintenance")} title={nextDue ? `Next due ${localDate(nextDue)}` : pmLabel}>{pmLabel}</span>}
+                  <span className="location-work-order-count">{ticketCount}{ui(" Work Order")}{ticketCount === 1 ? "" : ui("s")}</span>
+                  {canViewPm && <span className="location-pm-status" style={modalTitleStyle("Preventive Maintenance")} title={nextDue ? ui("Next due {value0}",{value0:String(localDate(nextDue, locale))}) : ui(pmLabel)}>{ui(pmLabel)}</span>}
                 </span>
               </button>
-              {open && draft && <div id={`location-details-${location.id}`} className="location-details" role="region" aria-label={`${location.room_number ? `Room ${location.room_number}` : location.name} details`}>
+              {open && draft && <div id={`location-details-${location.id}`} className="location-details" role="region" aria-label={ui("{value0} details",{value0:String(location.room_number ? `Room ${location.room_number}` : location.name)})}>
               {(canViewPm || canEdit) && <div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  {canViewPm && <h3 className="font-bold">Preventive maintenance</h3>}
+                  {canViewPm && <h3 className="font-bold">{ui("Preventive maintenance")}</h3>}
                   <div className="location-actions">
-                    {canEdit && <button type="button" onClick={() => openEditor(location)} className="location-action">Edit Location</button>}
-                    {canManageCorporatePm && <ModalNavigationButton href="/engineering/preventive-maintenance" className="location-action">Open PM Tracker →</ModalNavigationButton>}
+                    {canEdit && <button type="button" onClick={() => openEditor(location)} className="location-action">{ui("Edit Location")}</button>}
+                    {canManageCorporatePm && <ModalNavigationButton href="/engineering/preventive-maintenance" className="location-action">{ui("Open PM Tracker →")}</ModalNavigationButton>}
                   </div>
                 </div>
                 {canViewPm && <div className="mt-3 space-y-3">
                   {locationPmPlans.length ? locationPmPlans.map((plan) => {
-                    const due = dueState(plan.next_due_on);
+                    const due = dueState(plan.next_due_on, ui, locale);
                     const history = locationPmCompletions.filter((completion) => completion.pm_plan_id === plan.id).slice(0, 4);
                     return <div key={plan.id} className="location-panel rounded-xl border p-3">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <div className="font-semibold">{plan.title}</div>
-                          <div className="mt-1 text-xs text-slate-500">Every {plan.frequency_value} {plan.frequency_unit.toLowerCase()} · Last completed {localDate(plan.last_completed_on)}</div>
+                          <div className="mt-1 text-xs text-slate-500">{ui("Every ")}{plan.frequency_value} {ui(plan.frequency_unit.toLowerCase())}{ui(" · Last completed ")}{localDate(plan.last_completed_on, locale)}</div>
                         </div>
                         <span className={`rounded-full border px-2.5 py-1 text-[11px] font-bold ${due.className}`}>{due.label}</span>
                       </div>
                       {plan.description ? <p className="mt-2 text-xs leading-5 text-slate-400">{plan.description}</p> : null}
                       {history.length ? <div className="mt-3 border-t border-slate-800 pt-2">
-                        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Recent PM history</div>
+                        <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{ui("Recent PM history")}</div>
                         <div className="mt-2 grid gap-1 sm:grid-cols-2">
-                          {history.map((completion) => <div key={completion.id} className="text-xs text-slate-300">✓ {localDate(completion.completed_on)} <span className="text-slate-600">·</span> {completion.completed_by_name || "Technician not recorded"}</div>)}
+                          {history.map((completion) => <div key={completion.id} className="text-xs text-slate-300">✓ {localDate(completion.completed_on, locale)} <span className="text-slate-600">·</span> {completion.completed_by_name || ui("Technician not recorded")}</div>)}
                         </div>
-                      </div> : <p className="mt-3 text-xs text-slate-500">No completion history recorded yet.</p>}
+                      </div> : <p className="mt-3 text-xs text-slate-500">{ui("No completion history recorded yet.")}</p>}
                     </div>;
-                  }) : <p className="location-panel rounded-xl border p-3 text-sm text-slate-500">No PM plan is linked to this location yet.</p>}
+                  }) : <p className="location-panel rounded-xl border p-3 text-sm text-slate-500">{ui("No PM plan is linked to this location yet.")}</p>}
                 </div>}
               </div>}
 
               <div className="mt-5 border-t border-slate-800 pt-4">
-                <h3 className="font-bold">Tickets for this room/location</h3>
+                <h3 className="font-bold">{ui("Tickets for this room/location")}</h3>
                 <div className="mt-3 space-y-2">
-                  {roomOrders.length ? roomOrders.map((order) => <ModalNavigationButton key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="location-panel location-ticket block w-full rounded-xl border px-3 py-2 text-left"><div className="font-semibold">{order.issue || "No issue description"}</div><div className="mt-1 text-xs text-slate-500">{order.status || "Open"}</div></ModalNavigationButton>) : <p className="text-sm text-slate-500">No tickets are tied to this location.</p>}
+                  {roomOrders.length ? roomOrders.map((order) => <ModalNavigationButton key={order.id} href={`/work-orders/${encodeURIComponent(order.id)}`} className="location-panel location-ticket block w-full rounded-xl border px-3 py-2 text-left"><div className="font-semibold">{order.issue || ui("No issue description")}</div><div className="mt-1 text-xs text-slate-500">{ui(order.status || "Open")}</div></ModalNavigationButton>) : <p className="text-sm text-slate-500">{ui("No tickets are tied to this location.")}</p>}
                 </div>
               </div>
               </div>}
             </article>;
           })}
         </section>)}
-        {!locations.length && <p className="text-sm text-slate-400">No active locations are available.</p>}
+        {!locations.length && <p className="text-sm text-slate-400">{ui("No active locations are available.")}</p>}
       </div>
-      {canEdit && <footer className="location-add"><button type="button" data-cmpri-primary onClick={() => openEditor(null)}>Add Location</button></footer>}
+      {canEdit && <footer className="location-add"><button type="button" data-cmpri-primary onClick={() => openEditor(null)}>{ui("Add Location")}</button></footer>}
     </div>
     {editor && <LocationEditor location={editor.location} areas={areas} types={editor.location ? types : [...new Set(["General", ...types])]} busy={busy} error={editorError} onClose={() => { if (!busy) setEditor(null); }} onSave={save} />}
   </main>;

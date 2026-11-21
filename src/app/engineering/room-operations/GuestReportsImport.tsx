@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { readImportResponse } from '@/lib/import-response';
 import { uploadImportFile, type ImportUploadDescriptor } from '@/lib/import-upload';
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
@@ -13,6 +14,7 @@ export default forwardRef<GuestReportsImportHandle, {
  open: boolean; date: string; onDateChange: (date: string) => void;
  onCommitted: (date: string, rows?: unknown[], importId?: string) => void; onBusyChange?: (busy: boolean) => void;
 }>(function GuestReportsImport({ open, date, onDateChange, onCommitted, onBusyChange }, ref) {
+  const { t } = useUiLanguage();
  const [files, setFiles] = useState<ReportFile[]>([]);
  const [selectedFiles,setSelectedFiles]=useState<File[]>([]);
  const [preview, setPreview] = useState<Preview | null>(null);
@@ -78,29 +80,29 @@ export default forwardRef<GuestReportsImportHandle, {
   });
  }
  const feedback = <>
-  {busy && <p role="status">Processing Reports...</p>}
-  {error && <p role="alert" className="text-red-300">{error}</p>}
-  {notice && <p role="status" className="text-green-300">{notice}</p>}
+  {busy && <p role="status">{t("Processing Reports...")}</p>}
+  {error && <p role="alert" className="text-red-300">{t(error)}</p>}
+  {notice && <p role="status" className="text-green-300">{t(notice)}</p>}
  </>;
  return <>
  {!open && <div className="text-sm">{feedback}</div>}
- <section id="room-ops-upload-form" hidden={!open} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3" aria-label="Upload Room Operations">
-  <p className="text-sm text-slate-300"><strong>In-House Guest List Details</strong> is required first. <strong>Housekeeping Departures</strong> and <strong>Housekeeping Arrivals</strong> are optional and may also be added after today’s guest list is accepted.</p>
-  <p className="text-xs text-slate-400">Upload CSV reports with their original timestamped names. Updated reports must be newer than the accepted report of the same type. Review the preview before confirming.</p>
-  <div className={styles.picker} role="group" aria-label="Report files" onDragOver={event=>{event.preventDefault();event.dataTransfer.dropEffect=busy?'none':'copy'}} onDrop={event=>{event.preventDefault();choose(Array.from(event.dataTransfer.files))}}>
-   <button type="button" disabled={busy} className={styles.add} onClick={()=>picker.current?.click()}>Drag/add files here</button>
+ <section id="room-ops-upload-form" hidden={!open} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 space-y-3" aria-label={t("Upload Room Operations")}>
+  <p className="text-sm text-slate-300"><strong>{t("In-House Guest List Details")}</strong>{" "}{t("is required first.")}{" "}<strong>{t("Housekeeping Departures")}</strong>{" "}{t("and")}{" "}<strong>{t("Housekeeping Arrivals")}</strong>{" "}{t("are optional and may also be added after today’s guest list is accepted.")}</p>
+  <p className="text-xs text-slate-400">{t("Upload CSV reports with their original timestamped names. Updated reports must be newer than the accepted report of the same type. Review the preview before confirming.")}</p>
+  <div className={styles.picker} role="group" aria-label={t("Report files")} onDragOver={event=>{event.preventDefault();event.dataTransfer.dropEffect=busy?'none':'copy'}} onDrop={event=>{event.preventDefault();choose(Array.from(event.dataTransfer.files))}}>
+   <button type="button" disabled={busy} className={styles.add} onClick={()=>picker.current?.click()}>{t("Drag/add files here")}</button>
    <input ref={picker} type="file" multiple accept=".csv,text/csv" hidden disabled={busy} onChange={event=>{choose(Array.from(event.target.files||[]));event.target.value=''}}/>
-   {selectedFiles.length>0&&<div className={styles.selection}><span>{selectedFiles.length} {selectedFiles.length===1?"report":"reports"} selected</span><button type="button" disabled={busy} onClick={()=>{setSelectedFiles([]);setFiles([]);setPreview(null);setError("");setNotice("")}}>Clear</button></div>}
-   <button type="button" className={styles.submit} disabled={busy||!selectedFiles.length} onClick={()=>void submit()}>Submit</button>
+   {selectedFiles.length>0&&<div className={styles.selection}><span>{selectedFiles.length} {selectedFiles.length===1?t("report"):t("reports")}{" "}{t("selected")}</span><button type="button" disabled={busy} onClick={()=>{setSelectedFiles([]);setFiles([]);setPreview(null);setError("");setNotice("")}}>{t("Clear")}</button></div>}
+   <button type="button" className={styles.submit} disabled={busy||!selectedFiles.length} onClick={()=>void submit()}>{t("Submit")}</button>
   </div>
   {open && feedback}
   <details className="rounded-xl border border-slate-700 p-3" onToggle={event=>setOcrOpen(event.currentTarget.open)}>
-   <summary className="cursor-pointer text-sm font-semibold">Read a report image or PDF locally</summary>
-   <p className="mt-2 text-xs text-slate-400">OCR text is a reference, not an import. Review every page and value against the source, then prepare a supported CSV and use the file import above. OCR cannot confirm that every source row was recognized.</p>
+   <summary className="cursor-pointer text-sm font-semibold">{t("Read a report image or PDF locally")}</summary>
+   <p className="mt-2 text-xs text-slate-400">{t("OCR text is a reference, not an import. Review every page and value against the source, then prepare a supported CSV and use the file import above. OCR cannot confirm that every source row was recognized.")}</p>
    {open && ocrOpen && <LocalOcrReview />}
   </details>
   {preview && <>
-   <h3 className="font-bold">Review {preview.date} — {preview.rows.length} Rooms</h3>
+   <h3 className="font-bold">{t("Review")}{" "}{preview.date} — {preview.rows.length}{" "}{t("Rooms")}</h3>
    <div className="max-h-80 overflow-auto"><table className="w-full text-left text-sm"><thead><tr>{["Room", "Guest", "Company", "Pets", "VIP", "Arrival", "Departure", "Incoming"].map(title => <th key={title} className="p-2">{title}</th>)}</tr></thead>
     <tbody>{preview.rows.map(row => <tr key={row.room} className="border-t border-slate-800">{[row.room, row.guest_name, row.company, row.pets, row.vip ? "VIP" : "", row.guest_arrival_date, [row.checkout_date, row.checkout_time].filter(Boolean).join(" "), row.incoming_name].map((value, index) => <td key={index} className="p-2">{String(value ?? "")}</td>)}</tr>)}</tbody></table></div>
    <button type="button" disabled={busy} className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-black disabled:opacity-60" onClick={() => void run(async () => {
@@ -108,7 +110,7 @@ export default forwardRef<GuestReportsImportHandle, {
     onCommitted(result.date, result.rows, result.import_id);
     if (date !== result.date) onDateChange(result.date);
     setPreview(null); setFiles([]); setSelectedFiles([]); setNotice("Room Reports Imported.");
-   })}>Confirm Import</button>
+   })}>{t("Confirm Import")}</button>
   </>}
  </section>
  </>;

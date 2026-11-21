@@ -1,4 +1,6 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentPropsWithoutRef, type CSSProperties, type SyntheticEvent } from "react";
 import { createPortal } from "react-dom";
@@ -182,6 +184,7 @@ function restoredModalTitle(href: string) {
 }
 
 export default function GlobalModalHost() {
+  const { t, tt } = useUiLanguage();
   const pathname = usePathname();
   const router = useRouter();
   const search = useSearchParams().toString();
@@ -444,9 +447,7 @@ export default function GlobalModalHost() {
     document.documentElement.dataset.cmpriEmbedded =
       new URLSearchParams(window.location.search).get("embedded") === "1" ? "true" : "false";
     try {
-      const language = window.localStorage.getItem("cmpri:work-order-language");
       const appearance = window.localStorage.getItem("cmpri:appearance");
-      if (language === "en" || language === "es") document.documentElement.lang = language;
       if (appearance === "light" || appearance === "dark") document.documentElement.dataset.theme = appearance;
     } catch {}
   }, []);
@@ -793,7 +794,6 @@ export default function GlobalModalHost() {
 
   useEffect(() => {
     const applyPreferences = (target: Document, preferences: { language: "en" | "es"; appearance: "light" | "dark" }) => {
-      target.documentElement.lang = preferences.language;
       target.documentElement.dataset.theme = preferences.appearance;
     };
     const handleProfilePreferences = (event: MessageEvent) => {
@@ -1101,8 +1101,8 @@ export default function GlobalModalHost() {
     if (workspaceHidden) return null;
     if ((!dialogTarget || !canViewWorkOrders) && !limitMessage) return null;
     return createPortal(<>
-      {dialogTarget && canViewWorkOrders && <button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>}
-      {limitMessage && <p role="alert" className="fixed bottom-16 left-3 z-[2147483000] max-w-sm rounded-md border border-amber-700 bg-amber-950 px-3 py-2 text-sm text-amber-100">{limitMessage}</p>}
+      {dialogTarget && canViewWorkOrders && <button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">{t("Work orders")}</button>}
+      {limitMessage && <p role="alert" className="fixed bottom-16 left-3 z-[2147483000] max-w-sm rounded-md border border-amber-700 bg-amber-950 px-3 py-2 text-sm text-amber-100">{t(limitMessage)}</p>}
     </>, dialogTarget?.isConnected ? dialogTarget : document.body);
   }
 
@@ -1134,7 +1134,7 @@ export default function GlobalModalHost() {
             <div
               role="dialog"
               aria-modal={isTop}
-              aria-label={displayTitle}
+              aria-label={t(displayTitle)}
               data-cmpri-modal-theme="true"
               aria-hidden={!isTop}
               data-modal-entry={entry.id}
@@ -1144,23 +1144,23 @@ export default function GlobalModalHost() {
               <div className={`cmpri-desktop-titlebar${isWorkOrderDetail ? " cmpri-work-order-titlebar" : ""}${isAssets ? " cmpri-assets-titlebar" : ""}`} style={modalTitleStyle(modalActionForRoute(entryPath,entry.title))}>
                 {isAssets ? <svg aria-hidden="true" className="cmpri-assets-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5" /></svg> : <span aria-hidden="true" className="size-2 rounded-full" style={{backgroundColor:'var(--cmpri-outline)'}} />}
                 <span className="cmpri-title-content">
-                  <span className="min-w-0 flex-1 truncate">{displayTitle}</span>
+                  <span className="min-w-0 flex-1 truncate">{t(displayTitle)}</span>
                   {entry.guest && <WorkOrderTitleGuest guest={entry.guest} />}
                 </span>
                 {hasBonvoyTierHelp(entryPath) && <WorkOrderTierKey />}
                 {isRoomRanking && <RoomRankerKey />}
-                <button type="button" className="cmpri-desktop-close" aria-label={`Close ${displayTitle}`} onClick={()=>requestModalClose(entry.id)}>×</button>
+                <button type="button" className="cmpri-desktop-close" aria-label={t("Close {value0}", { value0: String(t(displayTitle)) })} onClick={()=>requestModalClose(entry.id)}>×</button>
               </div>
-              {isTop && (!isAssets || stack.length > 1) && <nav aria-label="Open screens" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-700 bg-slate-950 p-1">
-                {canViewWorkOrders && <button type="button" onClick={() => openWorkOrderList()} className="min-h-10 shrink-0 rounded-md border border-amber-500/60 px-3 text-xs font-semibold text-amber-200">Work orders</button>}
-                {stack.map(item => <button key={item.id} type="button" aria-pressed={item.id === activeId} onClick={() => setActiveId(item.id)} className={`min-h-10 max-w-44 shrink-0 truncate rounded-md px-3 text-xs ${item.id === activeId ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-slate-800"}`}>{item.title}</button>)}
+              {isTop && (!isAssets || stack.length > 1) && <nav aria-label={t("Open screens")} className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-700 bg-slate-950 p-1">
+                {canViewWorkOrders && <button type="button" onClick={() => openWorkOrderList()} className="min-h-10 shrink-0 rounded-md border border-amber-500/60 px-3 text-xs font-semibold text-amber-200">{t("Work orders")}</button>}
+                {stack.map(item => <button key={item.id} type="button" aria-pressed={item.id === activeId} onClick={() => setActiveId(item.id)} className={`min-h-10 max-w-44 shrink-0 truncate rounded-md px-3 text-xs ${item.id === activeId ? "bg-slate-700 text-white" : "text-slate-300 hover:bg-slate-800"}`}>{t(item.title)}</button>)}
               </nav>}
-              {isTop && limitMessage && <p role="alert" className="shrink-0 border-b border-amber-700 bg-amber-950 px-3 py-2 text-sm text-amber-100">{limitMessage}</p>}
+              {isTop && limitMessage && <p role="alert" className="shrink-0 border-b border-amber-700 bg-amber-950 px-3 py-2 text-sm text-amber-100">{t(limitMessage)}</p>}
               {entry.kind === "work-order-list" ? <WorkOrderListWindow preferencesScope={workspacePreferencesScope} orders={EMPTY_WORK_ORDERS} loading={false} onOpenWorkOrder={openWorkOrder} /> : <EmbeddedModalFrame
                 allow="camera"
                 entryId={entry.id}
                 register={registerFrame}
-                title={displayTitle}
+                title={tt(displayTitle)}
                 src={entry.href}
                 scrolling="yes"
                 onLoad={(event) => handleEmbeddedLoad(event, entry)}
@@ -1174,7 +1174,7 @@ export default function GlobalModalHost() {
     </div>
   );
   return <>{nativeShell ? createPortal(host, nativeShell) : host}
-    {!workspaceHidden && shellSuspended && canViewWorkOrders && createPortal(<button type="button" onClick={resumeScreens} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Open screens</button>, document.body)}
-    {!workspaceHidden && dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">Work orders</button>, dialogTarget)}
+    {!workspaceHidden && shellSuspended && canViewWorkOrders && createPortal(<button type="button" onClick={resumeScreens} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">{t("Open screens")}</button>, document.body)}
+    {!workspaceHidden && dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">{t("Work orders")}</button>, dialogTarget)}
   </>;
 }

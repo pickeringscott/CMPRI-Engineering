@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authorizationHeaders, loadCmpriSession } from '@/lib/auth/client-session';
@@ -6,6 +7,7 @@ import { landingPath, profileCanUseHoursTracker, profileIsChiefEngineer, profile
 import HoursTracker, { type SavedState } from './HoursTracker';
 
 export default function HoursTrackerPage() {
+  const { t } = useUiLanguage();
   const router = useRouter();
   const [loaded, setLoaded] = useState<{ owner: string; saved: SavedState; requirePersonalSetup: boolean; home: string } | null>(null);
   const [error, setError] = useState('');
@@ -31,6 +33,6 @@ export default function HoursTrackerPage() {
     if (window.parent !== window) window.parent.postMessage({ type: 'cmpri-modal-close', modalToken: new URLSearchParams(window.location.search).get('modalToken') || '' }, window.location.origin);
     else router.push(loaded?.home || '/');
   }
-  return loaded ? <HoursTracker owner={loaded.owner} initial={loaded.saved} requirePersonalSetup={loaded.requirePersonalSetup} persist={persist} onClose={close} /> : <main style={{background:'var(--cmpri-modal-surface,#202020)',color:'var(--cmpri-modal-text,#dce2eb)',padding:16}}><p role={error ? 'alert' : 'status'}>{error || 'Loading private Hours Tracker…'}</p><button data-cmpri-standalone-close onClick={close}>Close</button></main>;
+  return loaded ? <HoursTracker owner={loaded.owner} initial={loaded.saved} requirePersonalSetup={loaded.requirePersonalSetup} persist={persist} onClose={close} /> : <main style={{background:'var(--cmpri-modal-surface,#202020)',color:'var(--cmpri-modal-text,#dce2eb)',padding:16}}><p role={error ? 'alert' : 'status'}>{error ? t(error) : t("Loading private Hours Tracker…")}</p><button data-cmpri-standalone-close onClick={close}>{t("Close")}</button></main>;
 }
 
