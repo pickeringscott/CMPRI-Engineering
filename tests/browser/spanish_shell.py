@@ -63,7 +63,21 @@ async def verify_language(page, frames, language):
         await expect(frame.locator('html')).to_have_attribute('data-cmpri-language-owner', UID)
     spanish = language == 'es'
     await expect(page.locator('[data-dashboard-title]')).to_contain_text('Ingeniería' if spanish else 'Engineering')
-    await expect(page.locator('.cmpri-header-status-pill')).to_have_text('Piscina: CERRADA' if spanish else 'Pool Status: CLOSED')
+    pool_control = page.locator('.cmpri-header-status-pill')
+    await expect(pool_control).to_have_text('Piscina: CERRADA' if spanish else 'Pool Status: CLOSED')
+    await expect(pool_control).to_be_visible()
+    fit = await pool_control.evaluate('''element => {
+      const button = element.getBoundingClientRect();
+      const range = element.ownerDocument.createRange();
+      range.selectNodeContents(element);
+      const text = range.getBoundingClientRect();
+      return {client: element.clientWidth, scroll: element.scrollWidth,
+              buttonLeft: button.left, buttonRight: button.right,
+              textLeft: text.left, textRight: text.right, viewport: innerWidth};
+    }''')
+    assert fit['scroll'] <= fit['client'] + 1, ('Pool caption overflows its button', language, fit)
+    assert fit['textLeft'] >= fit['buttonLeft'] - 1, ('Pool caption crosses its left edge', language, fit)
+    assert fit['textRight'] <= min(fit['buttonRight'], fit['viewport']) + 1, ('Pool caption is clipped at right', language, fit)
     await expect(page.locator('[data-layout-label="Operations"] legend')).to_have_text('Operaciones' if spanish else 'Operations')
     await expect(page.locator('[data-key="work-order-list"]')).to_have_text('Lista de órdenes de trabajo' if spanish else 'Work Order List')
     await expect(page.locator('[data-layout-key="/profile::Manage Profile"]')).to_have_text('Administrar perfil' if spanish else 'Manage Profile')
@@ -236,7 +250,7 @@ async def run_case(browser, role, width):
         assert not state['errors'], state['errors']
         return {'role': role, 'width': width, 'actualProfileSave': True, 'englishSpanishEnglish': True,
                 'cachedFramesPreserved': True, 'unsavedNotePreserved': True, 'userIssuePreserved': True,
-                'reopenRetainsLocale': True, 'canonicalPayloads': True, 'fixtureWrites': len(state['writes']),
+                'reopenRetainsLocale': True, 'canonicalPayloads': True, 'poolHeaderTextFits': True, 'fixtureWrites': len(state['writes']),
                 'blockedExternalHosts': sorted(state['blocked_external']), 'productionDataAccessed': False}
     except Exception:
         diagnostics = {'role': role, 'width': width, 'errors': state['errors'],
