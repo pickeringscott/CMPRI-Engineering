@@ -193,6 +193,7 @@ export default function GlobalModalHost() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [canViewWorkOrders, setCanViewWorkOrders] = useState(false);
   const [dialogTarget, setDialogTarget] = useState<HTMLElement | null>(null);
+  const workOrderShortcutTarget = dialogTarget?.hasAttribute("data-cmpri-guide-dialog") ? null : dialogTarget;
   const [nativeObscuresStack, setNativeObscuresStack] = useState(false);
   const [shellSuspended, setShellSuspended] = useState(false);
   const [nativeShell, setNativeShell] = useState<HTMLDialogElement | null>(null);
@@ -320,13 +321,13 @@ export default function GlobalModalHost() {
   }, [hasOpenModals, dialogTarget, technicianAnchor]);
 
   useEffect(() => {
-    if (technicianAnchor || (!hasOpenModals && !dialogTarget)) return;
+    if (technicianAnchor || (!hasOpenModals && !workOrderShortcutTarget)) return;
     let live = true;
     void loadCmpriSession().then(session => {
       if (live) setCanViewWorkOrders(session.capabilities.includes("view_work_orders"));
     }).catch(() => { if (live) setCanViewWorkOrders(false); });
     return () => { live = false; };
-  }, [hasOpenModals, dialogTarget, technicianAnchor]);
+  }, [hasOpenModals, workOrderShortcutTarget, technicianAnchor]);
 
   const openEntry = useCallback((entry: ModalEntry, clickedAt?: number) => {
     if (workspaceBlockedRef.current) return;
@@ -1099,11 +1100,11 @@ export default function GlobalModalHost() {
 
   if (stack.length === 0) {
     if (workspaceHidden) return null;
-    if ((!dialogTarget || !canViewWorkOrders) && !limitMessage) return null;
+    if ((!workOrderShortcutTarget || !canViewWorkOrders) && !limitMessage) return null;
     return createPortal(<>
-      {dialogTarget && canViewWorkOrders && <button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">{t("Work orders")}</button>}
+      {workOrderShortcutTarget && canViewWorkOrders && <button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">{t("Work orders")}</button>}
       {limitMessage && <p role="alert" className="fixed bottom-16 left-3 z-[2147483000] max-w-sm rounded-md border border-amber-700 bg-amber-950 px-3 py-2 text-sm text-amber-100">{t(limitMessage)}</p>}
-    </>, dialogTarget?.isConnected ? dialogTarget : document.body);
+    </>, workOrderShortcutTarget?.isConnected ? workOrderShortcutTarget : document.body);
   }
 
   const host = (
@@ -1175,6 +1176,6 @@ export default function GlobalModalHost() {
   );
   return <>{nativeShell ? createPortal(host, nativeShell) : host}
     {!workspaceHidden && shellSuspended && canViewWorkOrders && createPortal(<button type="button" onClick={resumeScreens} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">{t("Open screens")}</button>, document.body)}
-    {!workspaceHidden && dialogTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">{t("Work orders")}</button>, dialogTarget)}
+    {!workspaceHidden && workOrderShortcutTarget && nativeObscuresStack && canViewWorkOrders && createPortal(<button type="button" onClick={() => openWorkOrderList()} className="fixed bottom-3 left-3 z-[2147483000] min-h-10 rounded-md border border-amber-500/60 bg-slate-950 px-3 text-xs font-semibold text-amber-200 shadow-lg">{t("Work orders")}</button>, workOrderShortcutTarget)}
   </>;
 }

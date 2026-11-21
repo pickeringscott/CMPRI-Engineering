@@ -1,4 +1,5 @@
 "use client";
+import BeginnerGuide from "@/components/beginners-guide/BeginnerGuide";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { translateNotificationMessage } from "@/lib/i18n/notification-text";
 
@@ -283,6 +284,14 @@ export default function TechnicianDashboard() {
 
   return (
     <main className="min-h-[100svh] bg-slate-950 text-white">
+      {account && typeof window !== "undefined" && window.parent === window
+        && new URLSearchParams(window.location.search).get("embedded") !== "1" && (
+          <BeginnerGuide key={account.id + ":" + account.role} user={{
+            id: account.id,
+            name: account.name?.trim() || "",
+            role: account.role,
+          }} />
+        )}
       <div className="mx-auto w-full px-1 pt-[8pt] pb-2 sm:px-2 lg:w-[66vw]">
         <header className="cmpri-dashboard-titlebar sticky top-0 flex flex-col gap-2 border-b border-slate-800 bg-slate-950/95 pt-2">
           <div className="cmpri-header-shelf">

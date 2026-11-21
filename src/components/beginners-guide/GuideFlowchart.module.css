@@ -1,0 +1,179 @@
+.flowchart {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+  color: var(--guide-text);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  font-size: 0.9em;
+}
+
+.toolbar p { margin: 0; color: var(--guide-muted); }
+
+.controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.controls button {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 2px 9px;
+  border: 1px solid var(--guide-border);
+  border-radius: 5px;
+  background: var(--guide-surface);
+  color: var(--guide-accent);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.controls button:hover:enabled { background: var(--guide-raised); border-color: var(--guide-accent); }
+.controls button:disabled { opacity: 0.55; cursor: default; }
+
+.frame {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 34%);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  gap: 16px;
+  isolation: isolate;
+}
+
+.viewport {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--guide-border);
+  border-radius: 5px;
+  background: var(--guide-base);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.viewport:focus-visible { outline: 2px solid var(--guide-action); outline-offset: -2px; }
+.viewport.dragging { cursor: grabbing; }
+
+.artwork {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: 0 0;
+}
+
+.artwork > svg { display: block; width: 100%; height: 100%; }
+
+/* Override the approved SVG's light paint only inside the guide. */
+.artwork :global(.node) > :is(rect, polygon, path) {
+  fill: var(--guide-surface) !important;
+  stroke: color-mix(in srgb, var(--guide-accent) 60%, var(--guide-base)) !important;
+  stroke-width: .65px !important;
+  vector-effect: non-scaling-stroke;
+}
+
+.artwork :global(.label) text { fill: var(--guide-text) !important; }
+.artwork :global(.flowchart-link) {
+  stroke: color-mix(in srgb, var(--guide-muted) 64%, var(--guide-base)) !important;
+  stroke-width: .65px !important;
+  vector-effect: non-scaling-stroke;
+}
+.artwork :global(.marker) { fill: var(--guide-muted) !important; stroke: var(--guide-muted) !important; }
+.artwork :global(.edgeLabel) rect { fill: var(--guide-base) !important; opacity: 1 !important; }
+
+.artwork .related > :is(rect, polygon, path) {
+  fill: color-mix(in srgb, var(--guide-surface) 80%, var(--guide-accent)) !important;
+  stroke: var(--guide-accent) !important;
+  stroke-width: 1px !important;
+  vector-effect: non-scaling-stroke;
+}
+
+.artwork .active > :is(rect, polygon, path) {
+  fill: var(--guide-action) !important;
+  stroke: var(--guide-accent) !important;
+  stroke-width: 1.5px !important;
+  vector-effect: non-scaling-stroke;
+}
+
+.artwork .active :global(.label) text { fill: var(--guide-ink) !important; }
+
+.status {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  margin: 0;
+  padding: 12px;
+  color: var(--guide-muted);
+  text-align: center;
+}
+
+.connector {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.connector marker path { fill: var(--guide-action); }
+.line { fill: none; stroke: var(--guide-action); stroke-width: 1.5px; stroke-linecap: round; stroke-linejoin: round; }
+
+.note {
+  position: relative;
+  z-index: 2;
+  align-self: center;
+  min-width: 0;
+  max-height: 100%;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--guide-action);
+  border-radius: 7px;
+  background: var(--guide-raised);
+  overflow-wrap: break-word;
+}
+
+.note h2 { margin: 0 0 4px; color: var(--guide-accent); font-size: 1.05em; font-weight: 700; line-height: 1.2; }
+.note p { margin: 0; font-size: 0.94em; line-height: 1.38; }
+
+@media (max-width: 639px), (hover: none) and (pointer: coarse) and (max-width: 959px) {
+  .flowchart { gap: 5px; }
+  .toolbar { justify-content: flex-start; gap: 4px 8px; }
+  .controls button { min-width: 30px; min-height: 29px; padding-inline: 7px; font-size: 0.96em !important; }
+
+  .frame {
+    grid-template-columns: minmax(0, 1fr) minmax(0, min(47%, 18rem));
+    gap: clamp(8px, 3vw, 16px);
+  }
+
+  .note {
+    align-self: start;
+    padding: 7px 9px;
+    translate: 0 var(--guide-note-offset, 0px);
+    font-size: clamp(11px, 3cqi, 13px);
+  }
+
+  .note h2 { font-size: 1.12em !important; line-height: 1.16 !important; }
+
+  @media (orientation: landscape) and (max-height: 490px) {
+    .frame {
+      justify-content: center;
+      grid-template-columns: minmax(0, min(46%, 44dvh)) minmax(0, min(47%, 18rem));
+    }
+  }
+}

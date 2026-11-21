@@ -1,0 +1,333 @@
+:is(.cmpri-beginners-guide, .cmpri-guide-launcher) {
+  --guide-base: var(--cmpri-modal-base, var(--cmpri-palette-modal-base));
+  --guide-ink: var(--cmpri-palette-black);
+  --guide-action: rgb(var(--cmpri-palette-control-rgb));
+  --guide-accent: var(--cmpri-palette-gold);
+  --guide-surface: var(--cmpri-modal-surface, var(--cmpri-palette-desktop-tone-3));
+  --guide-raised: color-mix(in srgb, var(--guide-action) 14%, var(--guide-base));
+  --guide-text: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
+  --guide-muted: color-mix(in srgb, var(--guide-text) 73%, var(--guide-base));
+  --guide-border: color-mix(in srgb, var(--guide-action) 55%, var(--guide-base));
+}
+
+.cmpri-guide-launcher {
+  position: fixed;
+  z-index: 30;
+  bottom: calc(max(.75rem, env(safe-area-inset-bottom)) + var(--guide-score-clearance, 0px));
+  left: max(.75rem, env(safe-area-inset-left));
+  border: 1px solid var(--guide-border);
+  border-radius: .55rem;
+  background: var(--guide-base);
+  color: var(--guide-accent);
+  padding: .48rem .7rem;
+  font-weight: 700;
+}
+
+.cmpri-guide-launcher:hover { background: var(--guide-raised); }
+
+.cmpri-beginners-guide {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(73rem, calc(100vw - 2rem));
+  height: min(50rem, calc(100dvh - 2rem));
+  min-width: min(20rem, calc(100vw - 2rem));
+  min-height: min(18rem, calc(100dvh - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  overflow: hidden;
+  resize: both;
+  border: 1px solid var(--guide-border);
+  border-radius: .95rem;
+  background: var(--guide-base);
+  color: var(--guide-text);
+  color-scheme: dark;
+  font-family: Arial, sans-serif;
+  container-type: inline-size;
+  isolation: isolate;
+}
+
+.cmpri-beginners-guide[open] { display: flex; flex-direction: column; }
+.cmpri-beginners-guide::backdrop { background: color-mix(in srgb, var(--cmpri-palette-black) 65%, transparent); }
+.cmpri-beginners-guide[data-dismissing] { pointer-events: none; }
+.cmpri-beginners-guide[data-dismissing]::backdrop { background: color-mix(in srgb, var(--cmpri-palette-black) 12%, transparent); }
+.cmpri-beginners-guide :focus-visible,
+.cmpri-guide-launcher:focus-visible { outline: 2px solid var(--guide-accent); outline-offset: 2px; }
+.cmpri-beginners-guide h1 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.35rem, 3.5cqi, 2.8rem) !important;
+  font-weight: 500 !important;
+  line-height: 1.12 !important;
+  letter-spacing: -.04em !important;
+}
+.cmpri-beginners-guide h1[tabindex="-1"]:focus-visible { outline: none; }
+.cmpri-beginners-guide h2 { font-weight: 730; }
+.cmpri-guide-chrome,
+.cmpri-guide-footer {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  color: var(--guide-text);
+  background: var(--guide-surface);
+  font-size: clamp(.72rem, .62rem + .35cqi, .95rem);
+}
+.cmpri-guide-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .7rem;
+  border-bottom: 1px solid var(--guide-border);
+  padding: .38rem .9rem .38rem 1rem;
+  font-weight: 720;
+}
+.cmpri-guide-brand,
+.cmpri-guide-chrome-actions { display: flex; align-items: center; gap: .5rem; }
+.cmpri-guide-brand svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: var(--guide-accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.cmpri-guide-chrome-actions > span { font-size: .87em; color: var(--guide-muted); }
+.cmpri-guide-close {
+  display: grid;
+  place-items: center;
+  min-width: 2.35rem;
+  min-height: 2.35rem;
+  border-radius: .45rem;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.cmpri-guide-close:hover { background: var(--guide-raised); }
+.cmpri-guide-welcome,
+.cmpri-guide-message {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(1rem, 3.7cqi, 2.65rem);
+  font-size: clamp(.78rem, .68rem + .36cqi, 1rem);
+}
+.cmpri-guide-welcome h1 span { display: block; }
+.cmpri-beginners-guide .cmpri-guide-welcome h1 {
+  font-size: clamp(1.35rem, 7cqi, 3.7rem) !important;
+  line-height: 1.05 !important;
+  letter-spacing: -.055em !important;
+}
+.cmpri-guide-welcome h1 span:first-child { color: var(--guide-accent); font-size: .8em; }
+.cmpri-guide-welcome > p { margin-block: .73rem; max-width: 70ch; line-height: 1.42; }
+.cmpri-guide-welcome .cmpri-guide-nav-buttons,
+.cmpri-guide-message .cmpri-guide-nav-buttons { margin-block: .8rem 1rem; }
+.cmpri-guide-handoff {
+  width: min(100%, 60rem);
+  margin-top: 1rem;
+  padding: clamp(.75rem, 2.3cqi, 1.4rem);
+  border: 1px solid var(--guide-border);
+  border-radius: .8rem;
+  background: linear-gradient(146deg, var(--guide-surface), var(--guide-raised));
+}
+.cmpri-guide-handoff h2 { margin: 0 0 .55rem; font-size: 1.32em !important; line-height: 1.15 !important; }
+.cmpri-guide-handoff ul { display: grid; gap: .55rem; padding: 0; margin: 0; list-style: none; }
+.cmpri-guide-handoff li { position: relative; padding-inline-start: 1rem; }
+.cmpri-guide-handoff li::before {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  top: .41em;
+  width: .44rem;
+  height: .44rem;
+  border-radius: 50%;
+  background: var(--guide-action);
+}
+.cmpri-guide-handoff li p { color: var(--guide-muted); font-size: .94em; line-height: 1.38; }
+.cmpri-guide-example-ticket {
+  width: fit-content;
+  margin-top: .65rem;
+  border: 1px solid var(--guide-border);
+  border-radius: .35rem;
+  background: var(--guide-base);
+  color: var(--guide-accent);
+  padding: .3rem .48rem;
+  font-weight: 700;
+  font-size: .9em;
+}
+.cmpri-guide-role {
+  width: min(100%, 49rem);
+  margin-top: 1rem;
+  border: 1px solid var(--guide-border);
+  border-radius: .65rem;
+  background: var(--guide-surface);
+  padding: .52rem .75rem;
+}
+.cmpri-guide-role summary { font-weight: 730; color: var(--guide-accent); cursor: pointer; }
+.cmpri-guide-role dl { margin: .45rem 0 0; }
+.cmpri-guide-role dt { margin-top: .55rem; font-weight: 700; }
+.cmpri-guide-role dd { margin: .18rem 0 0; }
+.cmpri-guide-reopen { color: var(--guide-muted); font-size: .92em; }
+
+.cmpri-guide-chart-page,
+.cmpri-guide-lesson-page {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: .45rem;
+  padding: .65rem .9rem;
+  font-size: clamp(.72rem, .62rem + .35cqi, .95rem);
+}
+.cmpri-guide-chart-page > p { color: var(--guide-muted); }
+.cmpri-guide-lesson-page { padding-bottom: 0; }
+.cmpri-beginners-guide .cmpri-guide-lesson-page > h1 { font-size: clamp(1.16rem, 3.1cqi, 2rem) !important; }
+
+.cmpri-guide-footer {
+  padding: .45rem .85rem .55rem;
+  border-top: 1px solid var(--guide-border);
+}
+.cmpri-guide-footer-controls,
+.cmpri-guide-nav-buttons {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+.cmpri-guide-footer-controls { justify-content: space-between; gap: .7rem; }
+.cmpri-guide-footer-controls > p { flex: 1 1 auto; color: var(--guide-muted); }
+.cmpri-guide-nav-buttons > button {
+  min-height: 2.45rem;
+  border: 1px solid var(--guide-border);
+  border-radius: .46rem;
+  padding: .35rem .7rem;
+  font-weight: 730;
+  white-space: nowrap;
+}
+.cmpri-guide-nav-buttons .cmpri-guide-primary {
+  background: var(--guide-action);
+  border-color: var(--guide-action);
+  color: var(--guide-ink);
+}
+.cmpri-guide-nav-buttons .cmpri-guide-primary:disabled { opacity: .55; }
+.cmpri-guide-nav-buttons .cmpri-guide-primary:hover:not(:disabled) {
+  background: var(--guide-accent);
+  border-color: var(--guide-accent);
+}
+.cmpri-guide-quiet:hover { background: var(--guide-raised); }
+.cmpri-guide-progress { margin-top: .15rem; }
+.cmpri-beginners-guide .cmpri-guide-progress > input[type="range"] {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 0 !important;
+  height: 18px !important;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  accent-color: var(--guide-accent);
+  touch-action: pan-y;
+}
+.cmpri-guide-progress input::-webkit-slider-runnable-track {
+  height: 6px;
+  border: 1px solid var(--guide-border);
+  border-radius: 999px;
+  background: var(--guide-raised);
+}
+.cmpri-guide-progress input::-moz-range-track {
+  height: 4px;
+  border: 1px solid var(--guide-border);
+  border-radius: 999px;
+  background: var(--guide-raised);
+}
+.cmpri-guide-progress input::-webkit-slider-thumb {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--guide-accent);
+}
+.cmpri-guide-progress input::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--guide-accent);
+}
+.cmpri-guide-stops {
+  display: flex;
+  gap: .3rem;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  padding: .2rem .1rem;
+}
+.cmpri-guide-stops button {
+  flex: none;
+  min-height: 1.95rem;
+  padding: .22rem .53rem;
+  border: 1px solid var(--guide-border);
+  border-radius: .38rem;
+  background: var(--guide-base);
+  color: var(--guide-text);
+  font-size: .9em;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cmpri-guide-stops button[aria-current="step"] {
+  border-color: var(--guide-accent);
+  background: var(--guide-accent);
+  color: var(--guide-ink);
+}
+
+@media (max-width: 639px), (hover: none) and (pointer: coarse) and (max-width: 959px) {
+  .cmpri-beginners-guide {
+    width: 100%;
+    height: 100dvh;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    resize: none;
+  }
+  .cmpri-guide-chrome { padding-top: max(.35rem, env(safe-area-inset-top)); }
+  .cmpri-guide-close { min-width: 2.75rem; min-height: 2.5rem; }
+  .cmpri-guide-welcome { padding: .95rem; }
+  .cmpri-guide-chart-page { gap: .35rem; padding: .55rem .55rem 0; }
+  .cmpri-guide-lesson-page { padding: 0; gap: 0; }
+  .cmpri-guide-lesson-page > h1 {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .cmpri-guide-footer { padding: .3rem .85rem max(.4rem, env(safe-area-inset-bottom)); }
+  .cmpri-guide-footer-controls > p { font-size: .92em; }
+  .cmpri-guide-nav-buttons > button { min-height: 2.75rem; }
+  .cmpri-guide-stops { scrollbar-width: none; }
+  .cmpri-beginners-guide .cmpri-guide-stops button { font-size: .75rem !important; }
+}
+@media (min-width: 660px) and (hover: hover) {
+  .cmpri-guide-handoff ul { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-height: 490px) and (orientation: landscape) {
+  .cmpri-guide-chart-page > p { display: none; }
+  .cmpri-beginners-guide .cmpri-guide-chart-page > h1 { font-size: 1.23rem !important; }
+  .cmpri-guide-chrome { padding-block: .16rem; }
+  .cmpri-guide-close { min-height: 2rem; }
+  .cmpri-guide-footer {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: .8rem;
+  }
+  .cmpri-guide-progress { grid-area: 1 / 1; min-width: 0; margin: 0; }
+  .cmpri-guide-footer-controls { grid-area: 1 / 2; }
+  .cmpri-guide-footer-controls > p { display: none; }
+}
