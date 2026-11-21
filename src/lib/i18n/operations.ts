@@ -1001,7 +1001,7 @@ export const OPERATIONS_ES: Record<string, string> = {
   "Enseo / STB": "Enseo / STB",
   "Televisions": "Televisores",
   "Other CMPRI equipment": "Otros equipos de CMPRI",
-  "Pool Status: {status}": "Estado de la piscina: {status}",
+  "Pool Status: {status}": "Piscina: {status}",
   "CLOSED::pool": "CERRADA",
   "OPEN::pool": "ABIERTA",
   "LOADING::pool": "CARGANDO",

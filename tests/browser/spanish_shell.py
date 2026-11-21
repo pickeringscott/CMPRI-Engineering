@@ -63,7 +63,7 @@ async def verify_language(page, frames, language):
         await expect(frame.locator('html')).to_have_attribute('data-cmpri-language-owner', UID)
     spanish = language == 'es'
     await expect(page.locator('[data-dashboard-title]')).to_contain_text('Ingeniería' if spanish else 'Engineering')
-    await expect(page.locator('.cmpri-header-status-pill')).to_have_text('Estado de la piscina: CERRADA' if spanish else 'Pool Status: CLOSED')
+    await expect(page.locator('.cmpri-header-status-pill')).to_have_text('Piscina: CERRADA' if spanish else 'Pool Status: CLOSED')
     await expect(page.locator('[data-layout-label="Operations"] legend')).to_have_text('Operaciones' if spanish else 'Operations')
     await expect(page.locator('[data-key="work-order-list"]')).to_have_text('Lista de órdenes de trabajo' if spanish else 'Work Order List')
     await expect(page.locator('[data-layout-key="/profile::Manage Profile"]')).to_have_text('Administrar perfil' if spanish else 'Manage Profile')
