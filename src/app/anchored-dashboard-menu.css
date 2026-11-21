@@ -22,6 +22,18 @@ header.cmpri-dashboard-titlebar:has(> .cmpri-dashboard-menu-rail) {
   border-bottom-color: var(--cmpri-palette-desktop-tone-16);
 }
 
+/* Keep active weather bulletins on the titlebar edge. Expanded menu actions
+   move below the bulletin while their tabs stay on the approved title line. */
+header.cmpri-dashboard-titlebar:has(~ [data-weather-desktop-bulletin-host] [data-weather-alert-ticker]) {
+  --cmpri-active-weather-ticker-depth: 34px;
+}
+
+@media (max-width: 640px) {
+  header.cmpri-dashboard-titlebar:has(~ [data-weather-desktop-bulletin-host] [data-weather-alert-ticker]) {
+    --cmpri-active-weather-ticker-depth: 44px;
+  }
+}
+
 .cmpri-dashboard-window-layer {
   position: absolute;
   inset: var(--cmpri-menu-open-row-depth) 0 0;
@@ -89,11 +101,17 @@ header.cmpri-dashboard-titlebar:has(> .cmpri-dashboard-menu-rail) {
 }
 
 .cmpri-dashboard-menu-rail .cmpri-header-v23.anchored-menu .preview .header fieldset.group:not(.collapsed) {
+  top: calc(var(--cmpri-menu-tab-band) + 1px + var(--cmpri-active-weather-ticker-depth, 0px));
   height: 26px;
   min-height: 26px;
   margin: 0;
   padding: 1px 2px 2px;
   pointer-events: auto;
+}
+
+.cmpri-header-v23.anchored-menu .preview .header fieldset.group:not(.collapsed) > legend,
+.cmpri-header-v23.anchored-menu fieldset.group:not(.collapsed) > .tab-resize-edge {
+  top: calc(-16px - var(--cmpri-active-weather-ticker-depth, 0px));
 }
 
 .cmpri-header-v23.anchored-menu .preview .header fieldset.group.collapsed {

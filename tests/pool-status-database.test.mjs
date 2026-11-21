@@ -199,7 +199,7 @@ await assert.rejects(saveNewPoolTest(seniorActors[0]),/active CMPRI engineering 
 const statusActionBefore = (await db.query(
  "select pg_get_functiondef('public.cmpri_pool_action(uuid,uuid,uuid,uuid,text,text,bigint)'::regprocedure) as definition",
 )).rows[0].definition;
-await db.exec(readFileSync('supabase/migrations/20261120205602_pool_log_senior_management_submission.sql','utf8'));
+await db.exec(readFileSync('supabase/migrations/20261121034416_pool_log_senior_management_submission.sql','utf8'));
 for (const account of seniorActors) {
  const created = (await saveNewPoolTest(account)).rows[0];
  assert.equal(created.latest_test.period,'am',account.role);

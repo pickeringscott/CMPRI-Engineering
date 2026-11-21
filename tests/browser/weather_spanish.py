@@ -13,12 +13,16 @@ import copy
 import json
 import os
 import re
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
+sys.dont_write_bytecode = True
 from cmpri_fixture import UID, install
 from playwright.async_api import async_playwright, expect
-from weather_dashboard_preview import OfficialFeedFixtures, PREVIEW, PROBE, block_websocket, wait_for, weather_frame
+from weather_dashboard_preview import (OfficialFeedFixtures, PREVIEW, PROBE, block_websocket,
+                                      dashboard_weather_launcher, unexpected_application_mutation,
+                                      wait_for, weather_frame)
 
 
 class SpanishFeedFixtures(OfficialFeedFixtures):
@@ -35,6 +39,8 @@ class SpanishFeedFixtures(OfficialFeedFixtures):
         alert = resources['alerts']['data']['features'][0]['properties']
         alert.update(event='Winter Storm Watch', headline='Current Conditions',
                      description='Hourly forecast', instruction='Extended forecast')
+        if getattr(self, 'clear_alerts', False):
+            resources['alerts']['data']['features'] = []
         return payload
 
 
@@ -78,7 +84,7 @@ async def run_viewport(browser, base, output, width, height):
                 'preferences': copy.deepcopy(state['preferences']),
                 'profile_settings_available': True, 'can_manage_users': True, 'chatgpt_connection': None,
             })
-        if url.path.startswith('/api/') and request.method not in ['GET', 'HEAD']:
+        if unexpected_application_mutation(url.path, request.method):
             raise AssertionError('Unexpected fixture write: ' + url.path)
         return await route.fallback()
 
@@ -87,7 +93,24 @@ async def run_viewport(browser, base, output, width, height):
     page = await context.new_page()
     page.on('pageerror', lambda error: state['errors'].append(str(error)))
 
+    async def menu_geometry():
+        return await page.evaluate('''() => {
+          const header=document.querySelector('header.cmpri-dashboard-titlebar');
+          const box=element=>{const r=element.getBoundingClientRect();return {left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height}};
+          const ticker=document.querySelector('[data-weather-alert-ticker]');
+          const actions=[...header.querySelectorAll('fieldset.group:not(.collapsed) .action')].map(box).filter(r=>r.width&&r.height);
+          const legends=[...header.querySelectorAll('fieldset.group > legend')].map(box);
+          const h=box(header),t=ticker?box(ticker):null;
+          const hit=t?document.elementFromPoint(t.left+t.width/2,t.top+t.height/2):null;
+          return {header:h,ticker:t,actions,legends,centerHitIsTicker:Boolean(hit?.closest('[data-weather-alert-ticker]')),
+            rowOffset:actions.length?Math.min(...actions.map(r=>r.top))-h.bottom:null};
+        }''')
+
     async def open_profile():
+        account = page.locator('fieldset').filter(has=page.get_by_role('button', name=re.compile(r'^(Account|Cuenta)$')))
+        tab = account.get_by_role('button', name=re.compile(r'^(Account|Cuenta)$'))
+        if await tab.get_attribute('aria-expanded') != 'true' or await account.get_attribute('data-active') != 'true':
+            await tab.click()
         await page.get_by_role('button', name=re.compile(r'^(Manage Profile|Administrar perfil)$')).click()
         locator = page.locator('iframe[src^="/profile?"]')
         await locator.wait_for(state='visible')
@@ -110,7 +133,9 @@ async def run_viewport(browser, base, output, width, height):
 
     try:
         await page.goto(base + '/engineering', wait_until='domcontentloaded')
-        await page.get_by_role('button', name='Weather', exact=True).click(timeout=60000)
+        launcher = await dashboard_weather_launcher(page)
+        initial_menu = await menu_geometry()
+        await launcher.click()
         frame = await weather_frame(page)
         await wait_for(frame, "document.querySelector('#liveConditionText')?.textContent === 'Clear'")
         await wait_for(frame, 'window.cmpriWeatherMap.getState().readyFrameCount > 0')
@@ -152,6 +177,12 @@ async def run_viewport(browser, base, output, width, height):
         await expect(ticker).to_have_attribute('data-level', 'watch')
         await expect(ticker).to_contain_text('Vigilancia de tormenta invernal')
         await expect(ticker).to_contain_text('vence')
+        active_menu = await menu_geometry()
+        assert abs(active_menu['ticker']['top'] - active_menu['header']['bottom']) <= 1, active_menu
+        assert abs(active_menu['ticker']['width'] - active_menu['header']['width']) <= 1, active_menu
+        assert all(row['top'] >= active_menu['ticker']['bottom'] - 1 for row in active_menu['actions']), active_menu
+        assert all(row['bottom'] <= active_menu['ticker']['top'] + 1 for row in active_menu['legends']), active_menu
+        assert active_menu['centerHitIsTicker'], 'An anchored menu control masks the active weather ticker'
         await ticker.click()
         safety = page.locator('[data-weather-guest-safety-dialog]')
         await expect(safety).to_be_visible()
@@ -183,13 +214,20 @@ async def run_viewport(browser, base, output, width, height):
         native = page.locator('[data-cmpri-desktop-window="' + PREVIEW + '"]')
         await native.locator('[data-cmpri-window-close]').click()
         await expect(native).to_be_hidden()
-        await page.get_by_role('button', name='Weather', exact=True).click()
+        await (await dashboard_weather_launcher(page)).click()
         reopened = await weather_frame(page)
         assert await reopened.evaluate('window.__spanishWeatherIdentity') == 'same-cached-document'
         assert await reopened.evaluate('cmpriWeatherMap.getState().opacity') == before['opacity']
         assert state['weatherDocuments'] == documents
         assert feed.forecast_calls == forecast_calls
         assert [row['body']['preferences']['language'] for row in state['writes']] == ['es', 'en']
+        # An authoritative fixture clear must remove only the temporary spacing,
+        # without persisting a different tab layout or moving the title line.
+        feed.clear_alerts = True
+        await reopened.evaluate('() => { void nwsLiveView.refresh(); }')
+        await wait_for(page, "document.querySelector('[data-weather-alert-ticker]') === null")
+        restored_menu = await menu_geometry()
+        assert abs(restored_menu['rowOffset'] - initial_menu['rowOffset']) <= 1, [initial_menu, restored_menu]
         assert not state['errors'], state['errors']
         assert not state['external'], state['external']
         for child in page.frames:
@@ -197,6 +235,8 @@ async def run_viewport(browser, base, output, width, height):
         return {'viewport': [width, height], 'passed': True, 'fixtureOnly': True,
                 'profileSaveLanguages': ['es', 'en'], 'weatherLabelsAndHazardsLocalized': True,
                 'rawOfficialBulletinPreserved': True, 'mapControlsAndCachedDocumentPreserved': True,
+                'tickerAndMenusRemainClickable': True, 'activeTickerGeometry': active_menu,
+                'originalMenuOffsetRestoredAfterAlertClear': True,
                 'externalRequests': 0, 'realDatabaseOrNotificationCalls': 0}
     except Exception:
         await page.screenshot(path=str(output / f'weather-spanish-failure-{width}.png'), full_page=True)

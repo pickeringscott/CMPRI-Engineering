@@ -698,6 +698,12 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     setActive(preferred || null);
   observer = new ResizeObserver(() => { if (!cancelGesture) place(); });
   observer.observe(root);
+  // A ticker changes the CSS row offset, not the menu's own border-box size.
+  // Recompute the existing overlay height without altering saved tab layout.
+  const bulletinHost = root.closest('header.cmpri-dashboard-titlebar')?.parentElement
+    ?.querySelector(':scope > [data-weather-desktop-bulletin-host]');
+  const bulletinObserver = bulletinHost ? new MutationObserver(() => { if (!cancelGesture) place(); }) : null;
+  bulletinObserver?.observe(bulletinHost, { childList: true });
   place();
   const adjustToScroll = () => {
     if (cancelGesture) syncRailScroll();
@@ -718,7 +724,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     emit();
   };
   cleanups.push(listen('pointerdown', leave, true), listen('focusin', leave));
-  const unmount = () => { cancelGesture?.(); observer.disconnect(); cleanups.forEach(fn => fn()); for (const ghost of ghosts)
+  const unmount = () => { cancelGesture?.(); observer.disconnect(); bulletinObserver?.disconnect(); cleanups.forEach(fn => fn()); for (const ghost of ghosts)
     ghost.remove(); document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering'); root.replaceChildren(); railScroll.remove(); };
   // Language changes preserve the canonical layout, controls and pending drag/save work.
   unmount.setPresentation = next => {
