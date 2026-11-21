@@ -58,6 +58,35 @@ function setMarker(storage: "localStorage" | "sessionStorage", key: string, memo
   try { window[storage].setItem(key, "1"); } catch { /* Storage can be unavailable in private browsing. */ }
 }
 
+function keepLauncherClearOfScore(launcher: HTMLButtonElement) {
+  const stadium = document.querySelector<HTMLIFrameElement>(".cmpri-football-artwork iframe");
+  if (!stadium) return;
+
+  const placeLauncher = () => {
+    launcher.style.removeProperty("--guide-score-clearance");
+    const frame = stadium.getBoundingClientRect();
+    const score = stadium.contentDocument?.getElementById("cmpriScorebug")?.getBoundingClientRect();
+    if (!frame.height || !score?.width) return;
+
+    const button = launcher.getBoundingClientRect();
+    const scoreTop = frame.top + score.top;
+    if (button.right > frame.left + score.left && button.left < frame.left + score.right &&
+        button.bottom > scoreTop && button.top < frame.top + score.bottom) {
+      launcher.style.setProperty("--guide-score-clearance", `${button.bottom - scoreTop + 8}px`);
+    }
+  };
+
+  const resize = new ResizeObserver(placeLauncher);
+  resize.observe(stadium);
+  resize.observe(launcher);
+  stadium.addEventListener("load", placeLauncher);
+  placeLauncher();
+  return () => {
+    resize.disconnect();
+    stadium.removeEventListener("load", placeLauncher);
+  };
+}
+
 export default function BeginnerGuide({ user }: { user: GuideUser }) {
   const role = user.displayRole === "Chief Engineer" || profileIsChiefEngineer({ role: user.role })
     ? "chief_engineer"
@@ -75,6 +104,11 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   const rail = useRef<HTMLDivElement>(null);
   const animation = useRef<Animation | null>(null);
   const titleId = useId();
+
+  useLayoutEffect(() => {
+    const launcher = trigger.current;
+    if (launcher) return keepLauncherClearOfScore(launcher);
+  }, [role]);
 
   const openGuide = useCallback((reason: LaunchReason) => {
     setMarker("localStorage", openedKey, openedInMemory);
@@ -205,6 +239,15 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
     if (content && !animation.current) setPosition({ stop, action: 0 });
   }
 
+  const navigation = <div className="cmpri-guide-nav-buttons">
+    {welcome
+      ? <button type="button" className="cmpri-guide-quiet" onClick={dismiss}>Skip</button>
+      : <button type="button" className="cmpri-guide-quiet" onClick={back}>Back</button>}
+    <button type="button" className="cmpri-guide-primary" disabled={!content} onClick={next}>
+      {welcome ? "Start Guide" : phase && lastAction ? "Start walkthrough" : lastStop && lastAction ? "Finish Guide" : "Next"}
+    </button>
+  </div>;
+
   return <>
     <button ref={trigger} type="button" className="cmpri-guide-launcher"
       onClick={() => openGuide("Reopened from the dashboard")} aria-haspopup="dialog" aria-expanded={open}>
@@ -233,6 +276,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
       {!content && <div className="cmpri-guide-message" role="status">
         <h1 id={titleId} ref={title} tabIndex={-1}>Beginner’s Guide</h1>
         <p>{loadError ? "The guide couldn’t load. Close it and use Beginner’s Guide to try again." : "Loading your guide…"}</p>
+        {welcome && navigation}
       </div>}
       {content && welcome && <div className="cmpri-guide-welcome">
         <h1 id={titleId} ref={title} tabIndex={-1}>
@@ -241,6 +285,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
         </h1>
         <p>We’re glad you’re here! Every clear guest report, room update, and repair note helps the next person pick up where you left off.</p>
         <p>This guide follows a Room 204 work order from the first report to the repair. You’ll see how your role connects with your teammates and where to find the tools you need.</p>
+        {navigation}
         <section className="cmpri-guide-handoff" aria-labelledby={titleId + "-handoff"}>
           <h2 id={titleId + "-handoff"}>One work order connects the team.</h2>
           <ul>
@@ -276,14 +321,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
           <p aria-live="polite">{content && (welcome ? launchReason : phase ? "Use Next to follow the work order." :
             lesson ? "Tool " + (position.stop - 1) + " of " + content.lessons.length + " · Action " +
               (position.action + 1) + " of " + stepsInStop : "")}</p>
-          <div className="cmpri-guide-nav-buttons">
-            {welcome
-              ? <button type="button" className="cmpri-guide-quiet" onClick={dismiss}>Skip</button>
-              : <button type="button" className="cmpri-guide-quiet" onClick={back}>Back</button>}
-            <button type="button" className="cmpri-guide-primary" disabled={!content} onClick={next}>
-              {welcome ? "Start Guide" : phase && lastAction ? "Start walkthrough" : lastStop && lastAction ? "Finish Guide" : "Next"}
-            </button>
-          </div>
+          {!welcome && navigation}
         </div>
         {content && <nav className="cmpri-guide-progress" aria-label="Jump through the Beginner’s Guide">
           <input

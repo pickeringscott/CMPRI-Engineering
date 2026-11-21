@@ -1,11 +1,4 @@
 .walkthrough {
-  --guide-base: var(--cmpri-modal-base, var(--cmpri-palette-modal-base));
-  --guide-surface: var(--cmpri-modal-surface, var(--cmpri-palette-desktop-tone-3));
-  --guide-text: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
-  --guide-muted: var(--cmpri-modal-muted, var(--cmpri-palette-desktop-tone-8));
-  --guide-border: var(--cmpri-outline, var(--cmpri-palette-desktop-tone-20));
-  --guide-accent: var(--cmpri-palette-gold);
-  --guide-target: var(--cmpri-palette-gold);
   display: grid;
   flex: 1 1 auto;
   min-height: 0;
@@ -60,7 +53,7 @@
 .tryButton {
   border-color: var(--guide-accent);
   background: var(--guide-accent);
-  color: var(--cmpri-palette-black);
+  color: var(--guide-ink);
 }
 
 .viewModes button[aria-pressed="false"]:hover {
@@ -68,13 +61,14 @@
 }
 
 .tryButton:hover {
-  background: var(--cmpri-palette-gold-light);
+  background: color-mix(in srgb, var(--guide-accent) 84%, var(--guide-text));
 }
 
 .exampleViewport {
   min-height: 0;
   overflow: auto;
   overscroll-behavior-x: contain;
+  background: var(--guide-ink);
 }
 
 .capture {
@@ -96,9 +90,9 @@
 
 .highlight {
   position: absolute;
-  border: 2px solid var(--guide-target);
+  border: 2px solid var(--guide-accent);
   border-radius: 0.25rem;
-  box-shadow: 0 0 0 2px rgb(0 0 0 / 72%);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--guide-ink) 72%, transparent);
   pointer-events: none;
 }
 
@@ -108,7 +102,7 @@
   left: 50%;
   width: 1.125rem;
   height: 1.625rem;
-  background: var(--guide-target);
+  background: var(--guide-accent);
   clip-path: polygon(38% 0, 62% 0, 62% 58%, 100% 58%, 50% 100%, 0 58%, 38% 58%);
 }
 
@@ -135,7 +129,7 @@
 }
 
 .hotspot:hover {
-  background: color-mix(in srgb, var(--guide-target) 14%, transparent);
+  background: color-mix(in srgb, var(--guide-accent) 14%, transparent);
 }
 
 .walkthrough :is(button, a, [tabindex]):focus-visible {
@@ -237,19 +231,13 @@
 
 @media (max-width: 47.99rem) and (orientation: portrait), (max-width: 59.9375rem) and (hover: none) and (pointer: coarse) and (orientation: portrait), (max-width: 34rem) {
   .walkthrough {
-    --guide-base: #fffbf5;
-    --guide-surface: #fff1df;
-    --guide-text: #30241c;
-    --guide-muted: #664c3b;
-    --guide-border: #d99562;
-    --guide-accent: #92401f;
     display: block;
     overflow: hidden auto;
     overscroll-behavior-y: contain;
   }
 
   .withExample {
-    background: #192125;
+    background: var(--guide-ink);
   }
 
   .header {
@@ -327,29 +315,26 @@
   .exampleToolbar {
     padding: 0.15rem 0.75rem;
     border: 0;
-    background: #2b3339;
-    color: #fff0df;
   }
 
   .compactButton {
     display: inline-block;
     min-height: 2.75rem;
     padding: 0.15rem 0.6rem;
-    border: 1px solid #677176;
+    border: 1px solid var(--guide-border);
     border-radius: 0.375rem;
-    background: #3a444b;
-    color: #fff3e3;
+    background: var(--guide-raised);
+    color: var(--guide-text);
     font-weight: 700;
+  }
+
+  .compactButton:hover {
+    border-color: var(--guide-accent);
   }
 
   .exampleViewport {
     border: 0;
-    background: #192125;
     overflow: auto hidden;
-  }
-
-  .walkthrough :is(.compactButton, .hotspot, .exampleViewport):focus-visible {
-    outline-color: var(--guide-target);
   }
 }
 

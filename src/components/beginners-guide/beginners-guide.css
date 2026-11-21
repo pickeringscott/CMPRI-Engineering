@@ -1,15 +1,29 @@
+:is(.cmpri-beginners-guide, .cmpri-guide-launcher) {
+  --guide-base: var(--cmpri-modal-base, var(--cmpri-palette-modal-base));
+  --guide-ink: var(--cmpri-palette-black);
+  --guide-action: rgb(var(--cmpri-palette-control-rgb));
+  --guide-accent: var(--cmpri-palette-gold);
+  --guide-surface: var(--cmpri-modal-surface, var(--cmpri-palette-desktop-tone-3));
+  --guide-raised: color-mix(in srgb, var(--guide-action) 14%, var(--guide-base));
+  --guide-text: var(--cmpri-modal-text, var(--cmpri-palette-modal-text));
+  --guide-muted: color-mix(in srgb, var(--guide-text) 73%, var(--guide-base));
+  --guide-border: color-mix(in srgb, var(--guide-action) 55%, var(--guide-base));
+}
+
 .cmpri-guide-launcher {
   position: fixed;
   z-index: 30;
-  bottom: max(.75rem, env(safe-area-inset-bottom));
+  bottom: calc(max(.75rem, env(safe-area-inset-bottom)) + var(--guide-score-clearance, 0px));
   left: max(.75rem, env(safe-area-inset-left));
-  border: 1px solid #967143;
+  border: 1px solid var(--guide-border);
   border-radius: .55rem;
-  background: #27201a;
-  color: #ffe5bd;
+  background: var(--guide-base);
+  color: var(--guide-accent);
   padding: .48rem .7rem;
   font-weight: 700;
 }
+
+.cmpri-guide-launcher:hover { background: var(--guide-raised); }
 
 .cmpri-beginners-guide {
   position: fixed;
@@ -24,22 +38,22 @@
   padding: 0;
   overflow: hidden;
   resize: both;
-  border: 1px solid #d8bda3;
+  border: 1px solid var(--guide-border);
   border-radius: .95rem;
-  background: #fffbf5;
-  color: #30241c;
-  color-scheme: light;
+  background: var(--guide-base);
+  color: var(--guide-text);
+  color-scheme: dark;
   font-family: Arial, sans-serif;
   container-type: inline-size;
   isolation: isolate;
 }
 
 .cmpri-beginners-guide[open] { display: flex; flex-direction: column; }
-.cmpri-beginners-guide::backdrop { background: rgb(24 19 16 / 65%); }
+.cmpri-beginners-guide::backdrop { background: color-mix(in srgb, var(--cmpri-palette-black) 65%, transparent); }
 .cmpri-beginners-guide[data-dismissing] { pointer-events: none; }
-.cmpri-beginners-guide[data-dismissing]::backdrop { background: rgb(24 19 16 / 12%); }
+.cmpri-beginners-guide[data-dismissing]::backdrop { background: color-mix(in srgb, var(--cmpri-palette-black) 12%, transparent); }
 .cmpri-beginners-guide :focus-visible,
-.cmpri-guide-launcher:focus-visible { outline: 2px solid #bd5c2e; outline-offset: 2px; }
+.cmpri-guide-launcher:focus-visible { outline: 2px solid var(--guide-accent); outline-offset: 2px; }
 .cmpri-beginners-guide h1 {
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(1.35rem, 3.5cqi, 2.8rem) !important;
@@ -54,8 +68,8 @@
   position: relative;
   z-index: 2;
   flex: none;
-  color: #513a2c;
-  background: #faf1e6;
+  color: var(--guide-text);
+  background: var(--guide-surface);
   font-size: clamp(.72rem, .62rem + .35cqi, .95rem);
 }
 .cmpri-guide-chrome {
@@ -63,7 +77,7 @@
   align-items: center;
   justify-content: space-between;
   gap: .7rem;
-  border-bottom: 1px solid #ead5c1;
+  border-bottom: 1px solid var(--guide-border);
   padding: .38rem .9rem .38rem 1rem;
   font-weight: 720;
 }
@@ -73,12 +87,12 @@
   width: 1rem;
   height: 1rem;
   fill: none;
-  stroke: #a94324;
+  stroke: var(--guide-accent);
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.cmpri-guide-chrome-actions > span { font-size: .87em; color: #685348; }
+.cmpri-guide-chrome-actions > span { font-size: .87em; color: var(--guide-muted); }
 .cmpri-guide-close {
   display: grid;
   place-items: center;
@@ -88,7 +102,7 @@
   font-size: 1.4rem;
   line-height: 1;
 }
-.cmpri-guide-close:hover { background: #eedcce; }
+.cmpri-guide-close:hover { background: var(--guide-raised); }
 .cmpri-guide-welcome,
 .cmpri-guide-message {
   flex: 1 1 auto;
@@ -103,16 +117,17 @@
   line-height: 1.05 !important;
   letter-spacing: -.055em !important;
 }
-.cmpri-guide-welcome h1 span:first-child { color: #74513b; font-size: .8em; }
+.cmpri-guide-welcome h1 span:first-child { color: var(--guide-accent); font-size: .8em; }
 .cmpri-guide-welcome > p { margin-block: .73rem; max-width: 70ch; line-height: 1.42; }
+.cmpri-guide-welcome .cmpri-guide-nav-buttons,
+.cmpri-guide-message .cmpri-guide-nav-buttons { margin-block: .8rem 1rem; }
 .cmpri-guide-handoff {
   width: min(100%, 60rem);
   margin-top: 1rem;
   padding: clamp(.75rem, 2.3cqi, 1.4rem);
-  border: 1px solid #765441;
+  border: 1px solid var(--guide-border);
   border-radius: .8rem;
-  background: linear-gradient(146deg, #332a27, #513525);
-  color: #fff7eb;
+  background: linear-gradient(146deg, var(--guide-surface), var(--guide-raised));
 }
 .cmpri-guide-handoff h2 { margin: 0 0 .55rem; font-size: 1.32em !important; line-height: 1.15 !important; }
 .cmpri-guide-handoff ul { display: grid; gap: .55rem; padding: 0; margin: 0; list-style: none; }
@@ -125,16 +140,16 @@
   width: .44rem;
   height: .44rem;
   border-radius: 50%;
-  background: #f4b674;
+  background: var(--guide-action);
 }
-.cmpri-guide-handoff li p { color: #efdac7; font-size: .94em; line-height: 1.38; }
+.cmpri-guide-handoff li p { color: var(--guide-muted); font-size: .94em; line-height: 1.38; }
 .cmpri-guide-example-ticket {
   width: fit-content;
   margin-top: .65rem;
-  border: 1px solid #a97a53;
+  border: 1px solid var(--guide-border);
   border-radius: .35rem;
-  background: #281d19;
-  color: #fff0df;
+  background: var(--guide-base);
+  color: var(--guide-accent);
   padding: .3rem .48rem;
   font-weight: 700;
   font-size: .9em;
@@ -142,16 +157,16 @@
 .cmpri-guide-role {
   width: min(100%, 49rem);
   margin-top: 1rem;
-  border: 1px solid #e2c8af;
+  border: 1px solid var(--guide-border);
   border-radius: .65rem;
-  background: #f8eddf;
+  background: var(--guide-surface);
   padding: .52rem .75rem;
 }
-.cmpri-guide-role summary { font-weight: 730; color: #63432f; cursor: pointer; }
+.cmpri-guide-role summary { font-weight: 730; color: var(--guide-accent); cursor: pointer; }
 .cmpri-guide-role dl { margin: .45rem 0 0; }
 .cmpri-guide-role dt { margin-top: .55rem; font-weight: 700; }
 .cmpri-guide-role dd { margin: .18rem 0 0; }
-.cmpri-guide-reopen { color: #614938; font-size: .92em; }
+.cmpri-guide-reopen { color: var(--guide-muted); font-size: .92em; }
 
 .cmpri-guide-chart-page,
 .cmpri-guide-lesson-page {
@@ -163,14 +178,13 @@
   padding: .65rem .9rem;
   font-size: clamp(.72rem, .62rem + .35cqi, .95rem);
 }
-.cmpri-guide-chart-page > p { color: #5d4b3d; }
+.cmpri-guide-chart-page > p { color: var(--guide-muted); }
 .cmpri-guide-lesson-page { padding-bottom: 0; }
 .cmpri-beginners-guide .cmpri-guide-lesson-page > h1 { font-size: clamp(1.16rem, 3.1cqi, 2rem) !important; }
 
 .cmpri-guide-footer {
   padding: .45rem .85rem .55rem;
-  border-top: 1px solid #ead5c1;
-  background: #fffbf5ef;
+  border-top: 1px solid var(--guide-border);
 }
 .cmpri-guide-footer-controls,
 .cmpri-guide-nav-buttons {
@@ -179,19 +193,26 @@
   gap: .35rem;
 }
 .cmpri-guide-footer-controls { justify-content: space-between; gap: .7rem; }
-.cmpri-guide-footer-controls > p { flex: 1 1 auto; color: #715641; }
+.cmpri-guide-footer-controls > p { flex: 1 1 auto; color: var(--guide-muted); }
 .cmpri-guide-nav-buttons > button {
   min-height: 2.45rem;
-  border: 1px solid #d7baa3;
+  border: 1px solid var(--guide-border);
   border-radius: .46rem;
   padding: .35rem .7rem;
   font-weight: 730;
   white-space: nowrap;
 }
-.cmpri-guide-nav-buttons .cmpri-guide-primary { background: #92401f; border-color: #92401f; color: #fff; }
+.cmpri-guide-nav-buttons .cmpri-guide-primary {
+  background: var(--guide-action);
+  border-color: var(--guide-action);
+  color: var(--guide-ink);
+}
 .cmpri-guide-nav-buttons .cmpri-guide-primary:disabled { opacity: .55; }
-.cmpri-guide-nav-buttons .cmpri-guide-primary:hover:not(:disabled) { background: #713014; }
-.cmpri-guide-quiet:hover { background: #f5e6d7; }
+.cmpri-guide-nav-buttons .cmpri-guide-primary:hover:not(:disabled) {
+  background: var(--guide-accent);
+  border-color: var(--guide-accent);
+}
+.cmpri-guide-quiet:hover { background: var(--guide-raised); }
 .cmpri-guide-progress { margin-top: .15rem; }
 .cmpri-beginners-guide .cmpri-guide-progress > input[type="range"] {
   display: block;
@@ -204,20 +225,20 @@
   border: 0;
   appearance: none;
   background: transparent;
-  accent-color: #92401f;
+  accent-color: var(--guide-accent);
   touch-action: pan-y;
 }
 .cmpri-guide-progress input::-webkit-slider-runnable-track {
   height: 6px;
-  border: 1px solid #cdb5a1;
+  border: 1px solid var(--guide-border);
   border-radius: 999px;
-  background: #eadccc;
+  background: var(--guide-raised);
 }
 .cmpri-guide-progress input::-moz-range-track {
   height: 4px;
-  border: 1px solid #cdb5a1;
+  border: 1px solid var(--guide-border);
   border-radius: 999px;
-  background: #eadccc;
+  background: var(--guide-raised);
 }
 .cmpri-guide-progress input::-webkit-slider-thumb {
   appearance: none;
@@ -225,14 +246,14 @@
   height: 15px;
   margin-top: -5px;
   border-radius: 50%;
-  background: #92401f;
+  background: var(--guide-accent);
 }
 .cmpri-guide-progress input::-moz-range-thumb {
   width: 15px;
   height: 15px;
   border: 0;
   border-radius: 50%;
-  background: #92401f;
+  background: var(--guide-accent);
 }
 .cmpri-guide-stops {
   display: flex;
@@ -246,15 +267,19 @@
   flex: none;
   min-height: 1.95rem;
   padding: .22rem .53rem;
-  border: 1px solid #e1d0bf;
+  border: 1px solid var(--guide-border);
   border-radius: .38rem;
-  background: #fff8ee;
-  color: #664c3b;
+  background: var(--guide-base);
+  color: var(--guide-text);
   font-size: .9em;
   font-weight: 700;
   white-space: nowrap;
 }
-.cmpri-guide-stops button[aria-current="step"] { border-color: #92401f; background: #92401f; color: #fff; }
+.cmpri-guide-stops button[aria-current="step"] {
+  border-color: var(--guide-accent);
+  background: var(--guide-accent);
+  color: var(--guide-ink);
+}
 
 @media (max-width: 639px), (hover: none) and (pointer: coarse) and (max-width: 959px) {
   .cmpri-beginners-guide {
