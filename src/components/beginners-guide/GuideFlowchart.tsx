@@ -21,12 +21,12 @@ function separation(points: Map<number, Point>) {
 }
 
 /** Route a rounded elbow across the gap that separates the note and chart. */
-function elbow(start: Point, end: Point, fromRight: boolean) {
+function elbow(start: Point, end: Point, fromRight: boolean, gutter?: number) {
   const a = fromRight ? start : { x: start.y, y: start.x };
   const b = fromRight ? end : { x: end.y, y: end.x };
-  const bend = (a.x + b.x) / 2;
+  const bend = gutter ?? (a.x + b.x) / 2;
   const direction = Math.sign(b.y - a.y);
-  const radius = Math.min(7, Math.abs(b.y - a.y) / 2, Math.abs(b.x - a.x) / 4);
+  const radius = Math.min(7, Math.abs(b.y - a.y) / 2, Math.abs(a.x - bend) / 2, Math.abs(b.x - bend) / 2);
   const point = (x: number, y: number) => fromRight ? `${x} ${y}` : `${y} ${x}`;
   return `M ${point(a.x, a.y)} L ${point(bend + radius, a.y)} Q ${point(bend, a.y)} ${point(bend, a.y + direction * radius)} L ${point(bend, b.y - direction * radius)} Q ${point(bend, b.y)} ${point(bend - radius, b.y)} L ${point(b.x, b.y)}`;
 }
@@ -47,6 +47,7 @@ function makeViewport(
   let camera = { ...FIT };
   let fitScale = 1;
   let base = { x: 0, y: 0 };
+  let noteFollowsStage = false;
   artwork.style.width = `${chartWidth}px`;
   artwork.style.height = `${chartHeight}px`;
 
@@ -89,12 +90,18 @@ function makeViewport(
       }
     }
 
+    const stage = frame.getBoundingClientRect();
+    if (noteFollowsStage) {
+      const height = note.offsetHeight;
+      const desired = (bounds.top + bounds.bottom - height) / 2 - stage.top;
+      note.style.setProperty("--guide-note-offset", `${clamp(desired, 0, Math.max(0, frame.clientHeight - height))}px`);
+    }
+
     if (bounds.right <= left || bounds.left >= right || bounds.bottom <= top || bounds.top >= bottom) {
       line.removeAttribute("d");
       return;
     }
 
-    const stage = frame.getBoundingClientRect();
     const card = note.getBoundingClientRect();
     const fromRight = card.left >= viewportBox.right - 1;
     const start = fromRight
@@ -107,6 +114,7 @@ function makeViewport(
       { x: start.x - stage.left, y: start.y - stage.top },
       { x: end.x - stage.left, y: end.y - stage.top },
       fromRight,
+      fromRight && noteFollowsStage ? (viewportBox.right + card.left) / 2 - stage.left : undefined,
     ));
   }
 
@@ -114,6 +122,7 @@ function makeViewport(
     const width = viewport.clientWidth;
     const height = viewport.clientHeight;
     if (!width || !height) return;
+    noteFollowsStage = getComputedStyle(note).alignSelf === "start";
     fitScale = Math.min(Math.max(1, width - 12) / chartWidth, Math.max(1, height - 12) / chartHeight);
     base = { x: (width - chartWidth * fitScale) / 2, y: (height - chartHeight * fitScale) / 2 };
     draw(true);

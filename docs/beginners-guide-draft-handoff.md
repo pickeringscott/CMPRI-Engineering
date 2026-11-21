@@ -12,8 +12,8 @@ The Beginner’s Guide is prepared for preview in the draft pull request. The wo
 
 ## Review before release
 
-- The local production preview build passed with the repository’s CI placeholder Supabase settings. TypeScript, route generation, and the post-build PDF, manual reader, and OCR checks passed. The build output is in `.next/`. A standalone Chromium check confirmed the approved flowchart can be imported as SVG. The signed-in dashboard flow still needs browser and integration testing.
-- Verify the modal, chart and footer layering, first-open and repeat-session behavior, focus and touch handling, and resize behavior in the actual dashboard on phone and desktop. Exercise sign-out and sign-in in the same tab and desktop resize or rotation during a guide.
+- The local production preview build uses the repository’s CI placeholder Supabase settings. The build output is in `.next/`.
+- Chromium checks of the app with sample signed-in sessions covered 320 × 568 and 390 × 844 phones in both orientations, plus desktop. They covered all nine flowchart stages, touch pan and pinch, the named slider, all 308 Chief Engineer actions, and closing and reopening the guide. Front Desk checks covered first open, repeat sessions, the cutoff, and same-tab sign-out. Review the hosted preview on a phone before release.
 - First-open persistence uses browser-local storage keyed by the signed-in user. Decide whether the requirement needs a server preference that follows the same account across devices.
 - The CSV assigns guide lessons. The existing CMPRI APIs and session permissions remain unchanged. For example, the General Manager’s private Candidate Questionnaire lesson is a synthetic queue, and newly listed roles can see a shared profile or asset example. Verify corresponding live access changes separately before describing those permissions as deployed.
 - The packaged demo assets are static data copied from the approved standalone review. When updating a lesson, keep the CSV, role-specific guidance, and screenshot target coordinates aligned. Add an explicit assignment for any new supported role.

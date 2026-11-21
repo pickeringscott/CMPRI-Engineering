@@ -132,12 +132,29 @@
 .note h2 { margin: 0 0 4px; font-size: 1.05em; font-weight: 700; line-height: 1.2; }
 .note p { margin: 0; font-size: 0.94em; line-height: 1.38; }
 
-@media (max-width: 640px) and (orientation: portrait) {
+@media (max-width: 639px), (hover: none) and (pointer: coarse) and (max-width: 959px) {
+  .flowchart { gap: 5px; }
+  .toolbar { justify-content: flex-start; gap: 4px 8px; }
+  .controls button { min-width: 30px; min-height: 29px; padding-inline: 7px; font-size: 0.96em !important; }
+
   .frame {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto;
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, min(47%, 18rem));
+    gap: clamp(8px, 3vw, 16px);
   }
 
-  .note { max-height: min(145px, 32dvh); padding: 7px 9px; }
+  .note {
+    align-self: start;
+    padding: 7px 9px;
+    translate: 0 var(--guide-note-offset, 0px);
+    font-size: clamp(11px, 3cqi, 13px);
+  }
+
+  .note h2 { font-size: 1.12em !important; line-height: 1.16 !important; }
+
+  @media (orientation: landscape) and (max-height: 490px) {
+    .frame {
+      justify-content: center;
+      grid-template-columns: minmax(0, min(46%, 44dvh)) minmax(0, min(47%, 18rem));
+    }
+  }
 }

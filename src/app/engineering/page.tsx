@@ -801,10 +801,11 @@ export default function EngineeringDashboardPage() {
     <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || threeTabLayout) ? "true" : undefined} data-chief-engineer-mobile={chiefHeaderPresentation ? "true" : undefined}>
       {typeof window !== "undefined" && window.parent === window
         && new URLSearchParams(window.location.search).get("embedded") !== "1" && (
-          <BeginnerGuide key={session.user.id + ":" + session.user.role} user={{
+          <BeginnerGuide key={session.user.id + ":" + session.user.role + ":" + displayRole} user={{
             id: session.user.id,
             name: session.user.name?.trim() || "",
             role: session.user.role,
+            displayRole,
           }} />
         )}
       <DesktopWorkspaceResume session={session}

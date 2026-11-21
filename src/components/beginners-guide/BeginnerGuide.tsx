@@ -6,7 +6,7 @@ import GuideFlowchart, { type GuidePhase } from "./GuideFlowchart";
 import GuideWalkthrough, { type GuideAction } from "./GuideWalkthrough";
 import "./beginners-guide.css";
 
-type GuideUser = { id: string; name: string; role: string };
+type GuideUser = { id: string; name: string; role: string; displayRole?: string };
 type GuideLesson = {
   key: string;
   title: string;
@@ -24,9 +24,15 @@ type GuideRole = {
 };
 type GuideData = { roles: Partial<Record<string, GuideRole>> };
 type Position = { stop: number; action: number };
+type LaunchReason = "First app open" | "New Front Desk session" | "Reopened from the dashboard";
 
 const WELCOME: Position = { stop: 0, action: 0 };
 const ROLLOUT_END = Date.parse("2026-11-24T23:00:00-06:00");
+const WORK_ORDER_HANDOFF = [
+  ["Front Desk & Housekeeping", "Report what happened and add room access or turnover details."],
+  ["Engineering", "Verify the issue, assign the work, and record the repair."],
+  ["Property leadership", "Follow guest impact and help departments coordinate the next step."],
+];
 const openedInMemory = new Set<string>();
 const sessionInMemory = new Set<string>();
 let guideData: Promise<GuideData> | undefined;
@@ -53,11 +59,14 @@ function setMarker(storage: "localStorage" | "sessionStorage", key: string, memo
 }
 
 export default function BeginnerGuide({ user }: { user: GuideUser }) {
-  const role = profileIsChiefEngineer({ role: user.role }) ? "chief_engineer" : roleKey(user.role);
+  const role = user.displayRole === "Chief Engineer" || profileIsChiefEngineer({ role: user.role })
+    ? "chief_engineer"
+    : roleKey(user.role);
   const openedKey = "cmpri:beginners-guide:opened:" + user.id;
   const sessionKey = "cmpri:beginners-guide:session:" + user.id;
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<Position>(WELCOME);
+  const [launchReason, setLaunchReason] = useState<LaunchReason>("Reopened from the dashboard");
   const [content, setContent] = useState<GuideRole | null>(null);
   const [loadError, setLoadError] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -67,10 +76,11 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   const animation = useRef<Animation | null>(null);
   const titleId = useId();
 
-  const openGuide = useCallback(() => {
+  const openGuide = useCallback((reason: LaunchReason) => {
     setMarker("localStorage", openedKey, openedInMemory);
     setMarker("sessionStorage", sessionKey, sessionInMemory);
     setPosition(WELCOME);
+    setLaunchReason(reason);
     setLoadError(false);
     setOpen(true);
   }, [openedKey, sessionKey]);
@@ -81,7 +91,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
       const firstOpen = !hasMarker("localStorage", openedKey, openedInMemory);
       const rolloutSession = role === "front_desk" && Date.now() < ROLLOUT_END &&
         !hasMarker("sessionStorage", sessionKey, sessionInMemory);
-      if (firstOpen || rolloutSession) openGuide();
+      if (firstOpen || rolloutSession) openGuide(firstOpen ? "First app open" : "New Front Desk session");
     });
     return () => cancelAnimationFrame(frame);
   }, [openGuide, openedKey, role, sessionKey]);
@@ -162,7 +172,8 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   const phase = position.stop === 1 ? content?.phases[position.action] : undefined;
   const action = lesson?.actions[position.action];
   const stepsInStop = position.stop === 1 ? content?.phases.length ?? 0 : lesson?.actions.length ?? 0;
-  const stops = ["Welcome", "Work Order Flowchart", ...(content?.lessons.map(item => item.title) ?? [])];
+  const stops = ["Welcome", "Work Order Flowchart",
+    ...(content?.lessons.map(item => item.key === "/work-orders" ? "Create a Work Order" : item.title) ?? [])];
   const firstName = user.name.trim().split(/\s+/)[0];
   const welcome = position.stop === 0;
   const lastStop = position.stop === stops.length - 1;
@@ -195,19 +206,29 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   }
 
   return <>
-    <button ref={trigger} type="button" className="cmpri-guide-launcher" onClick={openGuide} aria-haspopup="dialog" aria-expanded={open}>
+    <button ref={trigger} type="button" className="cmpri-guide-launcher"
+      onClick={() => openGuide("Reopened from the dashboard")} aria-haspopup="dialog" aria-expanded={open}>
       Beginner’s Guide
     </button>
     {open && <dialog
       ref={dialog}
       className="cmpri-beginners-guide"
+      data-cmpri-guide-dialog
       data-guide-page={welcome ? "welcome" : phase ? "chart" : "lesson"}
       aria-labelledby={titleId}
       onCancel={event => { event.preventDefault(); dismiss(); }}
     >
       <header className="cmpri-guide-chrome">
-        <span>Beginner’s Guide</span>
-        <button type="button" className="cmpri-guide-close" aria-label="Close Beginner’s Guide" onClick={dismiss}>×</button>
+        <span className="cmpri-guide-brand">
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M2.5 4.5c2.6-.6 5.1-.2 7.5 1.6 2.4-1.8 4.9-2.2 7.5-1.6v10.2c-2.6-.6-5.1-.2-7.5 1.6-2.4-1.8-4.9-2.2-7.5-1.6zm7.5 1.6v10.2" />
+          </svg>
+          Beginner’s Guide
+        </span>
+        <div className="cmpri-guide-chrome-actions">
+          <span>{welcome ? "Welcome" : phase ? "How CMPRI works" : "Walkthrough"}</span>
+          <button type="button" className="cmpri-guide-close" aria-label="Close Beginner’s Guide" onClick={dismiss}>×</button>
+        </div>
       </header>
       {!content && <div className="cmpri-guide-message" role="status">
         <h1 id={titleId} ref={title} tabIndex={-1}>Beginner’s Guide</h1>
@@ -218,15 +239,26 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
           <span>Welcome to</span>
           <span>Residence Inn Champaign{firstName ? ", " + firstName : ""}</span>
         </h1>
-        <p>We’re glad you’re here. CMPRI brings Front Desk, Housekeeping, Engineering, and property leadership together around work orders, repairs, and shift handoffs.</p>
-        <section className="cmpri-guide-role">
-          <h2>Your role in CMPRI · {content.title}</h2>
+        <p>We’re glad you’re here! Every clear guest report, room update, and repair note helps the next person pick up where you left off.</p>
+        <p>This guide follows a Room 204 work order from the first report to the repair. You’ll see how your role connects with your teammates and where to find the tools you need.</p>
+        <section className="cmpri-guide-handoff" aria-labelledby={titleId + "-handoff"}>
+          <h2 id={titleId + "-handoff"}>One work order connects the team.</h2>
+          <ul>
+            {WORK_ORDER_HANDOFF.map(([department, description]) => <li key={department}>
+              <strong>{department}</strong>
+              <p>{description}</p>
+            </li>)}
+          </ul>
+          <p className="cmpri-guide-example-ticket">WO#4218 · Room 204 · Bathroom sink drains slowly</p>
+        </section>
+        <details className="cmpri-guide-role">
+          <summary>Your role in CMPRI · {content.title}</summary>
           <dl>
             <dt>What you’re responsible for</dt><dd>{content.responsibility}</dd>
             <dt>A typical shift</dt><dd>{content.shift}</dd>
             <dt>How your work helps the team</dt><dd>{content.workflow}</dd>
           </dl>
-        </section>
+        </details>
         <p className="cmpri-guide-reopen">Reopen Beginner’s Guide anytime from the lower-left corner.</p>
       </div>}
       {phase && <div className="cmpri-guide-chart-page">
@@ -236,18 +268,20 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
       </div>}
       {lesson && action && <div className="cmpri-guide-lesson-page">
         <h1 id={titleId} ref={title} tabIndex={-1}>{lesson.title}</h1>
-        <GuideWalkthrough title={lesson.title} purpose={lesson.purpose} when={lesson.when} action={action}
+        <GuideWalkthrough key={lesson.key} title={lesson.title} purpose={lesson.purpose} when={lesson.when} action={action}
           onTry={action.target && (!lastAction || !lastStop) ? next : undefined} />
       </div>}
       <footer className="cmpri-guide-footer">
         <div className="cmpri-guide-footer-controls">
-          <p aria-live="polite">{lesson ? lesson.title + " · " + (position.action + 1) + " of " + stepsInStop : ""}</p>
+          <p aria-live="polite">{content && (welcome ? launchReason : phase ? "Use Next to follow the work order." :
+            lesson ? "Tool " + (position.stop - 1) + " of " + content.lessons.length + " · Action " +
+              (position.action + 1) + " of " + stepsInStop : "")}</p>
           <div className="cmpri-guide-nav-buttons">
             {welcome
               ? <button type="button" className="cmpri-guide-quiet" onClick={dismiss}>Skip</button>
               : <button type="button" className="cmpri-guide-quiet" onClick={back}>Back</button>}
             <button type="button" className="cmpri-guide-primary" disabled={!content} onClick={next}>
-              {welcome ? "Start Guide" : lastStop && lastAction ? "Finish Guide" : "Next"}
+              {welcome ? "Start Guide" : phase && lastAction ? "Start walkthrough" : lastStop && lastAction ? "Finish Guide" : "Next"}
             </button>
           </div>
         </div>

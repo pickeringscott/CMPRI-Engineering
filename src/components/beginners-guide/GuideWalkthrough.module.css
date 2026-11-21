@@ -5,6 +5,7 @@
   --guide-muted: var(--cmpri-modal-muted, var(--cmpri-palette-desktop-tone-8));
   --guide-border: var(--cmpri-outline, var(--cmpri-palette-desktop-tone-20));
   --guide-accent: var(--cmpri-palette-gold);
+  --guide-target: var(--cmpri-palette-gold);
   display: grid;
   flex: 1 1 auto;
   min-height: 0;
@@ -14,12 +15,13 @@
   color: var(--guide-text);
 }
 
-.example {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  border-bottom: 1px solid var(--guide-border);
+.header {
+  display: contents;
+}
+
+.mobileAbout,
+.compactButton {
+  display: none;
 }
 
 .exampleToolbar {
@@ -70,7 +72,6 @@
 }
 
 .exampleViewport {
-  height: clamp(12rem, 42dvh, 27rem);
   min-height: 0;
   overflow: auto;
   overscroll-behavior-x: contain;
@@ -95,7 +96,7 @@
 
 .highlight {
   position: absolute;
-  border: 2px solid var(--guide-accent);
+  border: 2px solid var(--guide-target);
   border-radius: 0.25rem;
   box-shadow: 0 0 0 2px rgb(0 0 0 / 72%);
   pointer-events: none;
@@ -107,7 +108,7 @@
   left: 50%;
   width: 1.125rem;
   height: 1.625rem;
-  background: var(--guide-accent);
+  background: var(--guide-target);
   clip-path: polygon(38% 0, 62% 0, 62% 58%, 100% 58%, 50% 100%, 0 58%, 38% 58%);
 }
 
@@ -134,7 +135,7 @@
 }
 
 .hotspot:hover {
-  background: color-mix(in srgb, var(--guide-accent) 14%, transparent);
+  background: color-mix(in srgb, var(--guide-target) 14%, transparent);
 }
 
 .walkthrough :is(button, a, [tabindex]):focus-visible {
@@ -210,25 +211,145 @@
   text-underline-offset: 0.15em;
 }
 
-@media (min-width: 48rem) {
-  .withExample {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+.withExample {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.withExample .explanation {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  overflow: auto;
+}
+
+.exampleToolbar {
+  grid-column: 1;
+  grid-row: 1;
+  border-inline-end: 1px solid var(--guide-border);
+}
+
+.exampleViewport {
+  grid-column: 1;
+  grid-row: 2;
+  border-inline-end: 1px solid var(--guide-border);
+}
+
+@media (max-width: 47.99rem) and (orientation: portrait), (max-width: 59.9375rem) and (hover: none) and (pointer: coarse) and (orientation: portrait), (max-width: 34rem) {
+  .walkthrough {
+    --guide-base: #fffbf5;
+    --guide-surface: #fff1df;
+    --guide-text: #30241c;
+    --guide-muted: #664c3b;
+    --guide-border: #d99562;
+    --guide-accent: #92401f;
+    display: block;
+    overflow: hidden auto;
+    overscroll-behavior-y: contain;
   }
 
-  .example {
-    min-height: 12rem;
-    border-bottom: 0;
-    border-inline-end: 1px solid var(--guide-border);
+  .withExample {
+    background: #192125;
+  }
+
+  .header {
+    display: block;
+    background: var(--guide-base);
+  }
+
+  .walkthrough[data-pin-instruction] .header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .explanation,
+  .withExample .explanation {
+    padding: 0.55rem 0.75rem 0.4rem;
+    overflow: visible;
+    font-size: 0.875rem;
+    line-height: 1.38;
+  }
+
+  .explanation h2 {
+    margin-bottom: 0.35rem;
+  }
+
+  .desktopAbout,
+  .viewModes {
+    display: none;
+  }
+
+  .mobileAbout {
+    display: block;
+    color: var(--guide-muted);
+  }
+
+  .mobileAbout summary {
+    width: fit-content;
+    padding: 0.45rem 0.15rem 0.35rem;
+    cursor: pointer;
+    color: var(--guide-accent);
+    font-weight: 700;
+  }
+
+  .mobileAbout .about {
+    margin: 0.25rem 0 0.45rem;
+  }
+
+  .instruction {
+    padding: 0.55rem 0.65rem;
+    border-inline-start-width: 1px;
+  }
+
+  .hint,
+  .actionLinks {
+    margin-top: 0.375rem;
+  }
+
+  .context,
+  .hint {
+    font-size: 0.82rem;
+  }
+
+  .tryButton,
+  .tryButton:hover {
+    background: var(--guide-base);
+    color: var(--guide-accent);
+  }
+
+  .walkthrough[data-sample-action] .exampleLabel,
+  .walkthrough[data-sample-action] .tryButton,
+  .walkthrough[data-sample-action] .actionLinks:has(.tryButton:only-child) {
+    display: none;
+  }
+
+  .exampleToolbar {
+    padding: 0.15rem 0.75rem;
+    border: 0;
+    background: #2b3339;
+    color: #fff0df;
+  }
+
+  .compactButton {
+    display: inline-block;
+    min-height: 2.75rem;
+    padding: 0.15rem 0.6rem;
+    border: 1px solid #677176;
+    border-radius: 0.375rem;
+    background: #3a444b;
+    color: #fff3e3;
+    font-weight: 700;
   }
 
   .exampleViewport {
-    flex: 1 1 auto;
-    height: auto;
+    border: 0;
+    background: #192125;
+    overflow: auto hidden;
   }
 
-  .withExample .explanation {
-    align-self: stretch;
-    overflow: auto;
+  .walkthrough :is(.compactButton, .hotspot, .exampleViewport):focus-visible {
+    outline-color: var(--guide-target);
   }
 }
 
