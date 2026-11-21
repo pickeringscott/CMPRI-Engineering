@@ -68,12 +68,12 @@ test('pool revision conflicts return once as HTTP 409 without retrying the actio
 test('Spanish header reports pool-specific closed, open and loading states', async () => {
  const f=fixture({language:'es',controlOnly:true});
  try {
-  await f.render();assert.equal(f.container.textContent,'Estado de la piscina: CERRADA');
-  f.state.closed=false;await f.render();assert.equal(f.container.textContent,'Estado de la piscina: ABIERTA');
+  await f.render();assert.equal(f.container.textContent,'Piscina: CERRADA');
+  f.state.closed=false;await f.render();assert.equal(f.container.textContent,'Piscina: ABIERTA');
   assert.equal(f.requests.length,0);
  } finally {await f.dispose()}
  const pending=fixture({language:'es',controlOnly:true,loading:true});
- try {await pending.render();assert.equal(pending.container.textContent,'Estado de la piscina: CARGANDO');assert.equal(pending.requests.length,0)} finally {await pending.dispose()}
+ try {await pending.render();assert.equal(pending.container.textContent,'Piscina: CARGANDO');assert.equal(pending.requests.length,0)} finally {await pending.dispose()}
 });
 
 test('Spanish pool actions localize confirmation and errors without changing staff reasons or request values', async () => {
