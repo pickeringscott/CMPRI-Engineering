@@ -1,3 +1,4 @@
+import * as workOrderSearch from '../src/lib/work-order-search.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -60,7 +61,7 @@ test('actual PM records: route confirmation, reuse, stale sources and missing RP
     }};
     const principal={identity:{id:session.user.id,email:session.user.email},profile:account.profile,membership:account.membership,permissions:account.permissions,hotelId:hotel};
     const auth={principal,user:{id:session.user.id,email:session.user.email},profile:account.profile,membership:account.membership,admin};
-    const deps={'server-only':{},'@/lib/constants':{HOTEL_ID:hotel},'next/server':{NextResponse:{json:(value,init)=>Response.json(value,init)}},
+    const deps={'@/lib/work-order-search':workOrderSearch,'server-only':{},'@/lib/constants':{HOTEL_ID:hotel},'next/server':{NextResponse:{json:(value,init)=>Response.json(value,init)}},
       '@/lib/server/auth':{requireUser:async()=>({principal,admin}),requireUserAttempt:async()=>({ok:true,principal,admin,mcp:false})},'@/lib/server/request-auth':{authenticatedUser:async()=>auth},'@/lib/server/supabase-admin':{createSupabaseAdmin:()=>admin}};
     const load=path=>loadTs(path,deps,{Error,Response,setTimeout});
     const current=loadTs('src/lib/pm/catalog.ts',{'./source-catalog.json':{default:JSON.parse(readFileSync('src/lib/pm/source-catalog.json','utf8'))}},{Error});
@@ -77,6 +78,7 @@ test('actual PM records: route confirmation, reuse, stale sources and missing RP
       '@/lib/pm/linked-form-review':'src/lib/pm/linked-form-review.ts','@/lib/pm/work-order-form-target':'src/lib/pm/work-order-form-target.ts',
       '@/lib/server/paginated-query':'src/lib/server/paginated-query.ts',
       '@/lib/winter-preparedness':'src/lib/winter-preparedness.ts',
+      '@/lib/winter-preparedness-access':'src/lib/winter-preparedness-access.ts',
     }))deps[alias]=load(path);
     deps['@/lib/server/room-availability']={}; // POST never reads occupancy or calls another service.
     deps['@/lib/server/pm-work-order']=load('src/lib/server/pm-work-order.ts');

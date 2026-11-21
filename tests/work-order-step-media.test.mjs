@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -31,7 +32,7 @@ function harness(options={}){
   const exports={};
   vm.runInNewContext(code,{exports,Error,window,URL:MediaURL,URLSearchParams,AbortController,queueMicrotask,MutationObserver,IntersectionObserver:options.intersection?IntersectionObserver:undefined,getComputedStyle:()=>({backgroundColor:paletteColor,color:'rgb(240, 241, 246)'}),
     fetch:async(url,init)=>{requests.push({url,init});return options.fetch?options.fetch(url,init):reply();},
-    require(name){
+    require(name){if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;
       if(name==='react'||name==='react/jsx-runtime')return require(name);
       if(name==='@/lib/work-orders/source-semantics')return {sourceSemantics};
       if(name==='@/lib/work-orders/diagram-theme')return {themeSourceDiagramBlob:async(blob,host,text)=>{adaptations.push({blob,host,text});return {blob,adapted:true};}};

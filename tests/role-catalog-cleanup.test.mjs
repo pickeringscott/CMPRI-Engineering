@@ -48,6 +48,7 @@ function fixture(body = {}, targetRole = 'front_desk', callerRole = 'system_admi
     'next/server': { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } },
     '@/lib/constants': { HOTEL_ID: 'hotel' },
     '@/lib/server/auth': { requireCapability: async () => ({ principal: { identity: { id: caller.id }, profile: caller }, admin }) },
+    '@/lib/server/chief-module-read': { requireChiefModuleRead: async () => ({ principal: { identity: { id: caller.id }, profile: caller, hotelId: 'hotel' }, admin, canManage: true }) },
     '@/lib/server/roles': roles,
   });
   return { handlers, mutations, request: { json: async () => body } };

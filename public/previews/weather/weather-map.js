@@ -25,7 +25,7 @@
     catalogFrames: [], displayedTime: null,
     showAlerts: true, alerts: [], alertStatus: 'Unknown · waiting for the NWS property alert response',
     alertSource: null, alertCheckedAt: null, alertGeometryless: 0,
-    enabled: { velocity: false, ptype: false, satellite: false, lightning: false },
+    enabled: { velocity: false, ptype: false, cloudCover: false },
     center: { ...HOTEL }, opacity: 0.65, showRadar: true, roads: false, impacts: false,
     frames: [], radarStatus: 'Waiting for Weather to open', roadsStatus: 'Unavailable · exact IDOT feed / report timestamps unverified',
     impactsStatus: 'Waiting for Weather to open', openAttempted: false, networkRequests: 0, fetchedAt: null,
@@ -56,24 +56,18 @@
   const productInfo = {
     velocity: ['Local velocity · KILX', 'The latest advertised KILX velocity image and official legend load through the preview transport. Velocity is radar-relative motion, not hotel surface wind.', 'https://opengeo.ncep.noaa.gov/geoserver/kilx/ows?service=wms&version=1.3.0&request=GetCapabilities'],
     ptype: ['Precipitation type', 'The latest advertised NOAA precipitation-type analysis and official legend load through the preview transport. No rain, snow or ice classification is inferred from reflectivity colors.', 'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows?service=wms&version=1.3.0&request=GetCapabilities'],
-    satellite: ['Clouds · satellite', 'Observed NOAA GOES longwave infrared cloud imagery works by day and night. Its grayscale is imagery, not percentage cloud cover or surface temperature.', 'https://nowcoast.noaa.gov/geoserver/observations/satellite/ows?service=WMS&version=1.3.0&request=GetCapabilities'],
-    lightning: ['Lightning density', 'Observed NOAA nowCOAST ground-network lightning density: a 15-minute analysis on an 8×8 km grid. These are not individual strike locations. Blank pixels do not establish an all-clear.', 'https://nowcoast.noaa.gov/geoserver/observations/lightning_detection/ows?service=WMS&version=1.3.0&request=GetCapabilities']
+    cloudCover: ['Forecast cloud cover', 'NWS NDFD forecast percentage of sky covered by opaque clouds. Uses the current or next advertised UTC valid time and the newest source issuance for that time. The source does not advertise an official PNG color key; no substitute palette is drawn.', 'https://digital.weather.gov/ndfd.conus/wms?service=WMS&version=1.1.1&request=GetCapabilities'],
   };
   const WMS_PRODUCTS = Object.freeze({
     velocity: { product: 'velocity', layer: 'kilx_sr_bvel', style: 'radar_velocity', title: 'Local velocity · KILX' },
     ptype: { product: 'precipitation', layer: 'conus_pcpn_typ', style: 'radar_precip_type', title: 'Precipitation type · NOAA analysis' },
-    // CMPRI's display-age thresholds allow source latency; they are not NOAA
-    // update guarantees. Each image retains its own advertised observation time.
-    satellite: { product: 'satellite', layer: 'goes_longwave_imagery', style: 'goes-lir', title: 'Clouds · satellite IR',
-      staleAfterMinutes: 30, note: 'Day/night infrared imagery · not cloud cover %. Grayscale 0–255.' },
-    lightning: { product: 'lightning', layer: 'ldn_lightning_strike_density', style: 'lightning_density', title: 'Lightning density · 15 min',
-      staleAfterMinutes: 45, note: '15-minute analysis · 8×8 km grid. Blank pixels are not an all-clear.' }
+    cloudCover: { product: 'cloudCover', layer: 'ndfd.conus.sky', style: '', title: 'Forecast cloud cover', forecast: true, units: '%', staleAfterMinutes: 60 },
   });
   const wmsLayers = Object.fromEntries(Object.entries(WMS_PRODUCTS).map(([name, product]) => [name, {
     metadata: null, raster: null, legendUrl: null, loading: false, queued: false,
     metadataLoading: false, legendLoading: false, selection: 0, controllers: new Set(),
     state: { product: product.product, layer: null, style: null, time: null, status: 'Not selected', source: productInfo[name][2],
-      mapSource: null, legendSource: null, legendStatus: 'Not loaded', displayedTime: null }
+      mapSource: null, legendSource: null, legendStatus: 'Not loaded', displayedTime: null, sourceTime: null, kind: product.forecast ? 'forecast' : 'observation', units: product.units || null }
   }]));
   const controls = [
     ['mapLayersMenu', 'Layers menu', 'CMPRI overlay', 'NOAA observed products, NWS/WPC WSSI and property alerts; IDOT reports unavailable', 'Toggle independent observed, forecast and official-alert overlays over the same aerial map.'],
@@ -93,9 +87,8 @@
     ['velocity', 'Local velocity product', 'CMPRI overlay', 'Official NOAA KILX WMS · advertised kilx_sr_bvel / radar_velocity', 'Display the latest advertised observed velocity image and its actual official PNG legend on the same USGS map. It is radar-relative motion, not hotel surface wind. No velocity loop is fabricated.'],
     ['ptype', 'Precipitation type product', 'CMPRI overlay', 'Official NOAA CONUS WMS · advertised conus_pcpn_typ / radar_precip_type', 'Display the latest advertised precipitation-type analysis and actual official PNG legend on the same map. Classifications come from NOAA, never reflectivity colors.'],
     ['wmsLegend', 'Official observed-product legends', 'CMPRI image display', 'NOAA WMS GetLegendGraphic for each selected advertised style', 'Render the actual PNG legends returned by NOAA; missing legends stay unavailable. Units and categories are not invented.'],
-    ['satellite', 'Clouds · satellite', 'CMPRI overlay', 'NOAA nowCOAST GOES longwave WMS · goes_longwave_imagery / goes-lir', 'Draw observed day/night infrared cloud imagery below radar and the other overlays, with its own advertised scan time and official grayscale key. This is not a forecast cloud percentage.'],
-    ['lightning', 'Lightning density', 'CMPRI overlay', 'NOAA nowCOAST lightning-detection WMS · ldn_lightning_strike_density / lightning_density', 'Draw the observed 15-minute ground-network density analysis on its 8×8 km grid above radar, with its own time and official key. No individual strike pins, proximity claims or all-clear inference.'],
-    ['moreNoaaProducts', 'More NOAA products · expand / collapse', 'CMPRI overlay', 'None · local presentation of official product links', 'Expand or collapse optional velocity, precipitation-type, satellite and lightning choices. This disclosure does not request a feed or change the independent map layers.'],
+    ['cloudCover', 'Forecast cloud cover', 'CMPRI overlay', 'NWS NDFD WMS 1.1.1 · ndfd.conus.sky / empty source default style / advertised VTIT', 'Display the official regional opaque-cloud forecast percentage under radar and geographic references. Uses an exact advertised UTC forecast valid time, shown in Central time. No satellite imagery or invented color key is substituted.'],
+    ['moreNoaaProducts', 'More NOAA products · expand / collapse', 'CMPRI overlay', 'None · local presentation of official product links', 'Expand or collapse optional velocity and precipitation-type choices. This disclosure does not request a feed or change the independent map layers.'],
     ['pin', 'Fixed hotel pin', 'Embedded map component · CMPRI-authored', 'Marriott hotel View Map coordinates', 'Plot 40.138080, −88.251416 in the same projection as every selected layer; no GPS.'],
     ['pan', 'Pan · drag / touch / arrow keys', 'Embedded map component · CMPRI-authored', 'None · local presentation', 'Move the shared viewport; every visible layer and hotel pin moves together.'],
     ['zoomIn', 'Zoom in', 'Embedded map component · CMPRI-authored', 'None · local presentation', 'Increase shared map scale; plus key also works.'],
@@ -107,7 +100,7 @@
     ['playLoop', 'Play / pause', 'Embedded map component · CMPRI-authored', 'Exact NOAA catalog rasters', 'Play only while Weather is visible. Close, hidden tab, and pause stop its local timer. No prediction or future radar.'],
     ['frameRange', 'Scan seek slider', 'Embedded map component · CMPRI-authored', 'Actual NOAA catalog times', 'Pause and select one exact frame; live timestamps are never synthesized.'],
     ['showEchoes', 'Show selected observed product', 'Embedded map component · CMPRI-authored', 'Same official NOAA source as selected product', 'Hide/show reflectivity, velocity or precipitation-type rendering without silently switching products; other layers remain independent.'],
-    ['automaticRefresh', 'Automatic foreground map refresh', 'CMPRI embedded map', 'NOAA reflectivity WMS, WSSI layer 4 and selected velocity, precipitation-type, satellite and lightning WMS', 'Refresh published map products every five minutes while the Weather map is open and visible. Closing, switching tabs or hiding the document stops its timer and aborts requests. No database work or server scheduler.'],
+    ['automaticRefresh', 'Automatic foreground map refresh', 'CMPRI embedded map', 'NOAA reflectivity WMS, WSSI layer 4 and selected velocity, precipitation-type and NDFD cloud-cover WMS', 'Refresh published map products every five minutes while the Weather map is open and visible. Closing, switching tabs or hiding the document stops its timer and aborts requests. No database work or server scheduler.'],
     ['sourceLink', 'Official product link', 'CMPRI overlay', 'Selected official NOAA/NWS product page', 'Open the source page on explicit click. It does not load a third-party app into this map.']
   ];
   function formatTime(value) {
@@ -161,6 +154,15 @@
     return candidates.filter((time) => Number.isFinite(Date.parse(time)) && Date.parse(time) <= Date.now())
       .sort((a, b) => Date.parse(b) - Date.parse(a))[0] || null;
   }
+  function forecastValidTime(dimension) {
+    const candidates = String(dimension?.values || '').split(',').map((value) => value.trim())
+      .filter((value) => /^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value))
+      .map((sourceTime) => ({ sourceTime, time: sourceTime + 'Z', at: Date.parse(sourceTime + 'Z') }))
+      .filter((value) => Number.isFinite(value.at) && value.at >= Date.now() && value.at - Date.now() <= 3 * 3600000)
+      .sort((a, b) => a.at - b.at);
+    return candidates[0] || null;
+  }
+  function wmsLoadedStatus(name) { return WMS_PRODUCTS[name].forecast ? 'Forecast cloud-cover image loaded' : 'Observed WMS image loaded'; }
   function wmsFreshness(name) {
     const product = WMS_PRODUCTS[name], time = wmsLayers[name].state.displayedTime;
     const ageMinutes = time && Number.isFinite(Date.parse(time)) ? Math.max(0, (Date.now() - Date.parse(time)) / 60000) : null;
@@ -172,22 +174,23 @@
     if (!record || !state.opened || !state.active || document.hidden || !state.enabled[name] || !record.metadata) return;
     const geo = geometry(); if (!geo.width || !geo.height) return;
     const key = wmsKey(name, geo);
-    if (record.raster?.key === key) { if (!record.state.status.startsWith('Unavailable')) record.state.status = 'Observed WMS image loaded'; return true; }
+    if (record.raster?.key === key) { if (!record.state.status.startsWith('Unavailable')) record.state.status = wmsLoadedStatus(name); return true; }
     if (record.loading) { record.queued = true; return false; }
     record.loading = true;
     const ticket = generation, selection = record.selection, time = record.state.time, extent = viewport(geo);
     const width = Math.max(1, Math.min(1500, Math.round(geo.width))), height = Math.max(1, Math.min(1500, Math.round(geo.height)));
-    record.state.status = 'Loading observed WMS image'; updateUI();
+    record.state.status = product.forecast ? 'Loading NDFD forecast cloud-cover image' : 'Loading observed WMS image'; updateUI();
     try {
       const image = await wmsRequest({ product: product.product, op: 'map', layer: record.state.layer, style: record.state.style,
-        time, bbox: [extent.xmin, extent.ymin, extent.xmax, extent.ymax].join(','), width: String(width), height: String(height) }, true, ticket, record);
+        time: record.state.sourceTime || time, bbox: [extent.xmin, extent.ymin, extent.xmax, extent.ymax].join(','), width: String(width), height: String(height) }, true, ticket, record);
       const bitmap = await createImageBitmap(image.blob);
       if (ticket !== generation || selection !== record.selection || !state.opened || !state.active || !state.enabled[name] || key !== wmsKey(name, geometry())) { bitmap.close?.(); return false; }
       if (bitmap.width !== width || bitmap.height !== height) { bitmap.close?.(); throw new Error('Official WMS image dimensions do not match the georeferenced request'); }
-      if (image.time && Date.parse(image.time) !== Date.parse(time)) { bitmap.close?.(); throw new Error('Official WMS image time did not match the requested observation'); }
+      const imageTime = image.time && product.forecast ? image.time + (/Z$/.test(image.time) ? '' : 'Z') : image.time;
+      if (imageTime && Date.parse(imageTime) !== Date.parse(time)) { bitmap.close?.(); throw new Error('Official WMS image time did not match the requested source time'); }
       record.raster?.bitmap.close?.(); record.raster = { key, bitmap, extent, time, product: product.product };
       record.state.displayedTime = time; record.state.mapSource = image.source || record.state.source;
-      record.state.status = 'Observed WMS image loaded'; mark(name, 'Actual independent NOAA WMS layer rendered at its advertised time');
+      record.state.status = wmsLoadedStatus(name); mark(name, 'Actual independent NOAA WMS layer rendered at its advertised time');
       updateUI(); queueDraw(); return true;
     } catch (error) {
       if (ticket !== generation || selection !== record.selection) return false;
@@ -202,11 +205,13 @@
   }
   async function loadWmsLegend(name, selection, ticket) {
     const record = wmsLayers[name], product = WMS_PRODUCTS[name];
-    if (!record.metadata || record.legendLoading) return;
+    if (!record.metadata || !record.metadata.metadata.legendSupported || record.legendLoading) return;
     record.legendLoading = true; record.state.legendStatus = 'Loading official PNG legend';
     try {
       const image = await wmsRequest({ product: product.product, op: 'legend', layer: record.state.layer, style: record.state.style }, true, ticket, record);
-      const bitmap = await createImageBitmap(image.blob); bitmap.close?.();
+      const bitmap = await createImageBitmap(image.blob);
+      const dimensionsMatch = bitmap.width === 500 && bitmap.height === 30; bitmap.close?.();
+      if (!dimensionsMatch) throw new Error('Official legend layout changed; compact source key unavailable');
       if (selection !== record.selection || ticket !== generation || !state.opened || !state.active) return;
       if (record.legendUrl) URL.revokeObjectURL(record.legendUrl);
       record.legendUrl = URL.createObjectURL(image.blob); record.state.legendSource = image.source || record.state.source;
@@ -229,12 +234,16 @@
       const metadata = await wmsRequest({ product: product.product, op: 'capabilities' }, false, ticket, record);
       if (ticket !== generation || selection !== record.selection || !state.opened || !state.active || !state.enabled[name]) return;
       const layer = metadata.layers?.find((candidate) => candidate.name === product.layer);
-      const style = layer?.styles?.find((candidate) => candidate.name === product.style);
+      const style = product.forecast && metadata.version === '1.1.1' ? { name: '', title: 'Official source default style' }
+        : layer?.styles?.find((candidate) => candidate.name === product.style);
       if (!layer || !style || !metadata.mapFormats?.some((format) => format.toLowerCase() === 'image/png')
         || !layer.crs?.some((crs) => crs.toUpperCase() === 'EPSG:3857')) throw new Error('Required official layer, style, PNG or EPSG:3857 was not advertised');
-      const time = latestAdvertisedTime(layer.time); if (!time) throw new Error('No concrete past observation time was advertised');
+      const valid = product.forecast ? forecastValidTime(Object.entries(layer.dimensions || {}).find(([name]) => name.toLowerCase() === 'vtit')?.[1]) : null;
+      const time = product.forecast ? valid?.time : latestAdvertisedTime(layer.time);
+      if (!time) throw new Error(product.forecast ? 'No current or next NDFD forecast valid time was advertised' : 'No concrete past observation time was advertised');
       record.metadata = { layer, style, metadata }; record.metadataLoading = false;
-      Object.assign(record.state, { layer: layer.name, style: style.name, time, source: metadata.source || productInfo[name][2] });
+      Object.assign(record.state, { layer: layer.name, style: style.name, time, sourceTime: valid?.sourceTime || null, source: metadata.source || productInfo[name][2] });
+      if (product.forecast && !metadata.legendSupported) record.state.legendStatus = 'Source does not advertise an official PNG color key';
       await Promise.allSettled([loadWmsView(name), metadata.legendSupported && !record.legendUrl ? loadWmsLegend(name, selection, ticket) : Promise.resolve()]);
     } catch (error) {
       if (ticket === generation && selection === record.selection) { record.state.status = 'Unavailable · ' + error.message; mark(name, record.state.status); updateUI(); }
@@ -717,7 +726,7 @@
     }
     // These independent observations share the same geographic viewport. Their
     // times remain distinct; velocity is never presented as hotel surface wind.
-    ['ptype', 'velocity', 'lightning'].forEach((name) => drawWms(name, geo));
+    ['ptype', 'velocity'].forEach((name) => drawWms(name, geo));
     if (changed) updateUI();
   }
   function drawPin(geo) {
@@ -745,7 +754,7 @@
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.fillStyle = '#141d20'; context.fillRect(0, 0, geo.width, geo.height);
     window.cmpriGroundMap?.draw(context, geo, state.backgroundStyle);
-    drawWms('satellite', geo);
+    drawWms('cloudCover', geo);
     drawImpacts(geo); drawRadar(geo);
     window.cmpriGroundMap?.drawReferences?.(context, geo);
     drawAlerts(geo); drawPin(geo);
@@ -763,8 +772,8 @@
       else if (state.radarStatus.startsWith('Unavailable')) times.push('Observed reflectivity unavailable');
     }
     Object.keys(wmsLayers).forEach((name) => {
-      if (state.enabled[name] && wmsLayers[name].state.displayedTime) times.push(WMS_PRODUCTS[name].title + ': ' + formatTime(wmsLayers[name].state.displayedTime)
-        + (wmsFreshness(name).stale ? ' (old observation)' : ''));
+      if (state.enabled[name] && wmsLayers[name].state.displayedTime) times.push(WMS_PRODUCTS[name].title + (WMS_PRODUCTS[name].forecast ? ' valid: ' : ': ') + formatTime(wmsLayers[name].state.displayedTime)
+        + (wmsFreshness(name).stale ? (WMS_PRODUCTS[name].forecast ? ' (expired forecast)' : ' (old observation)') : ''));
     });
     return times.join(' · ');
   }
@@ -777,19 +786,47 @@
     const host = $('mapLegend'); if (!host) return;
     const fragment = document.createDocumentFragment();
     Object.entries(wmsLayers).forEach(([name, record]) => {
-      if (!state.enabled[name] || !record.legendUrl) return;
+      if (!state.enabled[name]) return;
+      if (WMS_PRODUCTS[name].forecast) {
+        const row = document.createElement('div'); row.className = 'cmpri-map-legend-row'; row.dataset.legend = name;
+        row.title = 'NWS forecast opaque-cloud percentage. An official PNG color key is not advertised; no unverified colors are shown in this key.';
+        row.setAttribute('aria-label', row.title);
+        const heading = document.createElement('strong'); heading.textContent = 'Forecast cloud cover · %'; row.append(heading);
+        if (record.state.displayedTime) { const valid = document.createElement('span'); valid.className = 'cmpri-map-legend-note';
+          valid.textContent = 'Valid ' + formatTime(record.state.displayedTime); row.append(valid); }
+        fragment.append(row); return;
+      }
+      if (!record.legendUrl) return;
       const row = document.createElement('div'); row.className = 'cmpri-map-legend-row cmpri-wms-legend';
       row.dataset.legend = name;
       const heading = document.createElement('strong'); heading.textContent = WMS_PRODUCTS[name].title;
       const image = document.createElement('img'); image.id = 'mapWmsLegend-' + name; image.src = record.legendUrl;
       image.alt = 'Official NOAA legend for ' + record.state.layer + ', advertised style ' + record.state.style;
-      const source = document.createElement('div'); source.className = 'cmpri-map-source-legend';
-      source.tabIndex = 0; source.setAttribute('aria-label', 'Official NOAA legend; scroll to view the complete source key'); source.append(image);
-      row.append(heading, source);
-      if (WMS_PRODUCTS[name].note) {
-        const note = document.createElement('span'); note.className = 'cmpri-map-legend-note';
-        note.textContent = WMS_PRODUCTS[name].note; row.append(note);
+      const scale = document.createElement('div'); scale.className = 'cmpri-reflectivity-scale cmpri-source-scale';
+      const ramp = document.createElement('div'); ramp.className = 'cmpri-reflectivity-ramp'; ramp.append(image);
+      const ticks = document.createElement('div'); ticks.className = 'cmpri-reflectivity-ticks';
+      // Both verified NOAA legends are 500×30, with the unchanged source color
+      // band in rows 0–9. Reflow source labels at readable size in the same key.
+      if (name === 'velocity') {
+        heading.textContent = 'Local velocity · KILX · knots';
+        ticks.classList.add('cmpri-velocity-ticks'); ticks.setAttribute('aria-label', 'Radial velocity in knots; RF is the source range-folded code');
+        [['RF', 12], ['−100', 34], ['−80', 80], ['−60', 123], ['−45', 167], ['−20', 211],
+          ['+0', 272], ['20', 316], ['45', 359], ['60', 402], ['80', 445], ['100', 488]].forEach(([value, x], index) => {
+          const tick = document.createElement('span'); tick.textContent = value; tick.style.left = (x / 5) + '%';
+          tick.style.top = index % 2 === 0 ? '12px' : '0'; ticks.append(tick);
+        });
+      } else {
+        heading.textContent = 'Precipitation type · NOAA codes';
+        ticks.classList.add('cmpri-source-code-ticks'); ticks.setAttribute('aria-label', 'Category codes printed in the official NOAA key');
+        // Preserve the actual printed source glyphs. No category expansion is
+        // inferred from colors or ambiguous abbreviations in this source PNG.
+        [35.5, 107, 178.5, 250, 321.5, 393, 464.5].forEach((x) => {
+          const tick = document.createElement('span'); tick.className = 'cmpri-source-code-tick';
+          tick.style.left = (x / 5) + '%'; tick.style.backgroundImage = 'url("' + record.legendUrl + '")';
+          tick.style.backgroundPosition = (13 - x * 1.5) + 'px -21px'; ticks.append(tick);
+        });
       }
+      scale.append(ramp, ticks); row.append(heading, scale);
       fragment.append(row);
     });
     if (state.showRadar) {
@@ -882,7 +919,7 @@
     Object.keys(wmsLayers).filter((name) => state.enabled[name]).forEach((name) => {
       const record = wmsLayers[name], freshness = wmsFreshness(name), title = WMS_PRODUCTS[name].title;
       if (record.state.status.startsWith('Unavailable')) unavailable.push(title + ' unavailable.' + (record.raster ? ' Last loaded image retained.' : ''));
-      if (freshness.stale) unavailable.push(title + ' observation is old (' + Math.floor(freshness.ageMinutes) + ' min).');
+      if (freshness.stale) unavailable.push(title + (WMS_PRODUCTS[name].forecast ? ' forecast is expired (' : ' observation is old (') + Math.floor(freshness.ageMinutes) + ' min).');
       if (WMS_PRODUCTS[name].note && record.state.legendStatus.startsWith('Unavailable')) unavailable.push(title + ' key unavailable.');
     });
     if (state.showRadar && state.radarStatus.startsWith('Unavailable')) unavailable.push('Observed reflectivity unavailable.');
@@ -990,7 +1027,7 @@
   function renderControls() {
     const host = $('mapControlHost'); if (!host) return;
     const opacity = $('mapOpacity')?.closest('.opacity');
-    host.innerHTML = `<div class="cmpri-map-menu-bar"><div class="cmpri-map-layer-buttons" role="group" aria-label="Independent weather map layers"><button id="mapLayerRadar" data-map-layer="reflectivity" aria-pressed="true">Reflectivity</button><button id="mapLayerVelocity" data-map-layer="velocity" aria-pressed="false">Velocity</button><button id="mapLayerPtype" data-map-layer="ptype" aria-pressed="false">Precipitation type</button><button id="mapLayerRoads" data-map-layer="roads" aria-pressed="false">Reported winter roads · unavailable</button><button id="mapLayerImpacts" data-map-layer="impacts" aria-pressed="false">Forecast winter impacts</button><button id="mapLayerAlerts" data-map-layer="alerts" aria-pressed="true">Official alerts</button><button id="mapLayerSatellite" data-map-layer="satellite" aria-pressed="false">Clouds · satellite</button><button id="mapLayerLightning" data-map-layer="lightning" aria-pressed="false">Lightning density</button></div></div><div class="cmpri-map-playback-options"><label class="cmpri-map-slider" for="playbackSpeed"><span>Playback speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span><input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal"></label><label class="cmpri-map-slider" for="loopLength"><span>Observation loop <output id="loopLengthValue" for="loopLength">90 min</output></span><input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes"></label></div><p id="mapGroundStatus" class="cmpri-map-status-copy" role="status"></p><p id="mapFeedStatus" class="cmpri-map-status-copy" role="status"></p>`;
+    host.innerHTML = `<div class="cmpri-map-menu-bar"><div class="cmpri-map-layer-buttons" role="group" aria-label="Independent weather map layers"><button id="mapLayerRadar" data-map-layer="reflectivity" aria-pressed="true">Reflectivity</button><button id="mapLayerVelocity" data-map-layer="velocity" aria-pressed="false">Velocity</button><button id="mapLayerPtype" data-map-layer="ptype" aria-pressed="false">Precipitation type</button><button id="mapLayerRoads" data-map-layer="roads" aria-pressed="false">Reported winter roads · unavailable</button><button id="mapLayerImpacts" data-map-layer="impacts" aria-pressed="false">Forecast winter impacts</button><button id="mapLayerAlerts" data-map-layer="alerts" aria-pressed="true">Official alerts</button><button id="mapLayerCloudCover" data-map-layer="cloudCover" aria-pressed="false">Forecast cloud cover</button></div></div><div class="cmpri-map-playback-options"><label class="cmpri-map-slider" for="playbackSpeed"><span>Playback speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span><input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal"></label><label class="cmpri-map-slider" for="loopLength"><span>Observation loop <output id="loopLengthValue" for="loopLength">90 min</output></span><input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes"></label></div><p id="mapGroundStatus" class="cmpri-map-status-copy" role="status"></p><p id="mapFeedStatus" class="cmpri-map-status-copy" role="status"></p>`;
     const sliders = host.querySelector('.cmpri-map-playback-options');
     if (opacity) {
       const label = document.createElement('span');
@@ -1045,6 +1082,9 @@
     canvas = $('radarCanvas'); shell = $('mapShell');
     if (!canvas || !shell) return window.cmpriWeatherMap;
     state.initialized = true; renderControls(); renderReport();
+    Object.entries({ zoomIn: 'Zoom In', zoomOut: 'Zoom Out', recenter: 'Recenter On Hotel', fullscreen: 'Fullscreen' }).forEach(([id, label]) => {
+      if ($(id)) $(id).title = window.cmpriWeatherTooltips?.titleCase(label) || label;
+    });
     window.cmpriGroundMap?.init({ referenceEnabled: GEOGRAPHIC_REFERENCE_ENABLED, onChange: () => { updateGroundStatus(); queueDraw(); emit(); } });
     const on = (id, event, handler) => { if ($(id)) $(id).addEventListener(event, handler); };
     on('moreNoaaProducts', 'toggle', () => mark('moreNoaaProducts', 'Exercised · optional NOAA product choices ' + ($('moreNoaaProducts').open ? 'expanded' : 'collapsed') + '; no feed request'));
@@ -1160,7 +1200,7 @@
     canvas?.classList.remove('dragging'); closeAlertDetails();
     if (viewportTimer !== null) { clearTimeout(viewportTimer); viewportTimer = null; }
     if (images.size && !state.radarStatus.startsWith('Unavailable')) state.radarStatus = 'Observed image loaded';
-    Object.values(wmsLayers).forEach((record) => { if (record.raster && !record.state.status.startsWith('Unavailable')) record.state.status = 'Observed WMS image loaded'; });
+    Object.entries(wmsLayers).forEach(([name, record]) => { if (record.raster && !record.state.status.startsWith('Unavailable')) record.state.status = wmsLoadedStatus(name); });
     if (raf !== null) { cancelAnimationFrame(raf); raf = null; }
     emit(); return getState();
   }

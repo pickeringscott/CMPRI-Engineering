@@ -14,9 +14,10 @@ async def main():
     nonlocal row,lose
     if route.request.method=='POST':
      body=route.request.post_data_json;writes.append(body)
+     if body.get('chemical_uses') and all(use['id'] in keys for use in body['chemical_uses']):return await route.fulfill(json={'log':row,'unchanged':True,'closure_required':False})
      for use in body.get('chemical_uses',[]):
       if use['id'] not in keys:keys.add(use['id']);item['quantity_on_hand']-=1
-     row={**row,**body,'revision':row['revision']+1}
+     row={**row,**body,'revision':row['revision']+1,'updated_by':UID,'chemical_uses':[{**use,'actor':UID} for use in body.get('chemical_uses',[])]}
      if lose:lose=False;return await route.abort('failed')
      return await route.fulfill(json={'log':row,'closure_required':False})
     await route.fulfill(json={'facility':facility,'facilities':[facility],'log':row,'can_edit':True,'can_edit_saved':True,'daily_entries':[]})
@@ -37,14 +38,16 @@ async def main():
    await page.get_by_label('Pool chemical quantity used',exact=True).fill('16')
    await page.get_by_label('Pool chemical usage unit',exact=True).select_option('OZ')
    await page.get_by_role('button',name='Add chemical use',exact=True).click()
-   await expect(remarks).to_have_value('Routine check\nChemical used: 16 OZ Bromine.')
+   await expect(remarks).to_have_value('Chemical used: 16 OZ Bromine.')
    assert item['quantity_on_hand']==10 and not writes,'Staging must not consume inventory'
    await page.get_by_role('button',name="Save Pool Log",exact=True).click()
    retry=page.get_by_role('button',name='Retry Save Pool Log',exact=True)
    await expect(retry).to_be_visible()
    await expect(remarks).to_be_disabled();await expect(page.get_by_label('Pool chemical supply',exact=True)).to_be_disabled()
    await retry.click()
-   await expect(page.get_by_text('Pool log saved to the database.',exact=False)).to_be_visible()
+   await expect(page.get_by_text('No new readings to save; the pool log is unchanged.',exact=False)).to_be_visible()
+   await expect(remarks).to_have_value('')
+   assert row['remarks']=='Routine check\nChemical used: 16 OZ Bromine.'
    assert len(writes)==2 and writes[0]['chemical_uses']==writes[1]['chemical_uses'] and len(keys)==1 and item['quantity_on_hand']==9
    await expect(page.get_by_label('Pool chemical supply',exact=True).locator('option').last).to_contain_text('7 LB available')
    assert await page.evaluate('document.documentElement.scrollWidth<=innerWidth'),width

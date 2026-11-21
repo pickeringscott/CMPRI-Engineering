@@ -1,3 +1,4 @@
+import {uiLanguageDependency} from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -13,6 +14,7 @@ test('local PO OCR is presented as review-only and cannot import through its cal
  const exports = {}, requireModule = createRequire(import.meta.url);
  let imports = 0, propsSeen;
  vm.runInNewContext(code, {exports, require(name) {
+  if (name === '@/components/UiLanguageProvider') return uiLanguageDependency;
   if (name === 'react' || name === 'react/jsx-runtime') return requireModule(name);
   if (name === '@/lib/auth/client-session') return {authorizationHeaders: async () => ({})};
   if (name === '@/lib/import-response') return {readImportResponse: () => {throw Error('Rendering must not download review results');}};

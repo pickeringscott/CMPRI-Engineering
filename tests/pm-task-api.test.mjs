@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as rules from '../src/lib/pm/task-review.ts';
+import * as queue from '../src/lib/pm/task-queue.ts';
 function fixture({role='technician', rows=[], logs=[], conflict=false, canEdit=true}={}) {
  const writes=[];
  const template={id:'workbook:daily',kind:'routine',cadence:'daily',checklist:[{id:'fire',label:'Check Fire Panel'},{id:'pool',label:'Log Pool Readings'}]};
@@ -25,6 +26,7 @@ function fixture({role='technician', rows=[], logs=[], conflict=false, canEdit=t
   if(name.endsWith('/constants'))return {HOTEL_ID:'hotel'};
   if(name.endsWith('/catalog'))return {findPmTemplate:()=>template,validPmPeriod:()=>true};
   if(name.endsWith('/task-review'))return rules;
+  if(name.endsWith('/task-queue'))return queue;
   throw new Error(name);
  }});
  return {writes,run:(body={})=>exports.PATCH({json:async()=>({templateId:template.id,periodStart:'2026-11-02',itemId:'fire',expectedRevision:0,...body})})};
@@ -56,4 +58,38 @@ test('lost compare-and-swap reports conflict rather than success',async()=>{
 
 test('membership capability restrictions still deny technician mutation',async()=>{
  const f=fixture({canEdit:false});assert.equal((await f.run()).status,403);assert.equal(f.writes.length,0);
+});
+
+
+test('queued tasks for one period are committed by one mutation',async()=>{
+ const f=fixture({logs:[{ph_am:7.4,sanitizer_am:3,main_drain_visible:true,filter_backwashed:false}]});
+ const r=await f.run({changes:[{itemId:'fire',tapCount:1,expectedState:null},{itemId:'pool',tapCount:1,expectedState:null}]});
+ assert.equal(r.status,200);assert.equal(f.writes.length,1);assert.equal(f.writes[0].payload.responses.fire,true);assert.equal(f.writes[0].payload.responses.pool,true);
+});
+test('the batch rolls back every task when a required Pool Log is missing',async()=>{
+ const f=fixture();const r=await f.run({changes:[{itemId:'fire',tapCount:1,expectedState:null},{itemId:'pool',tapCount:1,expectedState:null}]});
+ assert.equal(r.status,409);assert.equal(f.writes.length,0);
+});
+test('compare-only baseline cannot overwrite a task changed under the same revision',async()=>{
+ const f=fixture({rows:[{status:'pending',revision:4,payload:{task_states:{fire:{status:'needs',workerChecked:true,workerId:'sam'}}}}]});
+ assert.equal((await f.run({expectedRevision:4,changes:[{itemId:'fire',tapCount:1,expectedState:null}]})).status,409);assert.equal(f.writes.length,0);
+});
+test('batch clients cannot set worker or review ownership and duplicate tasks are rejected',async()=>{
+ const f=fixture();const r=await f.run({changes:[{itemId:'fire',tapCount:1,expectedState:null,desiredState:{status:'approved',workerId:'injected',reviewedBy:'injected'}}]});
+ assert.equal(r.status,200);assert.equal(f.writes[0].payload.task_states.fire.workerId,'alex');assert.equal(f.writes[0].payload.task_states.fire.status,'needs');
+ const duplicate=fixture();assert.equal((await duplicate.run({changes:[{itemId:'fire',tapCount:1,expectedState:null},{itemId:'fire',tapCount:1,expectedState:null}]})).status,400);assert.equal(duplicate.writes.length,0);
+});
+test('bounded tap counts replay the existing chief approval cycle and preserve worker ownership',async()=>{
+ const base={status:'needs',workerChecked:true,workerId:'sam',workerName:'Sam'};
+ const f=fixture({role:'engineer',rows:[{status:'pending',revision:4,payload:{task_states:{fire:base}}}]});
+ assert.equal((await f.run({expectedRevision:4,changes:[{itemId:'fire',tapCount:2,expectedState:base}]})).status,200);
+ assert.equal(f.writes[0].payload.task_states.fire.status,'empty');assert.equal(f.writes[0].payload.task_states.fire.workerId,'sam');
+ const invalid=fixture();assert.equal((await invalid.run({changes:[{itemId:'fire',tapCount:4,expectedState:null}]})).status,400);assert.equal(invalid.writes.length,0);
+});
+
+
+test('a chief can review a legacy checked task after its original submitter was deleted',async()=>{
+ const f=fixture({role:'engineer',rows:[{id:'id',status:'pending',revision:4,submitted_by:null,submitted_by_name:null,payload:{responses:{fire:true}}}]});
+ const r=await f.run({expectedRevision:4,changes:[{itemId:'fire',tapCount:1,expectedState:{status:'needs',workerChecked:true,poolSubmitted:false}}]});
+ assert.equal(r.status,200);assert.equal(f.writes[0].payload.task_states.fire.status,'approved');assert.equal(f.writes[0].payload.task_states.fire.workerId,null);assert.equal(f.writes[0].payload.task_states.fire.reviewedBy,'Alex');
 });

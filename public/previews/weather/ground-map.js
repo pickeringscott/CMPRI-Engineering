@@ -216,23 +216,29 @@
       height: official ? size : 20, asset: route.type === 'interstate' ? 'interstate' : route.type === 'state' && route.illinois ? 'illinois' : null };
   }
   function paintShield(context, route, point, metrics) {
-    const left = point.x - metrics.width / 2, top = point.y - metrics.height / 2;
+    // Keep the original metrics for route selection and collision spacing.
+    // Smaller painted artwork must not change shield count or placement.
+    const height = metrics.asset ? (metrics.height === 26 ? 20 : 24) : 16;
+    const width = metrics.width * height / metrics.height;
+    const left = point.x - width / 2, top = point.y - height / 2;
     if (metrics.asset) {
       const image = shieldImages[metrics.asset]; if (!image) return false;
-      context.drawImage(image, left, top, metrics.width, metrics.height);
-      context.font = '700 ' + Math.round(metrics.height * .5) + 'px Arial, Helvetica, sans-serif';
+      context.drawImage(image, left, top, width, height);
+      context.font = '700 ' + Math.round(height * .5) + 'px Arial, Helvetica, sans-serif';
       context.fillStyle = metrics.asset === 'interstate' ? '#fff' : '#000';
-      context.fillText(route.number, point.x, top + metrics.height * (metrics.asset === 'interstate' ? .55 : 245 / 385), metrics.width * .7);
+      context.fillText(route.number, point.x, top + height * (metrics.asset === 'interstate' ? .55 : 245 / 385), width * .7);
     } else {
-      context.fillStyle = '#fff'; context.strokeStyle = '#19222a'; context.lineWidth = 1.5;
-      context.beginPath(); context.roundRect(left, top, metrics.width, metrics.height, 3); context.fill(); context.stroke();
-      context.font = '700 9px Arial, Helvetica, sans-serif'; context.fillStyle = '#16212a';
+      context.fillStyle = '#fff'; context.strokeStyle = '#19222a'; context.lineWidth = 1;
+      context.beginPath(); context.roundRect(left, top, width, height, 2); context.fill(); context.stroke();
+      context.font = '700 8px Arial, Helvetica, sans-serif'; context.fillStyle = '#16212a';
       context.fillText('US ' + route.number, point.x, point.y + .5);
     }
     return true;
   }
   function drawStateRouteLines(context, geo) {
     if (!routeFeatures) return;
+    const zoom = Math.log2(BASE_RESOLUTION / geo.resolution);
+    const innerWidth = Math.max(.55, Math.min(.85, .55 + (zoom - 9) * .05));
     context.save(); context.beginPath(); context.rect(0, 0, geo.width, geo.height); context.clip();
     context.lineJoin = 'round'; context.lineCap = 'round';
     routeFeatures.routes.filter((route) => route.type === 'state').forEach((route) => {
@@ -241,8 +247,8 @@
         const x = geo.width / 2 + (point[0] - geo.center.x) / geo.resolution, y = geo.height / 2 - (point[1] - geo.center.y) / geo.resolution;
         if (index) context.lineTo(x, y); else context.moveTo(x, y);
       }));
-      context.strokeStyle = '#1a2029'; context.lineWidth = 2.6; context.stroke();
-      context.strokeStyle = '#f4f0d8'; context.lineWidth = 1.1; context.stroke();
+      context.strokeStyle = '#1a2029'; context.lineWidth = innerWidth + .6; context.stroke();
+      context.strokeStyle = '#f4f0d8'; context.lineWidth = innerWidth; context.stroke();
     });
     context.restore();
   }
@@ -340,6 +346,9 @@
               : tile.dataset === 'routes' ? new URLSearchParams({ op: 'route-features', dataset: 'roads', bbox, z: String(tile.z) })
               : new URLSearchParams({ op: 'reference', dataset: tile.dataset, bbox, width: String(tile.width), height: String(tile.height) })
             : new URLSearchParams({ dataset: tile.dataset, z: String(tile.z), x: String(tile.x), y: String(tile.y) });
+          // Road PNGs are browser-cacheable. Separate the revised fixed renderer
+          // from an older thick export already cached at the same viewport URL.
+          if (tile.kind === 'reference' && tile.dataset === 'roads') query.set('renderVersion', 'thin-roads-1');
           const response = await fetch('/api/weather-preview/basemap?' + query, {
             method: 'GET', signal: controller.signal, credentials: 'same-origin', cache: 'default'
           });
@@ -390,13 +399,23 @@
       && job.viewportKey === referenceTarget?.key && cachedReferenceKey(job.dataset) !== job.viewportKey);
     queue = referenceQueue.concat(state.visible.filter((tile) => !cache.has(tile.key) && !failures.has(tile.key) && !inflight.has(tile.key)));
   }
+  function referenceGeometry(geo) {
+    const scale = Math.min(1, 1500 / Math.max(geo.width, geo.height));
+    const width = Math.max(1, Math.min(1500, Math.round(geo.width * scale)));
+    const height = Math.max(1, Math.min(1500, Math.round(geo.height * scale)));
+    // ArcGIS expands a bbox whose aspect differs from the output image. Fit it
+    // here, outward only, so the saved extent describes the actual drawn pixels.
+    const resolution = Math.max(geo.width * geo.resolution / width, geo.height * geo.resolution / height);
+    const halfWidth = width * resolution / 2, halfHeight = height * resolution / 2;
+    return { width, height, extent: { xmin: geo.center.x - halfWidth, ymin: geo.center.y - halfHeight,
+      xmax: geo.center.x + halfWidth, ymax: geo.center.y + halfHeight } };
+  }
   function prepareReferences(geo) {
     if (!state.referenceEnabled || state.style !== 'aerial') return;
-    const width = Math.max(1, Math.min(1500, Math.round(geo.width))), height = Math.max(1, Math.min(1500, Math.round(geo.height)));
+    const fitted = referenceGeometry(geo);
     const key = [geo.center.x.toFixed(3), geo.center.y.toFixed(3), geo.resolution.toFixed(6), geo.width.toFixed(2), geo.height.toFixed(2)].join('|');
     if (referenceTarget?.key === key) return;
-    const halfWidth = geo.width * geo.resolution / 2, halfHeight = geo.height * geo.resolution / 2;
-    const target = { key, width, height, z: state.tileZoom ?? Math.max(0, Math.min(16, Math.round(Math.log2(BASE_RESOLUTION / geo.resolution)))), extent: { xmin: geo.center.x - halfWidth, ymin: geo.center.y - halfHeight, xmax: geo.center.x + halfWidth, ymax: geo.center.y + halfHeight } };
+    const target = { key, ...fitted, z: state.tileZoom ?? Math.max(0, Math.min(16, Math.round(Math.log2(BASE_RESOLUTION / geo.resolution)))) };
     referenceTarget = target; referenceQueue = []; queue = queue.filter((job) => job.kind !== 'reference');
     inflight.forEach((record) => { if (record.kind === 'reference') record.controller.abort(); });
     if (referenceTimer !== null) clearTimeout(referenceTimer);
@@ -521,7 +540,7 @@
     for (const dataset of ['roads']) {
       const image = referenceImages.get(dataset); if (!image) continue;
       const extent = image.extent;
-      context.save(); context.filter = 'drop-shadow(0px 0px .65px white)'; context.imageSmoothingEnabled = true;
+      context.save(); context.filter = 'none'; context.imageSmoothingEnabled = true;
       context.drawImage(image.bitmap, geo.width / 2 + (extent.xmin - geo.center.x) / geo.resolution,
         geo.height / 2 - (extent.ymax - geo.center.y) / geo.resolution,
         (extent.xmax - extent.xmin) / geo.resolution, (extent.ymax - extent.ymin) / geo.resolution);

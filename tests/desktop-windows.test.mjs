@@ -161,12 +161,14 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   const workOrderDetail = readFileSync(new URL('../src/app/work-orders/[id]/page.tsx', import.meta.url), 'utf8');
   const modalHost = readFileSync(new URL('../src/components/GlobalModalHost.tsx', import.meta.url), 'utf8');
   const styles = readFileSync(new URL('../src/app/globals.css', import.meta.url), 'utf8');
+  const headerStyles = readFileSync(new URL('../src/app/anchored-dashboard-menu.css', import.meta.url), 'utf8');
   assert.doesNotMatch(windowFrame, /minimi[sz]e|maximi[sz]e/i);
   assert.match(windowFrame, /data-cmpri-window-close="true"/);
   assert.equal((windowFrame.match(/<button\b/g) || []).length, 1, 'close is the only window control');
-  assert.match(dashboard, /cmpri-desktop-topbar relative z-\[200\]/);
-  assert.match(dashboard, /<ApprovedDashboardMenus groups=\{visibleLauncherGroups\}/);
-  assert.match(dashboard, /title=\{launcher\.label\}/);
+  assert.match(dashboard, /cmpri-desktop-topbar cmpri-dashboard-titlebar relative/);
+  assert.match(headerStyles, /header\.cmpri-dashboard-titlebar[^{]*\{[^}]*z-index:\s*201/);
+  assert.match(dashboard, /<ApprovedDashboardMenus anchored[^>]*groups=\{visibleLauncherGroups\}/);
+  assert.match(dashboard, /title=\{tt\(launcher\.label\)\}/);
   assert.match(dashboard, /shrink-0 whitespace-nowrap rounded border px-[12] py-0\.5/);
   assert.match(dashboard, /const zIndex = 10 \+ Math\.max\(0, zOrder\.indexOf\(entry\.key\)\)/);
   assert.match(dashboard, /raise\(entry\.key, true\)/);
@@ -179,13 +181,13 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(filters, /Pending/);
   assert.match(filters, /compactLabel/);
   assert.match(filters, /ResizeObserver/);
-  assert.match(filters, /aria-label=\{\`\$\{card\.label\}:/);
+  assert.match(filters, /aria-label=\{t\("\{value0\}: \{value1\}", \{ value0: String\(t\(card\.label\)\)/);
   assert.match(listWindow, /overflow-hidden bg-slate-950/);
   assert.match(workOrderDetail, /<WorkOrderAttachmentHistory items=\{workOrderImages\}/);
   assert.match(workOrderDetail, /<WorkOrderMediaComposer/);
   assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate\)/);
   assert.match(workOrderDetail, /listCheckoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
-  assert.match(workOrderDetail, /\{checkoutDisplay\.label\}/);
+  assert.match(workOrderDetail, /\{t\(checkoutDisplay\.label\)\}/);
   assert.match(workOrderDetail, /data-ticket-accordion="troubleshooting"[\s\S]*?Suggested Troubleshooting/);
   assert.doesNotMatch(workOrderDetail, /Closure Details/);
   assert.match(modalHost, /isWorkOrderDetail \? 94 : 66/);
@@ -196,7 +198,7 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
 test('approval modal removes only redundant controls and hides only an empty approval list', () => {
  const source=readFileSync(new URL('../src/components/desktop/WorkOrderApprovalsWindow.tsx',import.meta.url),'utf8');
  assert.doesNotMatch(source,/aria-label="Signed-in account"|Sound on|Sound off|No work orders are waiting/);
- assert.match(source,/awaitingApproval.length > 0 && <ul aria-label="Work orders awaiting approval"/);
+ assert.match(source,/awaitingApproval.length > 0 && <ul aria-label=\{t\("Work orders awaiting approval"\)\}/);
  assert.match(source,/<span className="font-bold text-slate-400">\{awaitingApproval.length\}/);
  assert.match(source,/onClick=\{onClearAll\}/);
  assert.match(source,/onClick=\{\(\) => onClear\(notification.id\)\}/);

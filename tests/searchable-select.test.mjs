@@ -38,6 +38,7 @@ function mount(value='', overrides={}) {
     for(const child of [node.props?.children].flat(Infinity))findAllRole(child,role,result);
     return result;}
   vm.runInNewContext(code, {exports, require:name=> {
+    if(name==='@/components/UiLanguageProvider') return {useUiLanguage:()=>({language:'en',locale:'en-US',t:value=>value,tt:value=>value})};
     if(name==='react') return hooks;
     if(name==='react/jsx-runtime') return {jsx,jsxs:jsx,Fragment:'fragment'};
     throw new Error(name);
@@ -113,4 +114,10 @@ test('typing the exact saved Front Desk label remains a search, not browse-all, 
  const c=mount('desk',{options});c.search('Front Desk');
  assert.equal(c.findAllRole('option').length,1);assert.deepEqual(c.calls,[]);
  c.key('Escape');assert.equal(c.input().value,'Front Desk');assert.deepEqual(c.calls,[]);
+});
+
+test('Spanish accented labels match an unaccented search and retain their canonical value',()=>{
+  const c=mount('',{options:[{value:'room-124',label:'Habitación 124'}]});
+  c.search('habitacion 124');c.key('Enter');
+  assert.deepEqual(c.calls,['room-124']);assert.equal(c.input().value,'Habitación 124');
 });

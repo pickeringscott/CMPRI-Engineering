@@ -89,3 +89,15 @@ network guard. Desktop images render inline; phones fetch only after Open image.
 Chromium touch input verifies pinch, pan, zoom/reset, and closing. Context/SHA
 changes discard stale images. APIs and records stay synthetic; no provider or
 production writes are used.
+
+Attachment draft storage acceptance
+----------------------------------
+`npm run test:attachment-draft-ui` is a browser acceptance suite. It requires
+Node Playwright 1.62.1 and Chromium (override CHROMIUM_PATH if needed), and
+checks real File/IndexedDB bytes across complete browser process restarts.
+It is separate from the dependency-only `npm test` CI suite, like the other
+browser commands above. All browser navigation is fulfilled locally.
+
+An optional isolated tool install, without changing the project lockfile:
+  npm install --prefix /tmp/cmpri-browser-tools --no-package-lock playwright@1.62.1
+  NODE_PATH=/tmp/cmpri-browser-tools/node_modules CHROMIUM_PATH=/usr/bin/chromium npm run test:attachment-draft-ui

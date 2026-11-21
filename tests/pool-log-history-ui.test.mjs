@@ -7,12 +7,13 @@ import { createRequire } from 'node:module';
 import { renderToStaticMarkup } from 'react-dom/server';
 import React from 'react';
 import * as pool from '../src/lib/pool-log.ts';
+import { makeUiTranslator } from '../src/lib/i18n/ui.ts';
 
 const require = createRequire(import.meta.url);
 const source = readFileSync('src/app/engineering/pool-log/PoolDailyHistory.tsx', 'utf8');
 const exports = {};
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText, {
-  exports, require: name => name === '@/lib/pool-log' ? pool : require(name),
+  exports, require: name => name === '@/lib/pool-log' ? pool : name === '@/components/UiLanguageProvider' ? { useUiLanguage: () => ({ t: makeUiTranslator('en'), locale: 'en-US' }) } : require(name),
 });
 
 test('daily history reports changes and preserves every distinct location reading, zeros and notes', () => {
@@ -47,10 +48,26 @@ test('the daily timeline renders one row per action and labels legacy current da
 
 test('the pool form has one accessible notes editor and a single top-row save button', () => {
   const page = readFileSync('src/app/engineering/pool-log/page.tsx', 'utf8');
-  assert.match(page, /aria-label="Date"/);
+  assert.match(page, /aria-label=\{t\("Date"\)\}/);
   assert.match(page, /form="pool-log-form"/);
   assert.equal((page.match(/form="pool-log-form"/g) || []).length, 1);
-  assert.equal((page.match(/aria-label="Notes \/ actions taken"/g) || []).length, 1);
+  assert.equal((page.match(/aria-label=\{t\("Notes \/ actions taken"\)\}/g) || []).length, 1);
   assert.doesNotMatch(page, />Reload<|Discard edits and reload|Remarks \/ actions taken/);
   assert.doesNotMatch(page, /Keep Closed for Another Reason/);
+});
+
+
+test('Spanish history translates controlled labels without changing readings, notes or closure reasons', () => {
+  const t = makeUiTranslator('es');
+  const previous = { remarks: 'Original note' };
+  const snapshot = { ph_am: 7.4, sanitizer_band_am: '0', sample_location_am: 'shared', main_drain_visible: false, remarks: 'Original note\nKeep this note as written', closure_reason: 'Staff reason stays verbatim' };
+  const text = exports.poolSnapshotDescription(snapshot, previous, text => t(text, { context: 'pool' }));
+  assert.match(text, /AM pH 7.4/);
+  assert.match(text, /AM bromo 0 ppm/);
+  assert.match(text, /muestra Muestra compartida/);
+  assert.match(text, /Drenaje principal visible: No/);
+  assert.match(text, /Notas: Keep this note as written/);
+  assert.match(text, /Cierre: Staff reason stays verbatim/);
+  assert.doesNotMatch(text, /Original note|bromine|Main drain visible/);
+  assert.equal(t('AM pH 8.0 is outside 7.2–7.8'), 'El pH AM, 8.0, está fuera del intervalo de 7.2–7.8');
 });

@@ -33,10 +33,7 @@
   const FLIGHT_SOURCE = '/api/willard-flights';
   const CACHE_MS = 60000;
   const flightData = { value: null, at: 0, day: null, pending: null, controller: null, generation: 0, requests: 0, consumers: new Set() };
-  const TRACKER_SOURCE = 'https://avioadsb.org/embed/map?lat=40.03&lon=-88.28&zoom=9&compact=1';
-  // compact=1 is the provider builder's own setting; its bottom banner remains.
-  // https://avioadsb.org/js/widget-builder.js?v=b7f82c07f3 (verified 2026-11-20).
-  const TRACKER_MARKUP = '<iframe src="https://avioadsb.org/embed/map?lat=40.03&amp;lon=-88.28&amp;zoom=9&amp;compact=1" width="100%" height="450" style="border:0;max-width:100%" title="Live flight tracker map by AvioADSB" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>';
+  const TRACKER_SOURCE = '/api/willard-tracker';
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -48,6 +45,16 @@
     const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago',
       year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()).map(part => [part.type, part.value]));
     return parts.year + '-' + parts.month + '-' + parts.day;
+  }
+  function boardFreshness(model, refreshing = false) {
+    if (!model) return { status: refreshing ? 'loading' : 'unavailable', reason: '' };
+    if (model.status !== 'live') return { status: model.status, reason: model.error || '' };
+    const retrieved = Date.parse(model.retrievedAt || ''), age = Date.now() - retrieved;
+    const reason = refreshing ? 'Refreshing the last retrieved flight board.'
+      : !Number.isFinite(retrieved) || age < -30000 ? 'The retrieval time cannot be verified.'
+        : model.providerDate !== centralDay() ? 'These rows belong to an earlier Central date.'
+          : age >= CACHE_MS ? 'These rows were retrieved more than one minute ago. Reopen the airport section to check again.' : '';
+    return { status: reason ? 'stale' : 'live', reason };
   }
   function sourceUrl(kind, value, allowWidget) {
     const fallback = 'https://www.avionio.com/en/airport/cmi/' + kind;
@@ -211,23 +218,22 @@
     details.append(content);
 
     let active = false, destroyed = false, timer = null, tracker = null, running = false;
-    let iframeNavigations = 0, iframeUnloads = 0, trackerStatus = 'not-requested';
-    let lastDocumentLoadedAt = null, models = { arrivals: null, departures: null };
+    let models = { arrivals: null, departures: null };
     const canRun = () => !destroyed && active && details.open && details.isConnected && !document.hidden;
 
     function renderFlights(snapshot, refreshing) {
       if (!canRun()) return;
       for (const kind of ['arrivals', 'departures']) {
         const view = views[kind], model = snapshot && snapshot[kind];
-        const stale = model && (model.status === 'stale' || (refreshing && Array.isArray(model.flights)));
-        const status = stale ? 'stale' : model?.status || (refreshing ? 'loading' : 'unavailable');
+        const freshness = boardFreshness(model, refreshing);
+        const status = freshness.status;
         models[kind] = model ? { ...model, status } : { status, flights: null };
         view.section.dataset.availability = status;
         view.status.textContent = status === 'loading' ? 'Loading flight data…'
           : status === 'stale' ? 'Last known · unverified'
           : status === 'live' ? publishedDate(model.providerDate) + (publishedDate(model.providerDate) ? ' · ' : '') + 'Central time'
           : 'Flight data unavailable';
-        view.status.title = model?.error || '';
+        view.status.title = freshness.reason || model?.error || '';
         view.body.replaceChildren();
         if (model && Array.isArray(model.flights) && model.flights.length) {
           for (const flight of model.flights) {
@@ -260,6 +266,7 @@
       london.dataset.availability = statuses.every(status => status === 'live') ? 'live'
         : statuses.includes('stale') ? 'stale' : statuses.includes('live') ? 'partial'
         : statuses.includes('loading') ? 'loading' : 'unavailable';
+      if (timer !== null && canRun()) scheduleDisplay();
     }
     renderFlights(null, false);
     function updateClock() {
@@ -267,6 +274,10 @@
       clock.dateTime = now.toISOString();
       clock.textContent = clockFormat.format(now);
       clock.setAttribute('aria-label', 'Current Central time: ' + clock.textContent);
+      if (flightData.value && ['arrivals', 'departures'].some(kind =>
+        models[kind]?.status === 'live' && boardFreshness(flightData.value[kind]).status === 'stale')) {
+        renderFlights(flightData.value, false);
+      }
     }
     function stopClock() {
       if (timer !== null) { clearTimeout(timer); timer = null; }
@@ -275,37 +286,23 @@
       updateClock();
       if (timer !== null || !canRun()) return;
       // Display-only clock: no network request, flight check or notification.
-      timer = setTimeout(() => { timer = null; if (canRun()) startClock(); }, 60000 - Date.now() % 60000 + 25);
+      scheduleDisplay();
+    }
+    function scheduleDisplay() {
+      stopClock();
+      const deadlines = Object.values(flightData.value || {}).filter(model => boardFreshness(model).status === 'live')
+        .map(model => Date.parse(model.retrievedAt) + CACHE_MS - Date.now());
+      const delay = Math.max(25, Math.min(60000 - Date.now() % 60000 + 25, ...deadlines));
+      timer = setTimeout(() => { timer = null; if (canRun()) startClock(); }, delay);
     }
     function mountTracker() {
-      if (tracker || !canRun()) return;
-      const template = document.createElement('template');
-      template.innerHTML = TRACKER_MARKUP;
-      const frame = template.content.firstElementChild;
-      const record = { frame, load: null, error: null };
-      record.load = () => {
-        if (tracker !== record || !canRun()) return;
-        trackerStatus = 'document-loaded';
-        // A cross-origin load event does not verify live aircraft coverage.
-        lastDocumentLoadedAt = new Date().toISOString();
-      };
-      record.error = () => { if (tracker === record && canRun()) trackerStatus = 'unavailable'; };
-      frame.addEventListener('load', record.load);
-      frame.addEventListener('error', record.error);
-      tracker = record;
-      trackerStatus = 'loading';
-      iframeNavigations += 1;
-      trackerHost.append(frame);
+      if (!canRun()) return;
+      if (!tracker) tracker = window.cmpriWillardTracker?.create(trackerHost, { clockMode: use24HourTime ? '24' : '12' });
+      if (tracker) tracker.setActive(true);
+      else trackerHost.textContent = 'Flight Map Unavailable';
     }
     function unmountTracker() {
-      if (!tracker) return;
-      const record = tracker;
-      tracker = null;
-      record.frame.removeEventListener('load', record.load);
-      record.frame.removeEventListener('error', record.error);
-      record.frame.remove();
-      iframeUnloads += 1;
-      trackerStatus = 'inactive';
+      tracker?.setActive(false);
     }
     function sync() {
       if (canRun()) {
@@ -329,19 +326,21 @@
     const api = Object.freeze({
       setActive(value) { active = value === true; sync(); },
       getState() {
+        const trackerState = tracker?.getState() || null;
         return {
           active, expanded: details.open, visible: canRun(), destroyed,
           style: 'london', airport: 'KCMI', iata: 'CMI', timeZone: 'America/Chicago',
           timeFormat: use24HourTime ? '24-hour' : '12-hour', boardStatus: london.dataset.availability,
           arrivals: models.arrivals, departures: models.departures,
-          trackerSource: TRACKER_SOURCE, trackerStatus, iframeMounted: Boolean(tracker),
-          iframeNavigations, iframeUnloads, lastDocumentLoadedAt, aircraftCoverageVerified: false,
+          trackerSource: TRACKER_SOURCE, trackerStatus: trackerState?.status || 'not-requested',
+          trackerState, trackerMounted: Boolean(tracker), trackerActive: trackerState?.active || false,
           clockRunning: timer !== null, flightRequests: flightData.requests,
           flightPending: running && flightData.pending !== null, backgroundPolling: false, notifications: 0
         };
       },
       destroy() {
         active = false; destroyed = true; sync();
+        tracker?.destroy(); tracker = null;
         observer.disconnect();
         details.removeEventListener('toggle', sync);
         document.removeEventListener('visibilitychange', sync);

@@ -27,7 +27,7 @@ async def main():
       data=r.request.post_data_json;writes.append(data)
       sample=data.get('retest')
       latest={'period':'retest' if sample else 'pm','ph':sample['ph'] if sample else data['ph_pm'],'sanitizer':None,'sanitizer_band':sample['sanitizer_band'] if sample else data['sanitizer_band_pm'],'sample_location':'shared'}
-      row={**row,**data,'revision':row['revision']+1,'sample_location_pm':'shared','latest_test':latest,'closure_condition':hold is not False}
+      row={**row,**data,'revision':row['revision']+1,'updated_by':'fixture','sample_location_am':'shallow','sample_location_pm':'shared','latest_test':latest,'closure_condition':hold is not False}
       if sample:
        row['retest_submission']=sample;retests.append({**sample,'recorded_at':'2026-10-12T20:00:00Z','revision':row['revision']})
       body={'log':row,'closure_required':row['closure_condition'],'closure_reasons':[],'warnings':[]}
@@ -36,6 +36,7 @@ async def main():
       {'id':'close','kind':'close','recorded_at':'2026-10-12T15:05:00Z','actor_name':'Alex','reason':'Cleaning'},
       {'id':'open','kind':'open','recorded_at':'2026-10-12T15:15:00Z','actor_name':'Jordan'}]
       + [{'id':str(test['id']),'kind':'reading','recorded_at':test['recorded_at'],'actor_name':'Test','snapshot':{'retest_submission':test},'previous_snapshot':{}} for test in retests]}
+    elif u.path=='/api/session':body={'user':{'id':'fixture','role':'chief_engineer'},'hotelId':'00000000-0000-4000-8000-000000000002','landing':'/engineering','capabilities':['view_pool_log','operate_pool_log']}
     elif u.path=='/api/profile':body={'preferences':{'appearance':'dark','language':'en'}}
     await r.fulfill(content_type='application/json',body=json.dumps(body))
    await ctx.route('**/*',route);page=await ctx.new_page();page.on('pageerror',lambda e:errors.append(str(e)))

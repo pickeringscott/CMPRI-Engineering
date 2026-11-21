@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createClient, getValidSession } from "@/lib/supabase/client";
@@ -48,6 +49,7 @@ export default function WorkOrderStepMedia(props: Props) {
 }
 
 function StepMediaView({ media, assetId, sourceSha256, userId, host }: Props & { host: React.RefObject<HTMLDivElement | null> }) {
+  const { t } = useUiLanguage();
   const desktop = useSyncExternalStore(subscribeDesktop, desktopSnapshot, () => false);
   const [images, setImages] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -154,24 +156,24 @@ function StepMediaView({ media, assetId, sourceSha256, userId, host }: Props & {
     setOpening(mediaKey(item));
     try {
       const url = await load(item);
-      if (alive.current && allowed.current && generation === openGeneration.current) setSelected({ imageUrl: url, title: item.caption || "Image/diagram from the uploaded manual", semantics: sourceSemantics(item.stepLabel, item.caption) });
+      if (alive.current && allowed.current && generation === openGeneration.current) setSelected({ imageUrl: url, title: item.caption || t("Image/diagram from the uploaded manual"), semantics: sourceSemantics(item.stepLabel, item.caption) });
     } catch (failure) {
       if (alive.current && allowed.current) setErrors(previous => ({ ...previous, [mediaKey(item)]: failure instanceof Error ? failure.message : "This source image could not be opened." }));
     } finally { if (alive.current && generation === openGeneration.current) setOpening(null); }
   }
 
   if (!authorized) return null;
-  return <section ref={section} aria-label="Step images and diagrams" className="space-y-0">
+  return <section ref={section} aria-label={t("Step images and diagrams")} className="space-y-0">
     {media.map(item => { const semantics = sourceSemantics(item.stepLabel, item.caption); return <div key={mediaKey(item)} data-media-id={mediaKey(item)} data-source-semantics={semantics?.kind} className="leading-tight" style={semantics ? { borderInlineStart: `2px solid ${semantics.color}` } : undefined}>
       {semantics && <span data-source-semantics={semantics.kind} className="text-[10px] leading-tight" style={{ color: semantics.color }}>{semantics.label}</span>}
       {desktop
-        ? images[mediaKey(item)] ? <a href={sourceUrl(item)} aria-label={`Open image/diagram: ${item.caption || "uploaded manual illustration"}`} onClick={event => { event.preventDefault(); event.stopPropagation(); void open(item); }} className="block w-fit max-w-full">
+        ? images[mediaKey(item)] ? <a href={sourceUrl(item)} aria-label={t("Open image/diagram: {caption}", {caption: item.caption || t("uploaded manual illustration")})} onClick={event => { event.preventDefault(); event.stopPropagation(); void open(item); }} className="block w-fit max-w-full">
             {/* Source pixels are held locally; flat neutral artwork alone follows the host palette. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img data-diagram-adapted={adapted[mediaKey(item)] ? "true" : "false"} src={images[mediaKey(item)]} alt={item.caption || "Image/diagram from the uploaded manual"} width={item.width} height={item.height} className="max-h-64 w-auto max-w-full object-contain" />
-          </a> : <p className="text-[10px] leading-tight text-slate-400" style={{ width: item.width, maxWidth: "100%", maxHeight: 256, aspectRatio: `${item.width} / ${item.height}` }}>{errors[mediaKey(item)] ? "Image unavailable" : "Loading image…"}</p>
-        : <a data-source-semantics={semantics?.kind} href={sourceUrl(item)} aria-disabled={opening === mediaKey(item)} onClick={event => { event.preventDefault(); event.stopPropagation(); if (opening !== mediaKey(item)) void open(item); }} className="text-[11px] underline" style={{ color: semantics?.color || "var(--cmpri-modal-text,var(--cmpri-palette-modal-text))" }}>{opening === mediaKey(item) ? "Opening image…" : "Open image/diagram"}</a>}
-      {errors[mediaKey(item)] && <p role="status" className="text-[10px] leading-tight text-amber-200">{errors[mediaKey(item)]}</p>}
+            <img data-diagram-adapted={adapted[mediaKey(item)] ? "true" : "false"} src={images[mediaKey(item)]} alt={item.caption || t("Image/diagram from the uploaded manual")} width={item.width} height={item.height} className="max-h-64 w-auto max-w-full object-contain" />
+          </a> : <p className="text-[10px] leading-tight text-slate-400" style={{ width: item.width, maxWidth: "100%", maxHeight: 256, aspectRatio: `${item.width} / ${item.height}` }}>{errors[mediaKey(item)] ? t("Image unavailable") : t("Loading image…")}</p>
+        : <a data-source-semantics={semantics?.kind} href={sourceUrl(item)} aria-disabled={opening === mediaKey(item)} onClick={event => { event.preventDefault(); event.stopPropagation(); if (opening !== mediaKey(item)) void open(item); }} className="text-[11px] underline" style={{ color: semantics?.color || "var(--cmpri-modal-text,var(--cmpri-palette-modal-text))" }}>{opening === mediaKey(item) ? t("Opening image…") : t("Open image/diagram")}</a>}
+      {errors[mediaKey(item)] && <p role="status" className="text-[10px] leading-tight text-amber-200">{t(errors[mediaKey(item)])}</p>}
     </div>; })}
     {selected && <WorkOrderDiagramViewer imageUrl={selected.imageUrl} title={selected.title} semantics={selected.semantics} onClose={() => { openGeneration.current++; setSelected(null); setOpening(null); }} />}
   </section>;

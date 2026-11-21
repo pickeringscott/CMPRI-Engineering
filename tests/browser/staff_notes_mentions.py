@@ -170,7 +170,7 @@ async def main():
     c,q,requests,errors=await setup(browser,width,role,user)
     await api(c.request,'/api/staff-notes',method='POST',body={'body':f'Flag fixture {width}-{role}','requestId':str(__import__('uuid').uuid4())})
     await control(c.request,{'now':'2030-01-15T20:00:00Z'})
-    await q.goto(BASE+'/engineering');button=q.locator('.cmpri-header-v23 [data-key="/staff-notes"]');await button.wait_for();await expect(button).to_have_attribute('data-staff-notes-unread',re.compile('[1-9][0-9]*'))
+    await q.goto(BASE+'/engineering');button=await reveal_dashboard_launcher(q.locator('.cmpri-header-v23 [data-key="/staff-notes"]'));await expect(button).to_have_attribute('data-staff-notes-unread',re.compile('[1-9][0-9]*'))
     assert not await q.locator('a.fixed[href="/staff-notes"]').count();await button.scroll_into_view_if_needed()
     await q.wait_for_function("()=>{const e=document.querySelector('.cmpri-header-v23 [data-key=\"/staff-notes\"][data-staff-notes-unread]');return e&&e.isConnected&&getComputedStyle(e,'::after').display==='block'}")
     flag=await button.evaluate("e=>{const s=getComputedStyle(e,'::after');return {content:s.content,width:s.width,height:s.height,display:s.display,background:s.backgroundColor,top:s.top}}")
@@ -190,11 +190,11 @@ async def main():
    c,q,requests,errors=await setup(browser,width,'front_desk',6)
    await control(c.request,{'clearNotes':True,'now':'2026-11-06T11:59:59Z','seed':[{'created_at':'2026-11-03T20:00:00Z','body':'Tuesday 2 PM handoff'}]})
    await q.clock.install(time=datetime(2026,11,6,11,58,0,tzinfo=timezone.utc))
-   await q.goto(BASE+'/engineering');button=q.locator('.cmpri-header-v23 [data-key="/staff-notes"]');await button.wait_for();await expect(button).to_have_attribute('data-staff-notes-unread','1')
+   await q.goto(BASE+'/engineering');button=await reveal_dashboard_launcher(q.locator('.cmpri-header-v23 [data-key="/staff-notes"]'));await expect(button).to_have_attribute('data-staff-notes-unread','1')
    await button.scroll_into_view_if_needed();await button.click();frame=q.frame_locator('iframe[src*="/staff-notes"]');await frame.get_by_text('Tuesday 2 PM handoff',exact=True).wait_for();await q.wait_for_timeout(150);await expect(button).to_have_attribute('data-staff-notes-unread','1')
    await q.locator('.cmpri-desktop-close').last.click();await q.wait_for_timeout(250);before=len([r for r in requests if r['path']=='/api/staff-notes' and r['method']=='GET'])
    await q.clock.fast_forward(int(datetime(2026,11,6,12,0,1,tzinfo=timezone.utc).timestamp()*1000-await q.evaluate('Date.now()')));await expect(button).not_to_have_attribute('data-staff-notes-unread',re.compile('.+'));after=len([r for r in requests if r['path']=='/api/staff-notes' and r['method']=='GET']);assert before==after,(before,after)
-   await control(c.request,{'now':'2026-11-06T12:00:01Z'});await q.reload();button=q.locator('.cmpri-header-v23 [data-key="/staff-notes"]');await button.wait_for();await expect(button).not_to_have_attribute('data-staff-notes-unread',re.compile('.+'));assert not errors,errors
+   await control(c.request,{'now':'2026-11-06T12:00:01Z'});await q.reload();button=q.locator('.cmpri-header-v23 [data-key="/staff-notes"]');await button.wait_for(state='attached');await expect(button).not_to_have_attribute('data-staff-notes-unread',re.compile('.+'));assert not errors,errors
    await finish(c);results.append({'width':width,'frontDeskViewRetainsFlag':True,'tuesdayToFridaySixAM':True,'noBoundaryPolling':True});print(json.dumps(results[-1]),flush=True)
   probe=await browser.new_context();final=await state(probe.request);await probe.close()
   assert not final['failures'],final['failures'];assert final['untouched']==[{'value':{'hours':19,'profile':'unchanged','feedback':'private'}}]

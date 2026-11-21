@@ -1,6 +1,10 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
-import { formatWorkOrder, workOrderReferenceMatches } from "@/lib/work-order-reference.js";
+
+import { formatWorkOrder } from "@/lib/work-order-reference.js";
+import { matchesWorkOrderSearch } from "@/lib/work-order-search";
+import { DEFAULT_WORK_ORDER_LIST_PREFERENCES, readWorkOrderListPreferences, saveWorkOrderListPreferences } from "@/lib/work-order-list-preferences";
 
 import {sortWorkOrders,type WorkOrderSort} from "@/lib/work-order-sort";
 import PartsStatusPill from "@/components/PartsStatusPill";
@@ -13,7 +17,7 @@ import WorkOrderFilters, { type WorkOrderListFilter } from "@/components/WorkOrd
 export type { WorkOrderListFilter } from "@/components/WorkOrderFilters";
 
 import LoyaltyBadge from "@/components/LoyaltyBadge";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type SetStateAction } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { subscribeResources } from "@/lib/events/browser";
 import { filterKpiWorkOrders, normalizeKpiStatus } from "@/lib/dashboard/kpi-filters";
@@ -100,13 +104,13 @@ function checkoutDays(value: string, today = hotelDate()) {
   return Math.round((checkout.getTime() - current.getTime()) / 86_400_000);
 }
 
-export function checkoutLabel(date?: string | null, time?: string | null) {
+export function checkoutLabel(date?: string | null, time?: string | null, locale = "en-US") {
   if (!date) return null;
   const days = checkoutDays(date);
   const parsed = new Date(`${date.slice(0, 10)}T12:00:00`);
   const displayDate = Number.isNaN(parsed.getTime())
     ? date
-    : parsed.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    : parsed.toLocaleDateString(locale, { month: "short", day: "numeric" });
   const when = time ? ` · ${time}` : "";
   if (days === 0) return { label: `Checkout today${when}`, className: "border-green-400/45 bg-green-950/35 text-green-200" };
   if (days === 1) return { label: `Checkout tomorrow${when}`, className: "border-blue-400/45 bg-blue-950/35 text-blue-200" };
@@ -114,11 +118,11 @@ export function checkoutLabel(date?: string | null, time?: string | null) {
   return { label: `${displayDate}${when}`, className: "border-transparent bg-transparent text-slate-400" };
 }
 
-export function listCheckoutLabel(date?: string | null, time?: string | null, roomStatus?: string | null, today = hotelDate()) {
+export function listCheckoutLabel(date?: string | null, time?: string | null, roomStatus?: string | null, today = hotelDate(), locale = "en-US") {
   if (!date) return null;
   const parsed = new Date(`${date.slice(0, 10)}T12:00:00Z`);
   if (Number.isNaN(parsed.getTime()) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || parsed.toISOString().slice(0, 10) !== date) return null;
-  const displayDate = parsed.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  const displayDate = parsed.toLocaleDateString(locale, { month: "short", day: "numeric", timeZone: "UTC" });
   const normalized = normalizePrintedTime(time || "") || "11:00:00";
   const [hour, minute] = normalized.split(":").map(Number);
   const displayTime = `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${hour < 12 ? "a.m." : "p.m."}`;
@@ -171,6 +175,7 @@ export default function WorkOrderListWindow({
   loading,
   onOpenWorkOrder,
   onOpenDraft,
+  preferencesScope,
 }: {
   frontDeskLayout?: boolean;
   orders: DesktopWorkOrder[];
@@ -178,16 +183,43 @@ export default function WorkOrderListWindow({
   loading: boolean;
   onOpenWorkOrder: (order: DesktopWorkOrder) => void;
   onOpenDraft?: (draftId: string) => void;
+  preferencesScope?: string;
 }) {
-  const [filter, setFilter] = useState<WorkOrderListFilter>("all");
-  const [query, setQuery] = useState("");
-  const [sort,setSort] = useState<WorkOrderSort>("default");
-  const [page, setPage] = useState(0);
+  const { t, locale } = useUiLanguage();
+  const [preferences, setPreferences] = useState(DEFAULT_WORK_ORDER_LIST_PREFERENCES);
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
+  const { filter, query, sort, page } = preferences;
+  const setFilter = (value: WorkOrderListFilter) => setPreferences(previous => ({ ...previous, filter: value }));
+  const setQuery = (value: string) => setPreferences(previous => ({ ...previous, query: value.slice(0, 200) }));
+  const setSort = (value: WorkOrderSort) => setPreferences(previous => ({ ...previous, sort: value }));
+  const setPage = (value: SetStateAction<number>) => setPreferences(previous => ({ ...previous, page: typeof value === "function" ? value(previous.page) : value }));
+  const scope = preferencesScope || "";
+  const preferencesReady = loadedScope === scope;
+  useEffect(() => {
+    let active = true;
+    // Read device preferences after mounting; do not request or save the default
+    // list before the verified account/property's selection has been restored.
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      let restored = { ...DEFAULT_WORK_ORDER_LIST_PREFERENCES };
+      try { restored = readWorkOrderListPreferences(window.localStorage, preferencesScope); } catch { /* Device storage can be disabled. */ }
+      setPreferences(restored);
+      setLoadedScope(scope);
+    });
+    return () => { active = false; };
+  }, [preferencesScope, scope]);
+  useEffect(() => {
+    if (!preferencesReady) return;
+    try { saveWorkOrderListPreferences(window.localStorage, preferencesScope, preferences); } catch { /* Keep the list usable without device storage. */ }
+  }, [preferencesReady, preferencesScope, preferences]);
   const [boundaryVersion,setBoundaryVersion]=useState(0);
-  const [remote, setRemote] = useState<{ orders: DesktopWorkOrder[]; total: number; counts: Record<string, number> } | null>(null);
+  const [result, setResult] = useState<{ requestKey: string; orders: DesktopWorkOrder[]; total: number; counts: Record<string, number> } | null>(null);
+  const requestKey = JSON.stringify([scope, page, filter, sort, query]);
+  const remote = result?.requestKey === requestKey ? result : null;
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
+    if (!preferencesReady) return;
     let active = true;
     let stop: (() => void) | undefined;
     const controller = new AbortController();
@@ -198,7 +230,14 @@ export default function WorkOrderListWindow({
         const response = await fetch(`/api/work-orders?${params}`, { headers: await authorizationHeaders(), cache: "no-store", signal: controller.signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Work orders could not be loaded.");
-        if (active) { setRemote({ orders: data.work_orders, total: data.total, counts: data.counts }); setError(""); }
+        const lastPage = Math.max(0, Math.ceil(data.total / 100) - 1);
+        if (active && Number.isSafeInteger(data.total) && page > lastPage) {
+          // A saved page can disappear while CMPRI is closed. Reopen the last
+          // remaining page rather than stranding the list behind a hidden pager.
+          setPreferences(previous => ({ ...previous, page: lastPage }));
+          return;
+        }
+        if (active) { setResult({ requestKey, orders: data.work_orders, total: data.total, counts: data.counts }); setError(""); }
       } catch (error) { if (active) setError(error instanceof Error ? error.message : "Work orders could not be loaded."); }
       finally { if (active) setPageLoading(false); }
     };
@@ -208,7 +247,7 @@ export default function WorkOrderListWindow({
       if (active) stop = subscribeResources(["orders", "rooms"], load);
     }, query ? 300 : 0);
     return () => { active = false; window.clearTimeout(timer); controller.abort(); stop?.(); };
-  }, [page, filter, sort, query,boundaryVersion]);
+  }, [page, filter, sort, query, boundaryVersion, preferencesReady, requestKey]);
   useEffect(()=>{
     // A single business-boundary wake-up, not recurring network polling. The
     // subscription visibility gate defers hidden-window reads until reopening.
@@ -220,9 +259,7 @@ export default function WorkOrderListWindow({
   const groups = useMemo(() => groupWorkOrders(remote?.orders || orders, page === 0 ? drafts : []), [remote, orders, drafts, page]);
   const countFor = (key: WorkOrderListFilter) => (remote?.counts[key] ?? groups[key].length) + (remote && ["all", "pending"].includes(key) ? drafts.length : 0);
   const normalizedQuery = query.trim().toLowerCase();
-  const matchingRows = normalizedQuery
-    ? groups.all.filter((order) => (workOrderReferenceMatches(order.display_id, normalizedQuery) || [...Object.values(order), formatWorkOrder(order.display_id)].some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery))))
-    : groups[filter];
+  const matchingRows = groups[filter].filter(order => matchesWorkOrderSearch(order, normalizedQuery));
   const rows = remote ? [...matchingRows.filter(row => row.is_draft), ...remote.orders] : sortWorkOrders(matchingRows,sort);
 
   return (
@@ -231,11 +268,11 @@ export default function WorkOrderListWindow({
 
         <div className="flex min-w-0 flex-1 flex-wrap items-center justify-start gap-[0.3em] @md:flex-nowrap">
           <label className="flex min-w-0 items-center gap-[0.3em] text-[0.85em] text-slate-300">
-            <select aria-label="Sort work orders" data-sort-default={sort==="default"} value={sort} onChange={event=>{setSort(event.target.value as WorkOrderSort);setPage(0);}} className="work-order-sort min-w-0 max-w-full px-[0.6em] py-[0.45em] text-white">
-              <option value="default">Sort by…</option><option value="tier-high">Bonvoy Tier: high to low</option><option value="tier-low">Bonvoy Tier: low to high</option><option value="created-newest">Created: newest first</option>
-              <option value="created-oldest">Created: oldest first</option>
-              <option value="due-earliest">Due: earliest first</option>
-              <option value="due-latest">Due: latest first</option>
+            <select aria-label={t("Sort work orders")} data-sort-default={sort==="default"} value={sort} onChange={event=>{setSort(event.target.value as WorkOrderSort);setPage(0);}} className="work-order-sort min-w-0 max-w-full px-[0.6em] py-[0.45em] text-white">
+              <option value="default">{t("Sort by…")}</option><option value="tier-high">{t("Bonvoy Tier: high to low")}</option><option value="tier-low">{t("Bonvoy Tier: low to high")}</option><option value="created-newest">{t("Created: newest first")}</option>
+              <option value="created-oldest">{t("Created: oldest first")}</option>
+              <option value="due-earliest">{t("Due: earliest first")}</option>
+              <option value="due-latest">{t("Due: latest first")}</option>
             </select>
           </label>
           <div className="relative min-w-[12em] flex-1 @md:max-w-[32em] @md:ml-auto">
@@ -245,34 +282,35 @@ export default function WorkOrderListWindow({
             </svg>
             <input
               type="search"
+              maxLength={200}
               value={query}
               onChange={(event) => {setQuery(event.target.value); setPage(0);}}
-              placeholder="Search rooms, locations, or issues..."
-              aria-label="Search rooms, locations, or issues"
+              placeholder={t("Search rooms, locations, or issues...")}
+              aria-label={t("Search rooms, locations, or issues")}
               className="w-full rounded-md border border-slate-700 bg-slate-900 py-[0.45em] pl-[2em] pr-[2.2em] text-white outline-none placeholder:text-slate-400 focus:border-sky-400"
             />
-            {query && <button type="button" onClick={() => {setQuery(""); setPage(0);}} aria-label="Clear work-order search" className="absolute right-[0.3em] top-1/2 -translate-y-1/2 rounded px-[0.4em] text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
+            {query && <button type="button" onClick={() => {setQuery(""); setPage(0);}} aria-label={t("Clear work-order search")} className="absolute right-[0.3em] top-1/2 -translate-y-1/2 rounded px-[0.4em] text-slate-400 hover:bg-slate-800 hover:text-white">×</button>}
           </div>
         </div>
       </header>
 
       <WorkOrderFilters
         filter={filter}
-        searching={!!normalizedQuery}
+        searching={false}
         loading={loading}
         countFor={countFor}
-        onChange={key => { setFilter(key); setQuery(""); setPage(0); }}
+        onChange={key => { setFilter(key); setPage(0); }}
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!loading && rows.length === 0 && (
-          <p className="rounded-md border border-slate-700 bg-slate-900 p-[0.5em] text-slate-300">{normalizedQuery ? "No work orders match your search." : "No work orders match this filter."}</p>
+          <p className="rounded-md border border-slate-700 bg-slate-900 p-[0.5em] text-slate-300">{normalizedQuery ? t("No work orders match your search.") : t("No work orders match this filter.")}</p>
         )}
         {rows.length > 0 && (
           <div className="flex flex-col gap-[0.2em]">
             {rows.slice(0, ROW_LIMIT).map((order) => {
               const occupancy = roomStatusBadge(order.room_status);
-              const checkout = listCheckoutLabel(order.checkout_date, order.checkout_time, order.room_status);
+              const checkout = listCheckoutLabel(order.checkout_date, order.checkout_time, order.room_status, undefined, locale);
               const isDraft = order.is_draft === true;
               const sourceDraftId = typeof order.source_draft_id === "string" ? order.source_draft_id : "";
               return (
@@ -282,31 +320,31 @@ export default function WorkOrderListWindow({
                   data-preview-status={order.status}
                   type="button"
                   onClick={() => isDraft && sourceDraftId ? onOpenDraft?.(sourceDraftId) : onOpenWorkOrder(order)}
-                  aria-label={`${isDraft ? "Review draft" : "Open work order"} for ${order.room || "No location"}: ${order.issue || "No issue description"}`}
+                  aria-label={t("{value0} for {value1}: {value2}", { value0: String(t(isDraft ? "Review draft" : "Open work order")), value1: String(order.room || t("No location")), value2: String(order.issue || t("No issue description")) })}
                   className="flex w-full min-w-0 items-center gap-x-[0.5em] rounded-md border border-slate-700 bg-slate-900 px-[0.6em] py-[0.28em] text-left transition-colors hover:border-slate-500 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
                 >
                   <div className="preview-row-content">
                     <div className="work-order-ticket-line" data-preview-pills>
                       {!isDraft && order.display_id && <span className="preview-wo-number">{formatWorkOrder(order.display_id)}</span>}
-                      <span className={`work-order-pill ${statusClass(order.status)}`}>{normalizeKpiStatus(order.status)}</span>
-                      {!isDraft && order.priority && <span className={`work-order-pill ${priorityClass(order.priority)}`}>{priorityLabel(order.priority)}</span>}
+                      <span className={`work-order-pill ${statusClass(order.status)}`}>{t(normalizeKpiStatus(order.status))}</span>
+                      {!isDraft && order.priority && <span className={`work-order-pill ${priorityClass(order.priority)}`}>{t(priorityLabel(order.priority))}</span>}
                       {!isDraft && <PartsStatusPill status={order.parts_status} />}
                       {!isDraft && <WorkOrderImportPill order={order} />}
                     </div>
                     <div className="work-order-room-line">
-                      <span className="preview-room">{order.room || "No location"}</span>
-                      {occupancy && <span data-preview-room-status className={`work-order-pill ${occupancy.className}`}>{occupancy.label}</span>}
-                      {checkout && <span data-work-order-checkout className={`work-order-pill ${checkout.className}`}>{checkout.label}</span>}
+                      <span className="preview-room">{order.room || t("No location")}</span>
+                      {occupancy && <span data-preview-room-status className={`work-order-pill ${occupancy.className}`}>{t(occupancy.label)}</span>}
+                      {checkout && <span data-work-order-checkout className={`work-order-pill ${checkout.className}`}>{checkout.label.replace(/^C\/O /, t("Check-out") + " ")}</span>}
                     </div>
                     {!isDraft && (order.guest_name || order.loyalty_tier || order.guest_group_badge) && <div className="work-order-guest-line">
                       {order.guest_name && <span>{order.guest_name}</span>}
                       <GuestGroupBadge badge={order.guest_group_badge} className="preview-group-badge" />
                       <LoyaltyBadge tier={order.loyalty_tier} />
                     </div>}
-                  <span className="block break-words text-[0.92em] leading-tight text-white">{order.issue || "No issue description"}</span>
-                  {isDraft && <span className="block text-[0.78em] font-semibold leading-tight text-amber-200">Draft — awaiting Chief Engineer approval{order.potential_duplicate === true ? " · Possible duplicate — review" : ""}</span>}
+                  <span className="block break-words text-[0.92em] leading-tight text-white">{order.issue || t("No issue description")}</span>
+                  {isDraft && <span className="block text-[0.78em] font-semibold leading-tight text-amber-200">{t("Draft — awaiting Chief Engineer approval")}{order.potential_duplicate === true ? t(" · Possible duplicate — review") : ""}</span>}
                   <div data-room-occupancy className="preview-incoming">
-                    {!isDraft && order.incoming_reserved&&<><GuestGroupBadge badge={order.incoming_group_badge} className="preview-group-badge"/><LoyaltyBadge tier={order.incoming_loyalty_tier}/><span className="reserved-pill">Reserved</span></>}
+                    {!isDraft && order.incoming_reserved&&<><GuestGroupBadge badge={order.incoming_group_badge} className="preview-group-badge"/><LoyaltyBadge tier={order.incoming_loyalty_tier}/><span className="reserved-pill">{t("Reserved")}</span></>}
                   </div>
                   </div>
                 </button>
@@ -315,10 +353,10 @@ export default function WorkOrderListWindow({
           </div>
         )}
       </div>
-      {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
-      {remote && remote.total > 100 && <nav aria-label="Work order pages" className="flex justify-end gap-2 text-xs"><button disabled={page === 0 || pageLoading} onClick={()=>setPage(p=>p-1)}>Previous</button><span>Page {page+1} of {Math.ceil(remote.total/100)}</span><button disabled={(page+1)*100>=remote.total || pageLoading} onClick={()=>setPage(p=>p+1)}>Next</button></nav>}
+      {error && <p role="alert" className="text-xs text-red-300">{t(error)}</p>}
+      {remote && remote.total > 100 && <nav aria-label={t("Work order pages")} className="flex justify-end gap-2 text-xs"><button disabled={page === 0 || pageLoading} onClick={()=>setPage(p=>p-1)}>{t("Previous")}</button><span>{t("Page ")}{page+1}{t(" of ")}{Math.ceil(remote.total/100)}</span><button disabled={(page+1)*100>=remote.total || pageLoading} onClick={()=>setPage(p=>p+1)}>{t("Next")}</button></nav>}
       <span role="status" className="shrink-0 text-right text-[0.68em] leading-tight text-slate-400">
-        {loading ? "Loading…" : `${Math.min(rows.length, ROW_LIMIT)} of ${remote?.total ?? rows.length}`}
+        {loading ? t("Loading…") : t("{value0} of {value1}", { value0: String(Math.min(rows.length, ROW_LIMIT)), value1: String(remote?.total ?? rows.length) })}
       </span>
     </div>
   );

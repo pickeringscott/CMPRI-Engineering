@@ -57,7 +57,6 @@
 .wa-source a:focus-visible { outline: 2px solid #ffcc00; outline-offset: 2px; }
 .wa-tracker { margin-top: 12px; min-width: 0; }
 .wa-tracker:empty { margin-top: 0; }
-.wa-tracker > iframe { display: block; }
 @media (max-width: 700px) {
   .wa-content { padding: 0 8px 8px; }
   .wa-board { padding: 10px; }

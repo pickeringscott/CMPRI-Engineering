@@ -22,6 +22,7 @@ test('real PDF extraction preserves upload bytes and SHA, including a second rea
 });
 const unexpectedLegacy=()=>{throw Error('Canonical route test must not invoke the legacy route');};
 routeDeps={
+ '@/lib/dashboard/chief-module-access':{},
  '@/lib/server/pre-consolidation/assets-route':{GET:unexpectedLegacy,PATCH:unexpectedLegacy},
  '@/lib/manual-applicability':load('../src/lib/manual-applicability.ts'),'@/lib/server/stored-pdf-status':{withStoredPdfStatus:async(_admin,files)=>files},'@/lib/server/pre-consolidation/documentation-route':{GET:unexpectedLegacy,POST:unexpectedLegacy},
  '@/lib/server/consolidation-stage':{dispatchConsolidation:async()=>null},

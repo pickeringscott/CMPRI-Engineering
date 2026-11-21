@@ -1,4 +1,6 @@
 "use client";
+
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import WorkOrderMediaControl from "@/components/WorkOrderMediaControl";
 import WorkOrderStepMedia from "@/components/WorkOrderStepMedia";
 import { subscribeResources } from "@/lib/events/browser";
@@ -47,6 +49,8 @@ import { roomStatusBadge } from "@/lib/room-availability";
 import { keepCreateFormOpen } from "@/lib/work-order-create-presentation";
 import { isSubmitOnlyRole } from "@/lib/server/roles";
 import { draftFieldsKey, guardedDraftRequest, mergeConfirmedOwnDraft, saveDraftWithRecovery, type DraftFields, type PendingDraftSave, type SavedDraft } from "@/lib/work-orders/draft-save";
+import { clearAttachmentDraft, readAttachmentDraft, saveAttachmentDraft, type AttachmentDraft } from "@/lib/work-orders/attachment-draft";
+import { canRestoreCreationRecovery, clearCreationRecovery, hasCreationRecoveryWork, readCreationRecovery, saveCreationRecovery, type CreationRecovery } from "@/lib/work-orders/creation-recovery";
 import { guideRulesForIssue } from "@/lib/work-orders/guide-selection";
 import { sourceSemantics } from "@/lib/work-orders/source-semantics";
 
@@ -117,11 +121,12 @@ type SelectedWorkOrderPhoto = { file: File; previewUrl: string; uploadId: string
 type PendingPhotoUpload = Pick<CreatedWorkOrder, "id" | "display_id"> & { photo: SelectedWorkOrderPhoto };
 
 function WorkOrderPhotoPreview({ photo, onRemove, removeLabel }: { photo: SelectedWorkOrderPhoto; onRemove?: () => void; removeLabel: string }) {
+  const { tt } = useUiLanguage();
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-md border border-slate-700 bg-slate-950/70 p-1.5">
       <div className="relative shrink-0">
         {photo.file.type.startsWith("video/")?<video src={photo.previewUrl} controls className="size-12 rounded object-cover"/>:<Image unoptimized src={photo.previewUrl} alt="" width={48} height={48} className="size-12 rounded object-cover"/>}
-        {onRemove && <button type="button" onClick={onRemove} aria-label={`${removeLabel}: ${photo.file.name}`} title={removeLabel} className="absolute -left-1 -top-1 grid size-6 place-items-center rounded-full border border-red-500/70 bg-slate-950 text-base font-bold leading-none text-red-500 shadow hover:bg-slate-900 focus-visible:outline-2 focus-visible:outline-white">×</button>}
+        {onRemove && <button type="button" onClick={onRemove} aria-label={`${removeLabel}: ${photo.file.name}`} title={tt(removeLabel)} className="absolute -left-1 -top-1 grid size-6 place-items-center rounded-full border border-red-500/70 bg-slate-950 text-base font-bold leading-none text-red-500 shadow hover:bg-slate-900 focus-visible:outline-2 focus-visible:outline-white">×</button>}
       </div>
       <span className="min-w-0 max-w-40 truncate text-xs text-slate-300" title={photo.file.name}>{photo.file.name}</span>
     </div>
@@ -533,21 +538,12 @@ export default function WorkOrdersPage() {
     error: string;
     reason?: string;
   } | null>(null);
-  const [formLanguage, setFormLanguage] = useState<"en" | "es">("en");
-  useEffect(() => {
-    // Defer browser-only preferences until after the server markup is hydrated.
-    const timer = window.setTimeout(() => {
-      try {
-        const saved = window.localStorage.getItem("cmpri:work-order-language");
-        if (saved === "en" || saved === "es") setFormLanguage(saved);
-      } catch {}
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
+  const { language: formLanguage, locale, t: tx } = useUiLanguage();
   const [staffFirstName, setStaffFirstName] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const [drafts, setDrafts] = useState<WorkOrderDraft[]>([]);
   const [reviewDraft, setReviewDraft] = useState<WorkOrderDraft | null>(null);
+  const [draftsLoaded, setDraftsLoaded] = useState(false);
   const draftRequestRef = useRef(0);
   const [activeDraftId, setActiveDraftId] = useState("");
   const [activeDraftRevision, setActiveDraftRevision] = useState<number | null>(null);
@@ -558,6 +554,22 @@ export default function WorkOrdersPage() {
   const [unconfirmedCreationId, setUnconfirmedCreationId] = useState("");
   const draftIdentityScope = useRef("");
   const draftIdentityGeneration = useRef(0);
+  const creationRecoveryScope = useRef("");
+  const creationRecoveryStopped = useRef(false);
+  const [creationRecoveryReady, setCreationRecoveryReady] = useState("");
+  const [creationRecoveryConflict, setCreationRecoveryConflict] = useState<CreationRecovery | null>(null);
+  const [creationSubmissionUncertain, setCreationSubmissionUncertain] = useState(false);
+  const confirmedCreationKey = useRef("");
+  const confirmedDraftRecovery = useRef<Pick<CreationRecovery, "active" | "baseline"> | null>(null);
+  const persistCreationRecoveryRef = useRef<() => void>(() => {});
+  const [attachmentRecoveryReady, setAttachmentRecoveryReady] = useState("");
+  const attachmentDiscarded = useRef(false);
+  const [attachmentRecoveryConflict, setAttachmentRecoveryConflict] = useState<AttachmentDraft | null>(null);
+  const attachmentPendingUploads = useRef<PendingPhotoUpload[] | null>(null);
+  const acknowledgedCreation = useRef<CreationRecovery["created"]>(undefined);
+  const [attachmentRecoveryFailed, setAttachmentRecoveryFailed] = useState(false);
+  const persistAttachmentsRef = useRef<() => Promise<boolean>>(async () => true);
+  const restoringAttachments = useRef(0);
   useEffect(() => {
     const scope = cmpriSession ? `${cmpriSession.hotelId}:${cmpriSession.user.id}` : "";
     if (draftIdentityScope.current !== scope) draftIdentityGeneration.current++;
@@ -567,8 +579,11 @@ export default function WorkOrdersPage() {
       draftRequestRef.current++;
       setDrafts([]);
       setReviewDraft(null);
+      setDraftsLoaded(false);
+      setCreationRecoveryConflict(null);
+      setCreationSubmissionUncertain(false);
       setDraftBusy(false);
-      resetWorkOrderForm(true);
+      resetWorkOrderForm(true, true);
       setMessage("The account changed. The previous account's form was closed.");
     }
     draftIdentityScope.current = scope;
@@ -604,7 +619,9 @@ export default function WorkOrdersPage() {
       const reviewId = params.get("reviewDraft") === "1" ? params.get("draftId") : null;
       const response = await fetch(`/api/work-orders/drafts?scope=own${reviewId ? `&review_draft_id=${encodeURIComponent(reviewId)}` : ""}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        cache: "no-store",
+        // Recovery compares the current server revision, never an earlier list
+        // snapshot from CMPRI's device response cache.
+        cache: "reload",
       });
       const payload = await response.json().catch(() => ({}));
       const current = await getValidSession();
@@ -613,24 +630,13 @@ export default function WorkOrdersPage() {
       setDrafts(((payload.drafts || []) as WorkOrderDraft[]).filter(draft => draft.created_by === session.user.id));
       if (reviewId && payload.review_draft?.id === reviewId && payload.review_draft.can_edit) setReviewDraft(payload.review_draft);
       else setReviewDraft(null);
+      setDraftsLoaded(true);
       return true;
     } catch (error) {
       if (reportFailure && requestId === draftRequestRef.current) setMessage(error instanceof Error ? error.message : "Drafts could not be loaded.");
       return false;
     }
   }, []);
-
-  async function loadProfilePreference() {
-    try {
-      const session = await getValidSession();
-      if (!session?.access_token) return;
-      const response = await fetch("/api/profile", { headers: { Authorization: `Bearer ${session.access_token}` }, cache: "no-store" });
-      if (!response.ok) return;
-      const payload = await response.json().catch(() => ({}));
-      if (payload.preferences?.language === "es" || payload.preferences?.language === "en") setFormLanguage(payload.preferences.language);
-    } catch {}
-  }
-
 
   useEffect(() => {
     if (!showRelatedWorkOrderDialog && !showBatchCreateDialog) return;
@@ -736,7 +742,6 @@ export default function WorkOrdersPage() {
         setCurrentRole(session.user.role || "");
         await Promise.all([
           loadDrafts(),
-          loadProfilePreference(),
         ]);
       } catch {
         if (current) window.location.replace("/");
@@ -1090,7 +1095,7 @@ export default function WorkOrdersPage() {
       setMessage("Selected photos are not part of a saved draft. Remove or submit them before loading a different draft.");
       return;
     }
-    if ((issue.trim() || notes.trim() || locationId) && !window.confirm("Loading this draft replaces the text currently in the form. Copy any unsaved changes first. Continue?")) return;
+    if ((issue.trim() || notes.trim() || locationId) && !window.confirm(tx("Loading this draft replaces the text currently in the form. Copy any unsaved changes first. Continue?"))) return;
     if (draft.id === unconfirmedCreationId) {
       try { sessionStorage.removeItem(`cmpri:unconfirmed-draft:${draftIdentityScope.current}`); } catch {}
       setUnconfirmedCreationId("");
@@ -1098,6 +1103,7 @@ export default function WorkOrdersPage() {
     setActiveDraftId(draft.id);
     setActiveDraftRevision(draft.revision);
     setLastSavedDraftKey(draftFieldsKey(draft));
+    confirmedDraftRecovery.current = { active: { id: draft.id, revision: draft.revision }, baseline: draftFieldsKey(draft) };
     setStaffFirstName(draft.staff_first_name || "");
     setLocationId(draft.location_id || "");
     setAssetId(draft.asset_id || "");
@@ -1110,7 +1116,7 @@ export default function WorkOrdersPage() {
     setManualCategory(false);
     setManualPriority(false);
     setMessage(`Draft loaded${draft.creator_name ? ` — ${draft.creator_name}` : ""}.`);
-  }, [cmpriSession?.user.id, photos.length, issue, notes, locationId, unconfirmedCreationId]);
+  }, [cmpriSession?.user.id, photos.length, issue, notes, locationId, unconfirmedCreationId, tx]);
 
   useEffect(() => {
     if (!cmpriSession) return;
@@ -1131,8 +1137,190 @@ export default function WorkOrdersPage() {
   const draftIdleReceipt = useRef("");
   const draftCreationReceipts = useRef(new Map<string, string>());
 
+  function restoreLocalCreation(snapshot: CreationRecovery) {
+    setStaffFirstName(snapshot.fields.staff_first_name);
+    setLocationId(snapshot.fields.location_id);
+    setIssue(snapshot.fields.issue);
+    setNotes(snapshot.fields.notes);
+    setAssetId(snapshot.fields.asset_id || "");
+    setCategory(snapshot.fields.category);
+    setPriority(snapshot.fields.priority);
+    setManualLocation(Boolean(snapshot.fields.location_id));
+    setManualAsset(Boolean(snapshot.fields.asset_id));
+    setManualCategory(true);
+    setManualPriority(true);
+    setActiveDraftId(snapshot.active?.id || "");
+    setActiveDraftRevision(snapshot.active?.revision ?? null);
+    setLastSavedDraftKey(snapshot.baseline);
+    confirmedDraftRecovery.current = { active: snapshot.active, baseline: snapshot.baseline };
+    pendingDraftSave.current = snapshot.pending;
+    if (snapshot.pending?.method === "POST") {
+      draftCreationReceipts.current.set(snapshot.pending.id, snapshot.pendingReceipt);
+      setUnconfirmedCreationId(snapshot.pending.id);
+    }
+    autoOpenedDraftRef.current = snapshot.active?.id || "";
+    acknowledgedCreation.current = snapshot.created;
+    if (snapshot.created) { setMainWorkOrderCreated(true); setCreateState("created"); }
+    setCreationSubmissionUncertain(snapshot.submissionUncertain && !snapshot.created);
+    setCreationRecoveryConflict(null);
+    void restoreCreationAttachments(snapshot);
+    setMessage(`Recovered this account's in-progress work from this device.${snapshot.attachmentCount ? " Restoring selected attachments from this device." : ""}${snapshot.submissionUncertain ? " A submission was in progress. Check the work-order list before submitting again." : ""}`);
+  }
+
+  function attachmentIdentity(snapshot?: CreationRecovery | null) {
+    const active = snapshot ? snapshot.active : confirmedDraftRecovery.current?.active || (activeDraftId && activeDraftRevision !== null ? { id: activeDraftId, revision: activeDraftRevision } : null);
+    const pending = snapshot ? snapshot.pending : pendingDraftSave.current;
+    if (active) return `draft:${active.id}:${active.revision}`;
+    if (pending?.method === "POST" && (snapshot?.pendingReceipt || draftCreationReceipts.current.has(pending.id))) return `pending:${pending.id}`;
+    return "";
+  }
+  function applyCreationAttachments(retained: AttachmentDraft) {
+    const restored = retained.files.map(item => ({ ...item, previewUrl: URL.createObjectURL(item.file) }));
+    photoPreviewUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+    photoPreviewUrlsRef.current.clear();
+    restored.forEach(item => photoPreviewUrlsRef.current.add(item.previewUrl));
+    setPhotos(restored);
+    attachmentDiscarded.current = false;
+    if (retained.uploads?.length) {
+      const pending = retained.uploads.map(item => ({ id: item.workOrderId, display_id: item.displayId, photo: restored.find(photo => photo.uploadId === item.uploadId)! }));
+      attachmentPendingUploads.current = pending;
+      setPendingPhotoUploads(pending); setMainWorkOrderCreated(true); setCreateState("created");
+      setCreationSubmissionUncertain(false);
+      setPhotoUploadError("Recovered attachments waiting to upload to saved work orders. Retry photo upload to continue.");
+    }
+    setAttachmentRecoveryConflict(null);
+  }
+  async function restoreCreationAttachments(snapshot: CreationRecovery | null) {
+    if (!cmpriSession) return;
+    const scope = `${cmpriSession.hotelId}:${cmpriSession.user.id}`;
+    const request = ++restoringAttachments.current;
+    try {
+      let retained = await readAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" });
+      if (request !== restoringAttachments.current || draftIdentityScope.current !== scope || creationRecoveryStopped.current) return;
+      setAttachmentRecoveryFailed(false); setPhotoUploadError("");
+      if (snapshot?.created) {
+        acknowledgedCreation.current = snapshot.created;
+        setMainWorkOrderCreated(true); setCreateState("created"); setCreationSubmissionUncertain(false);
+        if (retained) {
+          const ids = new Set(snapshot.created.uploads.map(item => item.uploadId));
+          retained = { ...retained, files: retained.files.filter(item => ids.has(item.uploadId)), uploads: snapshot.created.uploads.filter(item => retained!.files.some(file => file.uploadId === item.uploadId)) };
+        }
+      }
+      if (request !== restoringAttachments.current || draftIdentityScope.current !== scope || creationRecoveryStopped.current) return;
+      if (retained?.files.length) {
+        if (!retained.uploads?.length && retained.draftIdentity !== attachmentIdentity(snapshot)) {
+          setAttachmentRecoveryConflict(retained);
+          setPhotoUploadError("The retained attachments belong to a different saved-draft revision. Your file bytes are kept. Restore their matching form before editing attachments.");
+          return;
+        }
+        applyCreationAttachments(retained);
+        if (snapshot?.attachmentCount && !retained.uploads?.length) setPhotoUploadError("Recovered selected attachments from this device. They upload when the work order is submitted.");
+      } else if (snapshot?.created) {
+        attachmentPendingUploads.current = [];
+        setPhotoUploadError("The work order is already saved. Its attachment recovery needs review before starting another ticket.");
+      } else if (snapshot?.attachmentCount) setPhotoUploadError("This device has the form text but could not restore its selected attachments. Add the files again before submitting.");
+    } catch (error) {
+      if (request !== restoringAttachments.current || draftIdentityScope.current !== scope || creationRecoveryStopped.current) return;
+      setAttachmentRecoveryFailed(true); setPhotoUploadError(error instanceof Error ? error.message : "This device could not restore selected attachments. Keep this window open until they are uploaded.");
+    }
+    finally { if (request === restoringAttachments.current && draftIdentityScope.current === scope && !creationRecoveryStopped.current) setAttachmentRecoveryReady(scope); }
+  }
+
+  const creationScope = cmpriSession ? `${cmpriSession.hotelId}:${cmpriSession.user.id}` : "";
+  useEffect(() => {
+    if (!cmpriSession || !draftsLoaded || loadingLocations || loadingAssets || creationRecoveryScope.current === creationScope) return;
+    let live = true;
+    void Promise.resolve().then(() => {
+      if (!live) return;
+      creationRecoveryScope.current = creationScope;
+      creationRecoveryStopped.current = false;
+      const identity = { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id };
+      let snapshot: CreationRecovery | null = null;
+      try { snapshot = readCreationRecovery(localStorage, identity); }
+      catch { setMessage("This device could not read the saved form. Keep this window open until your work is saved."); }
+      if (snapshot) {
+        const remote = drafts.find(draft => draft.id === snapshot.active?.id) || (reviewDraft?.id === snapshot.active?.id ? reviewDraft : null);
+        const requested = new URLSearchParams(window.location.search).get("draftId") || "";
+        const formAlreadyEdited = Boolean(issue || notes || locationId || staffFirstName);
+        if (formAlreadyEdited || !canRestoreCreationRecovery(snapshot, remote, requested)) setCreationRecoveryConflict(snapshot);
+        else restoreLocalCreation(snapshot);
+      } else { void restoreCreationAttachments(null); }
+      setCreationRecoveryReady(creationScope);
+    });
+    return () => { live = false; };
+    // One device recovery after the freshly authorized session and reference/draft reads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creationScope, draftsLoaded, loadingLocations, loadingAssets]);
+
+  useEffect(() => {
+    const persist = () => {
+      if (!cmpriSession || creationRecoveryReady !== creationScope || creationRecoveryStopped.current || creationRecoveryConflict) return;
+      const identity = { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id };
+      const pending = pendingDraftSave.current;
+      const pendingReceipt = pending?.method === "POST" ? draftCreationReceipts.current.get(pending.id) || "" : "";
+      const snapshot: CreationRecovery = { version: 1, ...identity, fields: { ...draftFields, issue },
+        active: activeDraftId && activeDraftRevision !== null ? { id: activeDraftId, revision: activeDraftRevision } : null,
+        // A POST gets its bound receipt synchronously before fetch is called.
+        // Before that point it has not been sent and needs only text recovery.
+        baseline: lastSavedDraftKey, pending: pending?.method === "POST" && !pendingReceipt ? null : pending, pendingReceipt,
+        attachmentCount: photos.length, submissionUncertain: creationSubmissionUncertain || submittingRef.current,
+        ...(acknowledgedCreation.current ? { created: acknowledgedCreation.current } : {}),
+        ...confirmedDraftRecovery.current };
+      try {
+        if (!snapshot.created && (!hasCreationRecoveryWork(snapshot) || confirmedCreationKey.current === currentDraftKey || createState === "created" || mainWorkOrderCreated)) clearCreationRecovery(localStorage, identity);
+        else if (!saveCreationRecovery(localStorage, identity, snapshot)) setMessage("This device could not preserve the form. Keep this window open until the work is saved.");
+      } catch { setMessage("This device could not preserve the form. Keep this window open until the work is saved."); }
+    };
+    persistCreationRecoveryRef.current = persist;
+    persist();
+    const hidden = () => { if (document.hidden) persist(); };
+    const signOut = () => { persist(); void persistAttachmentsRef.current(); creationRecoveryStopped.current = true; restoringAttachments.current++; resetWorkOrderForm(true, true); };
+    window.addEventListener("pagehide", persist);
+    window.addEventListener("cmpri-workspace-sign-out", signOut);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("pagehide", persist);
+      window.removeEventListener("cmpri-workspace-sign-out", signOut);
+      document.removeEventListener("visibilitychange", hidden);
+    };
+    // draftFields covers the form's text; the request snapshot is read from its durable ref at flush time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creationScope, creationRecoveryReady, creationRecoveryConflict, currentDraftKey, issue, activeDraftId, activeDraftRevision, lastSavedDraftKey, photos.length, createState, mainWorkOrderCreated, creationSubmissionUncertain]);
+
+  useEffect(() => {
+    const persist = async () => {
+      if (!cmpriSession || attachmentRecoveryReady !== creationScope || creationRecoveryStopped.current || creationRecoveryConflict || attachmentRecoveryConflict || attachmentRecoveryFailed || attachmentDiscarded.current) return true;
+      const scope = { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" };
+      const pending = attachmentPendingUploads.current;
+      const selected = pending === null ? photos : Array.from(new Map(pending.map(item => [item.photo.uploadId, item.photo])).values());
+      if (!selected.length && pending === null && !acknowledgedCreation.current) return true;
+      if (!selected.length && acknowledgedCreation.current?.uploads.length) return false;
+      if (acknowledgedCreation.current) persistCreationRecoveryRef.current();
+      try {
+        if (!selected.length) {
+          await clearAttachmentDraft(scope);
+          if (acknowledgedCreation.current && !acknowledgedCreation.current.uploads.length) {
+            acknowledgedCreation.current = undefined;
+            clearCreationRecovery(localStorage, scope);
+          }
+        }
+        else await saveAttachmentDraft(scope, { draftIdentity: attachmentIdentity(), files: selected.map(({ file, uploadId }) => ({ file, uploadId })),
+          ...(pending !== null ? { uploads: pending.map(item => ({ workOrderId: item.id, displayId: item.display_id, uploadId: item.photo.uploadId })) } : {}) });
+        return true;
+      } catch (error) { if (!creationRecoveryStopped.current) setPhotoUploadError(error instanceof Error ? error.message : "Selected attachments could not be retained. Keep this window open until they are uploaded."); return false; }
+    };
+    persistAttachmentsRef.current = persist;
+    void persist();
+    const flush = () => { void persist(); };
+    const hidden = () => { if (document.hidden) flush(); };
+    window.addEventListener("pagehide", flush); document.addEventListener("visibilitychange", hidden);
+    return () => { window.removeEventListener("pagehide", flush); document.removeEventListener("visibilitychange", hidden); };
+    // Save the selected bytes and upload targets whenever either changes; beforeunload is only an additional flush.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creationScope, attachmentRecoveryReady, creationRecoveryConflict, attachmentRecoveryConflict, attachmentRecoveryFailed, photos, pendingPhotoUploads, activeDraftId, activeDraftRevision]);
+
   async function saveDraft() {
-    if (draftSaveInFlight.current || submittingRef.current || loading || createState !== "idle" || mainWorkOrderCreated || pendingPhotoUploads.length) return;
+    if (creationRecoveryConflict || creationSubmissionUncertain || draftSaveInFlight.current || submittingRef.current || loading || createState !== "idle" || mainWorkOrderCreated || pendingPhotoUploads.length) return;
     const inactivityReceipt = draftIdleReceipt.current;
     if (!locationId || !issue.trim()) {
       setMessage("Select a room/location and enter the issue before saving a draft.");
@@ -1176,6 +1364,8 @@ export default function WorkOrdersPage() {
           }
           const receipt = method === "POST" && typeof body.creation_id === "string"
             ? draftCreationReceipts.current.get(body.creation_id) : inactivityReceipt;
+          persistCreationRecoveryRef.current();
+          void persistAttachmentsRef.current();
           return fetch("/api/work-orders/drafts", {
             method,
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -1194,6 +1384,11 @@ export default function WorkOrdersPage() {
           try { if (sessionStorage.getItem(`cmpri:unconfirmed-draft:${scope}`) === saved.id) sessionStorage.removeItem(`cmpri:unconfirmed-draft:${scope}`); } catch {}
           setUnconfirmedCreationId(current => current === saved.id ? "" : current);
           draftCreationReceipts.current.delete(saved.id);
+          // A browser close between the acknowledgement and React's next
+          // render must retain the confirmed identity/revision, not create anew.
+          confirmedDraftRecovery.current = { active: { id: saved.id, revision: saved.revision }, baseline: draftFieldsKey(saved) };
+          persistCreationRecoveryRef.current();
+          void persistAttachmentsRef.current();
           setActiveDraftId(saved.id); setActiveDraftRevision(saved.revision);
         },
       });
@@ -1212,7 +1407,7 @@ export default function WorkOrdersPage() {
         await checkSession();
       }
       const editedDuringSave = draftFieldsKey(currentDraftFields.current) !== draftFieldsKey(fields);
-      setMessage(`Draft saved after 30 minutes of inactivity — awaiting approval.${editedDuringSave ? " Changes made while saving have not yet been saved." : ""}${photos.length ? " Selected photos are not saved in drafts; reselect them after reopening." : ""}${refreshed ? "" : " The saved-draft list could not be refreshed."}`);
+      setMessage(`Draft saved after 30 minutes of inactivity — awaiting approval.${editedDuringSave ? " Changes made while saving have not yet been saved." : ""}${photos.length ? " Selected attachments are kept on this device until uploaded or discarded." : ""}${refreshed ? "" : " The saved-draft list could not be refreshed."}`);
     } catch (error) {
       if (!activeDraftId && !pendingDraftSave.current && draftIdentityScope.current === scope && draftIdentityGeneration.current === generation) {
         try { sessionStorage.removeItem(`cmpri:unconfirmed-draft:${scope}`); } catch {}
@@ -1224,6 +1419,7 @@ export default function WorkOrdersPage() {
         draftSaveInFlight.current = null;
         if (draftIdentityScope.current === scope && draftIdentityGeneration.current === generation) setDraftBusy(false);
       }
+      persistCreationRecoveryRef.current();
     }
   }
 
@@ -1251,6 +1447,7 @@ export default function WorkOrdersPage() {
     const generation = draftIdentityGeneration.current;
     setDraftBusy(true);
     try {
+      if (activeDraftId === draft.id && !await discardCreationAttachmentStorage()) return;
       await removeSavedDraft(draft.id);
       if (activeDraftId === draft.id) {
         setActiveDraftId("");
@@ -1274,17 +1471,46 @@ export default function WorkOrdersPage() {
       });
       setActiveDraftId("");
       setActiveDraftRevision(null);
+      confirmedDraftRecovery.current = null;
       await loadDrafts();
     } catch {
       // Submission succeeded; a stale draft can still be removed from the Drafts panel later.
     }
   }
 
-  function resetWorkOrderForm(force = false) {
+  async function discardCreationAttachmentStorage() {
+    if (!cmpriSession) return !photos.length && !pendingPhotoUploads.length && !attachmentRecoveryConflict;
+    if (!photos.length && !pendingPhotoUploads.length && !attachmentRecoveryConflict && !attachmentRecoveryFailed && !acknowledgedCreation.current) return true;
+    const scope = `${cmpriSession.hotelId}:${cmpriSession.user.id}`;
+    try {
+      await clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" });
+      if (draftIdentityScope.current !== scope || creationRecoveryStopped.current) return false;
+      attachmentDiscarded.current = true;
+      acknowledgedCreation.current = undefined;
+      return true;
+    } catch (error) { setPhotoUploadError(error instanceof Error ? error.message : "Retained attachments could not be discarded. Your files are still here."); return false; }
+  }
+
+  function resetWorkOrderForm(force = false, preserveRecovery = false, attachmentsCleared = false) {
     if (pendingPhotoUploads.length > 0 && !force) {
       setMessage("Retry the pending photo upload before discarding this created work order.");
       return;
     }
+    if (!preserveRecovery && cmpriSession) {
+      attachmentDiscarded.current = true;
+      attachmentPendingUploads.current = null;
+      if (!attachmentsCleared) void clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" }).catch(error => setPhotoUploadError(error instanceof Error ? error.message : "Retained attachments could not be cleared."));
+      try { clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id }); } catch {}
+      setCreationRecoveryConflict(null);
+      setCreationSubmissionUncertain(false);
+    }
+    attachmentPendingUploads.current = null;
+    acknowledgedCreation.current = undefined;
+    setAttachmentRecoveryFailed(false);
+    setAttachmentRecoveryConflict(null);
+    restoringAttachments.current++;
+    confirmedCreationKey.current = "";
+    confirmedDraftRecovery.current = null;
     setActiveDraftId("");
     pendingDraftSave.current = null;
     setLastSavedDraftKey("");
@@ -1317,18 +1543,27 @@ export default function WorkOrdersPage() {
     setMainWorkOrderCreated(false);
   }
 
-  function removeSelectedPhoto(uploadId: string) {
-    if (loading || createState !== "idle" || mainWorkOrderCreated || retryingPhotoUpload || pendingPhotoUploads.length > 0) return;
-    const photo = photos.find((selected) => selected.uploadId === uploadId);
+  async function removeSelectedPhoto(uploadId: string) {
+    if (loading || createState !== "idle" || mainWorkOrderCreated || retryingPhotoUpload || pendingPhotoUploads.length > 0 || !cmpriSession) return;
+    const photo = photos.find(selected => selected.uploadId === uploadId);
     if (!photo) return;
-    URL.revokeObjectURL(photo.previewUrl);
-    photoPreviewUrlsRef.current.delete(photo.previewUrl);
-    setPhotos((current) => current.filter((selected) => selected.uploadId !== uploadId));
+    const remaining = photos.filter(selected => selected.uploadId !== uploadId);
+    const scope = `${cmpriSession.hotelId}:${cmpriSession.user.id}`;
+    try {
+      const identity = { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" };
+      if (remaining.length) await saveAttachmentDraft(identity, { draftIdentity: attachmentIdentity(), files: remaining.map(({ file, uploadId }) => ({ file, uploadId })) });
+      else await clearAttachmentDraft(identity);
+      if (draftIdentityScope.current !== scope || creationRecoveryStopped.current) return;
+      if (!remaining.length) attachmentDiscarded.current = true;
+      URL.revokeObjectURL(photo.previewUrl); photoPreviewUrlsRef.current.delete(photo.previewUrl); setPhotos(remaining);
+    } catch (error) { setPhotoUploadError(error instanceof Error ? error.message : "Selected attachment could not be removed from this device. It is still retained."); }
   }
 
   function acceptSelectedPhotos(files: FileList | File[] | null, fromCamera = false) {
+    if (!cmpriSession || creationRecoveryStopped.current || attachmentRecoveryReady !== creationScope || attachmentRecoveryFailed || attachmentRecoveryConflict) return;
     const selected = Array.from(files || []).slice(0, fromCamera ? 1 : undefined);
     if (!selected.length) return;
+    attachmentDiscarded.current = false;
 
     if (photoToReplaceUploadId) {
       const previous = photos.find((photo) => photo.uploadId === photoToReplaceUploadId);
@@ -1339,9 +1574,11 @@ export default function WorkOrdersPage() {
       const replacement = { file: selected[0], previewUrl: URL.createObjectURL(selected[0]), uploadId: crypto.randomUUID() };
       photoPreviewUrlsRef.current.add(replacement.previewUrl);
       setPhotos((current) => current.map((photo) => photo.uploadId === photoToReplaceUploadId ? replacement : photo));
-      setPendingPhotoUploads((current) => current.map((pending) => pending.photo.uploadId === photoToReplaceUploadId
-        ? { ...pending, photo: replacement }
-        : pending));
+      setPendingPhotoUploads((current) => {
+        const updated = current.map(pending => pending.photo.uploadId === photoToReplaceUploadId ? { ...pending, photo: replacement } : pending);
+        if (attachmentPendingUploads.current !== null) attachmentPendingUploads.current = updated;
+        return updated;
+      });
       setPhotoToReplaceUploadId("");
     } else {
       const newPhotos = selected.map((file) => {
@@ -1371,7 +1608,7 @@ export default function WorkOrdersPage() {
       resetWorkOrderForm(true);
       setCreateState("idle");
       const ids = displayId ? formatWorkOrder(displayId) : submittedDisplayIdsRef.current.join(", ");
-      setMessage(tx(`Submitted successfully${ids ? `: ${ids}` : ""}. Ready for the next ticket.`, `Enviado correctamente${ids ? `: ${ids}` : ""}. Listo para la siguiente orden.`));
+      setMessage(ids ? `Submitted successfully: ${ids}. Ready for the next work order.` : "Submitted successfully. Ready for the next work order.");
       return true;
     }
     if (!embedded || window.parent === window || !modalToken) return false;
@@ -1382,9 +1619,10 @@ export default function WorkOrdersPage() {
     return true;
   }
 
-  function finishCancelCreateForm() {
+  async function finishCancelCreateForm() {
     const leavingCreatedTicket = pendingPhotoUploads.length > 0;
-    resetWorkOrderForm(leavingCreatedTicket);
+    if (!await discardCreationAttachmentStorage()) { setShowCancelConfirm(true); return; }
+    resetWorkOrderForm(leavingCreatedTicket, false, true);
     setBatchCreateSuggestions([]);
     setShowBatchCreateDialog(false);
     setShowRelatedWorkOrderDialog(false);
@@ -1420,17 +1658,6 @@ export default function WorkOrdersPage() {
     document.addEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
     return () => document.removeEventListener("cmpri-modal-cancel-request", handleModalCancelRequest);
   }, [embedded]);
-
-  useEffect(() => {
-    const updateLanguage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.data?.type !== "cmpri-profile-preferences-updated") return;
-      if (event.data.preferences?.language === "en" || event.data.preferences?.language === "es") {
-        setFormLanguage(event.data.preferences.language);
-      }
-    };
-    window.addEventListener("message", updateLanguage);
-    return () => window.removeEventListener("message", updateLanguage);
-  }, []);
 
   async function confirmCancelCreateForm() {
     if (loading || draftBusy || retryingPhotoUpload) return;
@@ -1752,6 +1979,7 @@ export default function WorkOrdersPage() {
     workOrders: CreatedWorkOrder[];
     photoUploadPending: boolean;
   }> {
+    if (creationRecoveryConflict || attachmentRecoveryConflict || acknowledgedCreation.current || creationSubmissionUncertain) return { error: { message: "Review the recovered work before submitting." }, workOrders: [], photoUploadPending: false };
     if (submittingRef.current) return { error: { message: "Submission is already in progress." }, workOrders: [], photoUploadPending: false };
     if (pendingPhotoUploads.length > 0) {
       return {
@@ -1761,9 +1989,12 @@ export default function WorkOrdersPage() {
       };
     }
     submittingRef.current = true;
+    const submissionScope = cmpriSession ? `${cmpriSession.hotelId}:${cmpriSession.user.id}` : "";
+    persistCreationRecoveryRef.current();
+    await persistAttachmentsRef.current();
     try {
       const session = await getValidSession();
-      if (!session) {
+      if (!session || session.user.id !== cmpriSession?.user.id || draftIdentityScope.current !== submissionScope || creationRecoveryStopped.current) {
         return { error: { message: "Sign in again before submitting." }, workOrders: [], photoUploadPending: false };
       }
       const response = await fetch("/api/work-orders", {
@@ -1787,6 +2018,18 @@ export default function WorkOrdersPage() {
       if (!workOrders.length || workOrders.some((order) => !order.id)) {
         return { error: { message: "Unable to confirm the saved ticket. Check the list before retrying." }, workOrders: [], photoUploadPending: false };
       }
+      if (draftIdentityScope.current !== submissionScope || creationRecoveryStopped.current) return { error: { message: "The account changed during submission. Reopen this account to check the saved work orders." }, workOrders: [], photoUploadPending: false };
+      attachmentPendingUploads.current = photos.flatMap(photo => workOrders.map(order => ({ id: order.id, display_id: order.display_id, photo })));
+      acknowledgedCreation.current = { workOrders: workOrders.map(order => ({ id: order.id, displayId: order.display_id })),
+        uploads: attachmentPendingUploads.current.map(item => ({ workOrderId: item.id, displayId: item.display_id, uploadId: item.photo.uploadId })) };
+      // This text-only acknowledgement is durable even when the Blob transaction
+      // cannot update its target metadata. A restart must never create again.
+      persistCreationRecoveryRef.current();
+      // Retain the acknowledged ticket IDs before the first upload. Restarting
+      // can now retry the same attachments without creating another work order.
+      await persistAttachmentsRef.current();
+      confirmedCreationKey.current = currentDraftKey;
+      if (!acknowledgedCreation.current) { try { if (cmpriSession) clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id }); } catch {} }
       submittedDisplayIdsRef.current = workOrders.map((order) => formatWorkOrder(order.display_id));
       let photoUploadPending = false;
       if (photos.length && workOrders.length) {
@@ -1794,7 +2037,26 @@ export default function WorkOrdersPage() {
           const selectedPhoto = photos[photoIndex];
           for (let workOrderIndex = 0; workOrderIndex < workOrders.length; workOrderIndex += 1) {
             const workOrder = workOrders[workOrderIndex];
+            if (draftIdentityScope.current !== submissionScope || creationRecoveryStopped.current) return { error: null, workOrders, photoUploadPending: true };
             const upload = await uploadWorkOrderAttachment(workOrder.id, selectedPhoto.file, session.access_token, selectedPhoto.uploadId);
+            if (upload.ok) {
+              const previous: PendingPhotoUpload[] = attachmentPendingUploads.current!;
+              const acknowledgement: CreationRecovery["created"] = acknowledgedCreation.current;
+              const previousTargets: NonNullable<CreationRecovery["created"]>["uploads"] | undefined = acknowledgement?.uploads;
+              attachmentPendingUploads.current = previous.filter(item => item.id !== workOrder.id || item.photo.uploadId !== selectedPhoto.uploadId);
+              if (acknowledgement) acknowledgement.uploads = acknowledgement.uploads.filter(item => item.workOrderId !== workOrder.id || item.uploadId !== selectedPhoto.uploadId);
+              if (!await persistAttachmentsRef.current()) {
+                // Retrying this same upload ID is safe even after server success.
+                // Keep it pending until the local acknowledgement also commits.
+                attachmentPendingUploads.current = previous;
+                if (acknowledgement && previousTargets) { acknowledgement.uploads = previousTargets; acknowledgedCreation.current = acknowledgement; }
+                persistCreationRecoveryRef.current();
+                setPendingPhotoUploads(previous);
+                setPhotoUploadError("The upload was saved, but its device recovery could not be cleared. Keep this window open and retry to confirm cleanup.");
+                photoUploadPending = true;
+                break;
+              }
+            }
             if (!upload.ok) {
               const failedUploads = photos.slice(photoIndex).flatMap((remainingPhoto, remainingPhotoIndex) =>
                 workOrders.slice(remainingPhotoIndex === 0 ? workOrderIndex : 0).map(({ id, display_id }) => ({
@@ -1846,11 +2108,30 @@ export default function WorkOrdersPage() {
 
     setRetryingPhotoUpload(true);
     try {
+      const verified = await loadCmpriSession();
+      if (verified.user.id !== cmpriSession?.user.id || verified.hotelId !== cmpriSession.hotelId || creationRecoveryStopped.current) throw new Error("The account changed. Your attachments are kept for their owner.");
       const pending = pendingPhotoUploads;
+      const retryScope = draftIdentityScope.current;
       let failedUploads: typeof pending = [];
       for (let index = 0; index < pending.length; index += 1) {
         const workOrder = pending[index];
+        if (creationRecoveryStopped.current || draftIdentityScope.current !== retryScope) return;
         const upload = await uploadWorkOrderAttachment(workOrder.id, workOrder.photo.file, session.access_token, workOrder.photo.uploadId);
+        if (upload.ok) {
+          const previous: PendingPhotoUpload[] = attachmentPendingUploads.current || pending;
+          const acknowledgement: CreationRecovery["created"] = acknowledgedCreation.current;
+          const previousTargets: NonNullable<CreationRecovery["created"]>["uploads"] | undefined = acknowledgement?.uploads;
+          attachmentPendingUploads.current = previous.filter(item => item.id !== workOrder.id || item.photo.uploadId !== workOrder.photo.uploadId);
+          if (acknowledgement) acknowledgement.uploads = acknowledgement.uploads.filter(item => item.workOrderId !== workOrder.id || item.uploadId !== workOrder.photo.uploadId);
+          if (!await persistAttachmentsRef.current()) {
+            attachmentPendingUploads.current = previous;
+            if (acknowledgement && previousTargets) { acknowledgement.uploads = previousTargets; acknowledgedCreation.current = acknowledgement; }
+            persistCreationRecoveryRef.current();
+            failedUploads = pending.slice(index);
+            setPhotoUploadError("The upload was saved, but its device recovery could not be cleared. Keep this window open and retry to confirm cleanup.");
+            break;
+          }
+        }
         if (!upload.ok) {
           failedUploads = pending.slice(index);
           setPhotoUploadError(`Photo upload failed for ${formatWorkOrder(workOrder.display_id)}: ${upload.message}`);
@@ -1871,6 +2152,7 @@ export default function WorkOrdersPage() {
           setCreateState("idle");
         }, 900);
       }
+    } catch (error) { setPhotoUploadError(error instanceof Error ? error.message : "Photo uploads could not be retried. Your files are kept.");
     } finally {
       setRetryingPhotoUpload(false);
     }
@@ -1881,9 +2163,12 @@ export default function WorkOrdersPage() {
     photoFileInputRef.current?.click();
   }
 
-  function continueWithoutPhoto() {
+  async function continueWithoutPhoto() {
     if (!canReplacePhoto || retryingPhotoUpload || pendingPhotoUploads.length === 0) return;
     const skippedUploads = pendingPhotoUploads;
+    if (!await discardCreationAttachmentStorage()) return;
+    attachmentPendingUploads.current = [];
+    void persistAttachmentsRef.current();
     setPendingPhotoUploads([]);
     photoPreviewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
     photoPreviewUrlsRef.current.clear();
@@ -2038,19 +2323,22 @@ export default function WorkOrdersPage() {
         if (preferredDiff !== 0) return preferredDiff;
         return a.name.localeCompare(b.name, undefined, { numeric: true });
       })
-      .map((location) => ({
+      .map((location) => {
+        const badge = roomStatusBadge(location.room_status);
+        return {
         value: location.id,
         label: location.name,
-        group: cmpriLocationSection(location),
-        badge: roomStatusBadge(location.room_status) || undefined,
+        group: tx(cmpriLocationSection(location)),
+        badge: badge ? { ...badge, label: tx(badge.label) } : undefined,
         keywords: [
           location.room_number ?? "",
           location.area ?? "",
           location.location_type ?? "",
           location.room_status ?? "",
         ],
-      }));
-  }, [locations]);
+        };
+      });
+  }, [locations, tx]);
   const createHasUnsavedChanges = Boolean(
     issue.trim() || locationId || notes.trim() || assetId || staffFirstName.trim() || photos.length > 0
   );
@@ -2087,17 +2375,15 @@ export default function WorkOrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [createHasUnsavedChanges, locationId, issue, notes, assetId, category, priority, staffFirstName, photos, loading, draftBusy, activeDraftId, currentDraftKey, lastSavedDraftKey, cmpriSession?.user.id, createState, mainWorkOrderCreated, pendingPhotoUploads.length]);
   const isSpanish = formLanguage === "es";
-  const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
-  const categoryLabelEs: Record<string, string> = {
-    General: "General", HVAC: "Climatización / HVAC", Plumbing: "Plomería", Electrical: "Electricidad",
-    Appliances: "Electrodomésticos", "Doors/Locks": "Puertas / Cerraduras", "Pool/Spa": "Piscina / Spa",
-    Laundry: "Lavandería", "Public Area": "Área pública", Safety: "Seguridad", "TV / AV": "TV / AV", Furniture: "Muebles",
-  };
+  const categoryLabelEs: Record<string, string> = Object.fromEntries([
+    "General", "HVAC", "Plumbing", "Electrical", "Appliances", "Doors/Locks", "Pool/Spa",
+    "Laundry", "Public Area", "Safety", "TV / AV", "Furniture",
+  ].map(value => [value, tx(value)]));
 
   const createAssetOptions = [
     ...availableAssets.map((asset) => ({
       value: asset.id,
-      label: `${equipmentOptionLabel(asset)}${asset.location_id === null ? " (Template - no room assignment)" : asset.location_id !== locationId ? ` — ${locations.find(location => location.id === asset.location_id)?.name || "Common area"}` : ""}`,
+      label: `${equipmentOptionLabel(asset)}${asset.location_id === null ? tx(" (Template - no room assignment)") : asset.location_id !== locationId ? ` — ${locations.find(location => location.id === asset.location_id)?.name || tx("Common area")}` : ""}`,
       group: asset.location_id !== locationId ? cmpriLocationSection(locations.find(location => location.id === asset.location_id) || selectedLocation!) : undefined,
       keywords: [
         asset.asset_type,
@@ -2131,14 +2417,52 @@ export default function WorkOrdersPage() {
 
   return (
     <main className="min-h-[100svh] bg-slate-950 p-1 text-white">
-      {activeDraftId && <p role="status" className="mb-2 font-semibold text-amber-200">Draft — awaiting approval</p>}
+      {activeDraftId && <p role="status" className="mb-2 font-semibold text-amber-200">{tx("Draft — awaiting approval")}</p>}
       <div data-work-order-form-layout className="mx-auto w-full max-w-none lg:w-[66vw]">
+        {creationRecoveryConflict && <section role="status" className="mb-2 rounded-lg border border-amber-600 p-3 text-sm text-amber-100">
+          <p className="font-semibold">{tx("Recovered Work Needs Review")}</p>
+          <p className="mt-1 text-xs">{tx("A saved draft changed, another draft was requested, or this form already has edits. Your recovered text has been kept separately.")}</p>
+          <details className="mt-2 text-xs"><summary className="cursor-pointer">{tx("Recovered Text")}</summary><p className="mt-2 whitespace-pre-wrap break-words">{creationRecoveryConflict.fields.issue}</p><p className="mt-1 whitespace-pre-wrap break-words">{creationRecoveryConflict.fields.notes}</p></details>
+          <div className="mt-2 flex flex-wrap gap-3 text-xs">
+            <button type="button" className="underline" onClick={() => {
+              if (!window.confirm(tx("Replace this form with the recovered text? A changed saved draft still requires comparison before its next save."))) return;
+              restoreLocalCreation(creationRecoveryConflict);
+            }}>{tx("Restore Recovered Form")}</button>
+            <button type="button" className="underline" onClick={async () => {
+              if (!cmpriSession || !window.confirm(tx("Discard the recovered text and attachments from this device and keep the form shown here?"))) return;
+              try {
+                await clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" });
+                if (draftIdentityScope.current !== creationScope || creationRecoveryStopped.current) return;
+                if (!clearCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id })) throw new Error("The recovered text could not be discarded. Keep this window open.");
+                attachmentDiscarded.current = true;
+                setAttachmentRecoveryReady(creationScope); setCreationRecoveryConflict(null);
+              } catch (error) { setPhotoUploadError(error instanceof Error ? error.message : "Recovered attachments could not be discarded. Your work is still here."); }
+            }}>{tx("Discard Recovered Copy")}</button>
+          </div>
+        </section>}
+        {attachmentRecoveryFailed && <section role="alert" className="mb-2 rounded-lg border border-amber-600 p-3 text-xs text-amber-100">
+          <p>{tx("Saved attachment recovery could not be read. Your previous files have been kept separately.")}</p>
+          <button type="button" className="mt-2 underline" onClick={() => { if (cmpriSession) void restoreCreationAttachments(readCreationRecovery(localStorage, { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id })); }}>{tx("Retry Attachment Recovery")}</button>
+        </section>}
+        {attachmentRecoveryConflict && <section role="alert" className="mb-2 rounded-lg border border-amber-600 p-3 text-xs text-amber-100">
+          <p>{tx("Recovered attachments belong to an earlier draft revision. Compare their names before attaching them to this form.")}</p>
+          <p className="mt-1">{attachmentRecoveryConflict.files.map(item => item.file.name).join(", ")}</p>
+          <button type="button" className="mt-2 underline" onClick={() => applyCreationAttachments(attachmentRecoveryConflict)}>{tx("Use Recovered Attachments")}</button>
+          <button type="button" className="ml-3 underline" onClick={() => {
+            if (!cmpriSession || !window.confirm(tx("Discard the recovered attachments from this device?"))) return;
+            void clearAttachmentDraft({ hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id, editorId: "create" }).then(() => { if (draftIdentityScope.current === creationScope && !creationRecoveryStopped.current) setAttachmentRecoveryConflict(null); }, error => setPhotoUploadError(error instanceof Error ? error.message : "Attachments could not be discarded."));
+          }}>{tx("Discard Recovered Attachments")}</button>
+        </section>}
+        {creationSubmissionUncertain && <section role="alert" className="mb-2 rounded-lg border border-amber-600 p-3 text-xs text-amber-100">
+          <p>{tx("A submission was in progress when this form closed. Check the work-order list before submitting again.")}</p>
+          <button type="button" className="mt-2 underline" onClick={() => { if (window.confirm(tx("Have you checked the work-order list and confirmed this work was not submitted?"))) setCreationSubmissionUncertain(false); }}>{tx("I Checked The List; Keep Editing")}</button>
+        </section>}
         {drafts.length > 0 && (
           <section className="mb-2 rounded-xl border border-slate-800 bg-slate-900 p-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h2 className="text-base font-bold text-white">Saved Drafts</h2>
-                <p className="text-xs text-slate-400">Your saved drafts. Authorized draft review is available from the Engineering dashboard.</p>
+                <h2 className="text-base font-bold text-white">{tx("Saved Drafts")}</h2>
+                <p className="text-xs text-slate-400">{tx("Your saved drafts. Authorized draft review is available from the Engineering dashboard.")}</p>
               </div>
               <span className="rounded-full border border-slate-700 px-2.5 py-1 text-xs font-semibold text-slate-300">{drafts.length}</span>
             </div>
@@ -2151,14 +2475,14 @@ export default function WorkOrdersPage() {
                   <div key={draft.id} className={`rounded-xl border p-3 ${active ? "border-sky-500 bg-sky-950/25" : "border-slate-800 bg-slate-950/55"}`}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-bold text-slate-100">{draft.room || "Room / Location"} · {draft.issue}</p>
-                        <p className="mt-1 text-xs text-slate-500">{ownDraft ? "Your draft" : `Created by ${draft.creator_name || "another employee"}${draft.creator_display_role ? ` · ${draft.creator_display_role}` : ""}`}{draft.updated_at ? ` · Updated ${new Date(draft.updated_at).toLocaleString()}` : ""}</p>
+                        <p className="truncate text-sm font-bold text-slate-100">{draft.room || tx("Room / Location")} · {draft.issue}</p>
+                        <p className="mt-1 text-xs text-slate-500">{ownDraft ? tx("Your draft") : tx("Created by {value1}{value2}", { value1: draft.creator_name || tx("another employee"), value2: draft.creator_display_role ? ` · ${tx(draft.creator_display_role)}` : "" })}{draft.updated_at ? tx(" · Updated {value1}", { value1: new Date(draft.updated_at).toLocaleString(locale) }) : ""}</p>
                       </div>
                       <div className="flex shrink-0 gap-2">
                         {canEditDraft
-                          ? <button type="button" disabled={draftBusy} onClick={() => restoreDraft(draft)} className="rounded-lg border border-sky-600/60 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-950/60 disabled:opacity-50">{ownDraft ? "Load" : "Review / Edit"}</button>
-                          : <span className="px-3 py-1.5 text-xs font-semibold text-slate-500">Read-only</span>}
-                        {draft.can_delete && <button type="button" disabled={draftBusy} onClick={() => void deleteDraft(draft)} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-50">Discard</button>}
+                          ? <button type="button" disabled={draftBusy} onClick={() => restoreDraft(draft)} className="rounded-lg border border-sky-600/60 px-3 py-1.5 text-xs font-bold text-sky-200 hover:bg-sky-950/60 disabled:opacity-50">{ownDraft ? tx("Load") : tx("Review / Edit")}</button>
+                          : <span className="px-3 py-1.5 text-xs font-semibold text-slate-500">{tx("Read-only")}</span>}
+                        {draft.can_delete && <button type="button" disabled={draftBusy} onClick={() => void deleteDraft(draft)} className="rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-800 disabled:opacity-50">{tx("Discard")}</button>}
                       </div>
                     </div>
                   </div>
@@ -2176,7 +2500,7 @@ export default function WorkOrdersPage() {
             <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950 px-3 py-2 md:static">
               {cmpriSession && !embedded && (
                 <div className="mr-auto flex min-w-0 flex-col items-start leading-tight">
-                  <p className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">CMPRI</span>{" "}<span className="text-amber-300">Engineering</span></p>
+                  <p className="text-[14pt] font-bold leading-none tracking-tight"><span className="text-amber-300">{tx("CMPRI")}</span>{" "}<span className="text-amber-300">{tx("Engineering")}</span></p>
                   <AccountSummary user={cmpriSession.user} />
                   {isSubmitOnlyUser && !isFrontDeskUser && <ModalNavigationButton href="/profile" className="mt-1 rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-800">{tx("Manage Profile", "Administrar perfil")}</ModalNavigationButton>}
                 </div>
@@ -2186,17 +2510,17 @@ export default function WorkOrdersPage() {
 
               {cmpriSession && !embedded && <><PoolStatus controlOnly/></>}
               <div data-preview-create-actions className="flex flex-wrap items-center justify-end gap-1">
-                <WorkOrderMediaControl uploadInputRef={photoFileInputRef} disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload || loading} onSelect={files=>acceptSelectedPhotos(files)} />
+                <WorkOrderMediaControl uploadInputRef={photoFileInputRef} disabled={(pendingPhotoUploads.length > 0 && !canReplacePhoto) || retryingPhotoUpload || loading || Boolean(attachmentRecoveryConflict) || attachmentRecoveryFailed || attachmentRecoveryReady !== creationScope} onSelect={files=>acceptSelectedPhotos(files)} />
                 <button type="button" onClick={requestCancelCreateForm} disabled={loading || draftBusy || retryingPhotoUpload} className="min-h-10 rounded-lg border border-slate-600 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Cancel", "Cancelar")}</button>
-                <button type="submit" disabled={loading || draftBusy || loadingLocations || loadingAssets || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
+                <button type="submit" disabled={loading || draftBusy || loadingLocations || loadingAssets || creationRecoveryReady !== creationScope || attachmentRecoveryReady !== creationScope || Boolean(creationRecoveryConflict) || Boolean(attachmentRecoveryConflict) || attachmentRecoveryFailed || creationSubmissionUncertain || createState === "created"} className={`min-h-10 rounded-full border px-3 py-2 text-xs font-bold transition-colors disabled:opacity-80 ${createState === "created" ? "border-emerald-500 bg-emerald-600 text-white" : createState === "creating" ? "border-sky-900 bg-sky-950/70 text-sky-200" : "border-sky-500 bg-sky-700 text-white hover:bg-sky-600"}`}>
                   {createState === "creating" ? tx("Submitting...", "Enviando...") : createState === "created" ? tx("Submitted", "Enviado") : approvingDraft ? tx("Approve & Submit Draft", "Aprobar y enviar borrador") : isSubmitOnlyUser ? tx("Submit Request", "Enviar solicitud") : tx("Create Work Order", "Crear orden")}
                 </button>
               </div>
             </div>
 
-            {!isSubmitOnlyUser && <p className="text-xs text-slate-400">{tx("Drafts save text only. Selected photos must be added again after reopening. Autosave runs after 30 minutes of inactivity once a location and issue are entered.", "Los borradores guardan solo texto. Vuelve a seleccionar las fotos al abrirlos. El guardado automático ocurre tras 30 minutos de inactividad cuando hay ubicación y problema.")}</p>}
+            {!isSubmitOnlyUser && <p className="text-xs text-slate-400">{tx("Saved drafts keep text on the server. Selected attachments stay on this device until uploaded or discarded. Autosave runs after 30 minutes of inactivity once a location and issue are entered.", "Los borradores guardan texto en el servidor. Los archivos seleccionados se conservan en este dispositivo hasta cargarlos o descartarlos. El guardado automático ocurre tras 30 minutos de inactividad cuando hay ubicación y problema.")}</p>}
             {pendingDraftSave.current && <button type="button" disabled={draftBusy} className="text-xs text-amber-300 underline" onClick={() => {
-              if (!window.confirm("Stop retrying this save? It may have succeeded. Your current text will stay here. Check Saved Drafts before creating another to avoid a duplicate.")) return;
+              if (!window.confirm(tx("Stop retrying this save? It may have succeeded. Your current text will stay here. Check Saved Drafts before creating another to avoid a duplicate."))) return;
               pendingDraftSave.current = null;
               setMessage("Retry stopped. Your text is still here. Check Saved Drafts and compare before continuing.");
             }}>{tx("Stop retrying and check saved drafts", "Detener reintentos y revisar borradores")}</button>}
@@ -2204,14 +2528,14 @@ export default function WorkOrdersPage() {
               <p>{tx("A previous draft save was not confirmed. Check Saved Drafts and load the matching draft before starting another one.", "No se confirmó un guardado anterior. Revisa los borradores y carga el correspondiente antes de crear otro.")}</p>
               <button type="button" className="mr-3 mt-2 underline" onClick={() => void loadDrafts()}>{tx("Refresh saved drafts", "Actualizar borradores")}</button>
               <button type="button" className="mt-2 underline" onClick={() => {
-                if (!window.confirm("Clear this reminder? If the previous save succeeded, creating another draft can make a duplicate.")) return;
+                if (!window.confirm(tx("Clear this reminder? If the previous save succeeded, creating another draft can make a duplicate."))) return;
                 try { sessionStorage.removeItem(`cmpri:unconfirmed-draft:${draftIdentityScope.current}`); } catch {}
                 setUnconfirmedCreationId("");
               }}>{tx("Clear reminder and start another draft", "Borrar aviso y crear otro borrador")}</button>
             </div>}
             {(photos.length > 0 || photoUploadError) && <div className="space-y-2">
-              {photos.length > 0 && <div className="flex flex-wrap gap-2" aria-label="Selected photo previews">{photos.map((photo) => <WorkOrderPhotoPreview key={photo.uploadId} photo={photo} removeLabel={tx("Remove selected photo", "Quitar foto seleccionada")} onRemove={!loading && createState === "idle" && !mainWorkOrderCreated && !retryingPhotoUpload && pendingPhotoUploads.length === 0 ? () => removeSelectedPhoto(photo.uploadId) : undefined} />)}</div>}
-              {photoUploadError && <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]"><span role="alert" className="text-amber-300">{photoUploadError}</span>{canReplacePhoto && pendingPhotoUploads.length > 0 && <><button type="button" onClick={chooseReplacementPhoto} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40">Choose a different photo</button><button type="button" onClick={continueWithoutPhoto} disabled={retryingPhotoUpload} className="rounded border border-slate-500/70 px-2 py-1 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">Continue without photo</button></>}{pendingPhotoUploads.length > 0 && !canReplacePhoto && <button type="button" onClick={() => void retryPendingPhotoUploads()} disabled={retryingPhotoUpload} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40 disabled:opacity-60">{retryingPhotoUpload ? "Retrying photo upload..." : "Retry photo upload"}</button>}</div>}
+              {photos.length > 0 && <div className="flex flex-wrap gap-2" aria-label={tx("Selected photo previews")}>{photos.map((photo) => <WorkOrderPhotoPreview key={photo.uploadId} photo={photo} removeLabel={tx("Remove selected photo", "Quitar foto seleccionada")} onRemove={!loading && createState === "idle" && !mainWorkOrderCreated && !retryingPhotoUpload && pendingPhotoUploads.length === 0 ? () => removeSelectedPhoto(photo.uploadId) : undefined} />)}</div>}
+              {photoUploadError && <div className="flex min-w-0 flex-wrap items-center gap-2 text-[11px]"><span role="alert" className="text-amber-300">{tx(photoUploadError)}</span>{canReplacePhoto && pendingPhotoUploads.length > 0 && <><button type="button" onClick={chooseReplacementPhoto} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40">{tx("Choose a different photo")}</button><button type="button" onClick={continueWithoutPhoto} disabled={retryingPhotoUpload} className="rounded border border-slate-500/70 px-2 py-1 font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-60">{tx("Continue without photo")}</button></>}{pendingPhotoUploads.length > 0 && !canReplacePhoto && <button type="button" onClick={() => void retryPendingPhotoUploads()} disabled={retryingPhotoUpload} className="rounded border border-amber-500/70 px-2 py-1 font-semibold text-amber-200 hover:bg-amber-950/40 disabled:opacity-60">{retryingPhotoUpload ? tx("Retrying photo upload...") : tx("Retry photo upload")}</button>}</div>}
             </div>}
 
             {isFrontDeskUser && <label className="block">
@@ -2233,9 +2557,9 @@ export default function WorkOrdersPage() {
               />
               {selectedLocation && (selectedLocationStatus ? (
                 <span className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${selectedLocationStatus.className}`}>
-                  Room condition: {selectedLocationStatus.label}
+                  {tx("Room condition:")}{" "}{tx(selectedLocationStatus.label)}
                 </span>
-              ) : <span className="mt-1 block text-xs text-slate-500">Room status not reported today.</span>)}
+              ) : <span className="mt-1 block text-xs text-slate-500">{tx("Room status not reported today.")}</span>)}
             </label>
 
             <label className="block">
@@ -2251,7 +2575,7 @@ export default function WorkOrdersPage() {
               />
               {detectedCreateIssues.length >= 2 && (
                 <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-950/25 px-3 py-2">
-                  <p className="text-sm font-bold text-amber-200">This report will create {detectedCreateIssues.length} work orders.</p>
+                  <p className="text-sm font-bold text-amber-200">{tx("This report will create")}{" "}{detectedCreateIssues.length} {tx("work orders.")}</p>
                   <p className="mt-1 text-xs text-amber-100/70">{detectedCreateIssues.map((item) => item.category).join(" · ")}</p>
                 </div>
               )}
@@ -2260,7 +2584,7 @@ export default function WorkOrdersPage() {
             <div className="grid gap-2 md:grid-cols-3">
               <label className="block md:col-span-1">
                 <span className="mb-1 block text-sm font-medium"> {tx("Asset / Equipment", "Equipo / Activo")} </span>
-                {assetRefreshError && <p role="alert" className="mb-2 text-xs text-amber-200">{assetRefreshError} <button type="button" onClick={() => void loadAssets()} className="underline">Retry equipment list</button></p>}
+                {assetRefreshError && <p role="alert" className="mb-2 text-xs text-amber-200">{assetRefreshError} <button type="button" onClick={() => void loadAssets()} className="underline">{tx("Retry equipment list")}</button></p>}
                 {locationId && issue.trim() && !assetId && <p role="status" className="mb-2 text-xs text-amber-200">{tx("No confirmed equipment match for this location. You can submit; Engineering will verify the equipment.", "No hay equipo confirmado para esta ubicación. Puedes enviar; Ingeniería verificará el equipo.")}</p>}
                 {!canSetEngineeringFields ? (
                   <output className="block w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200">
@@ -2333,21 +2657,21 @@ export default function WorkOrdersPage() {
             </label>
 
             {canViewTroubleshootingGuide && (
-              <section aria-label="Troubleshooting Guide" className="rounded-xl border border-amber-500/30 bg-slate-950/70 p-2">
+              <section aria-label={tx("Troubleshooting Guide")} className="rounded-xl border border-amber-500/30 bg-slate-950/70 p-2">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <h2 className="text-lg font-bold text-amber-300">Suggested Troubleshooting</h2>
-                    <p className="mt-1 text-xs text-slate-400">Only instructions from this equipment&apos;s approved uploaded document are shown. No AI-generated instructions.</p>
+                    <h2 className="text-lg font-bold text-amber-300">{tx("Suggested Troubleshooting")}</h2>
+                    <p className="mt-1 text-xs text-slate-400">{tx("Only instructions from this equipment's approved uploaded document are shown. No AI-generated instructions.")}</p>
                   </div>
-                  {troubleshootingLoading && <span className="text-xs text-slate-400">Loading equipment guidance...</span>}
+                  {troubleshootingLoading && <span className="text-xs text-slate-400">{tx("Loading equipment guidance...")}</span>}
                 </div>
                 {selectedCreateAsset && trustedTroubleshootingKnowledge?.source?.title && (
-                  <ul className="mt-2 text-xs text-slate-300">{trustedSources.map(source => <li key={source.registered_file_id}>Source: <a href={source.file_url || source.pdf_url} target="_blank" rel="noreferrer" className="font-semibold text-sky-300 underline">{source.source_file_name || source.title}</a></li>)}</ul>
+                  <ul className="mt-2 text-xs text-slate-300">{trustedSources.map(source => <li key={source.registered_file_id}>{tx("Source:")}{" "}<a href={source.file_url || source.pdf_url} target="_blank" rel="noreferrer" className="font-semibold text-sky-300 underline">{source.source_file_name || source.title}</a></li>)}</ul>
                 )}
                 {selectedCreateAsset && troubleshootingKnowledge?.source?.title && !trustedTroubleshootingKnowledge && (
-                  <p className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-400">Equipment reference available; its extracted guidance is hidden until Engineering verifies the documentation.</p>
+                  <p className="mt-3 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-xs text-slate-400">{tx("Equipment reference available; its extracted guidance is hidden until Engineering verifies the documentation.")}</p>
                 )}
-                {!selectedCreateAsset && <p className="mt-3 text-xs text-slate-400">Select equipment to check for an exact verified manual match.</p>}
+                {!selectedCreateAsset && <p className="mt-3 text-xs text-slate-400">{tx("Select equipment to check for an exact verified manual match.")}</p>}
                 {troubleshootingError && <p role="status" className="mt-3 text-xs text-amber-200">{troubleshootingError}</p>}
                 {trustedTroubleshootingKnowledge && troubleshootingReason && <p role="status" className="mt-2 text-xs text-amber-200">{troubleshootingReason}</p>}
                 {troubleshootingSteps.length > 0
@@ -2358,7 +2682,7 @@ export default function WorkOrdersPage() {
                       <li key={`${step}-${index}`} className="flex gap-2">
                         <span className="font-semibold text-amber-400">{index + 1}.</span>
                         <div className="min-w-0">
-                          <span>{step}</span>{semantics && <span data-source-semantics={semantics.kind} aria-label={`Source label: ${semantics.label}`} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}
+                          <span>{step}</span>{semantics && <span data-source-semantics={semantics.kind} aria-label={tx("Source label: {value1}", { value1: semantics.label })} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}
                           {selectedCreateAsset && troubleshootingUserId && trustedTroubleshootingKnowledge?.source?.sha256 && (
                             <WorkOrderStepMedia media={(trustedTroubleshootingKnowledge.step_media || []).filter(item => item.stepLabel === step && matchingTroubleshootingRules.some(rule => rule.steps.includes(step) && rule.source_pages?.includes(item.sourcePage) && rule.source_document_id === item.source_document_id && rule.source_sha256 === item.source_sha256))} assetId={selectedCreateAsset.id}
                               sourceSha256={trustedTroubleshootingKnowledge.source.sha256} userId={troubleshootingUserId} contextIdentity={troubleshootingMediaContext} />
@@ -2370,8 +2694,8 @@ export default function WorkOrdersPage() {
                   </ol>
                   : selectedCreateAsset && !troubleshootingLoading && !troubleshootingError && (
                     <p className="mt-3 text-xs text-slate-400">{matchingTroubleshootingSteps.length
-                      ? "The matched checks are already recorded as completed or ruled out in Notes / Actions Taken."
-                      : troubleshootingReason || "No matching instructions in the attached document."}</p>
+                      ? tx("The matched checks are already recorded as completed or ruled out in Notes / Actions Taken.")
+                      : troubleshootingReason || tx("No matching instructions in the attached document.")}</p>
                   )}
               </section>
             )}
@@ -2382,7 +2706,7 @@ export default function WorkOrdersPage() {
 
         {message && (
           <p className="mt-5 rounded-lg bg-slate-900 p-4 text-sm">
-            {message}
+            {tx(message)}
           </p>
         )}
 
@@ -2415,8 +2739,8 @@ export default function WorkOrdersPage() {
             setBatchCreateSuggestions([]);
           }}>
             <div role="dialog" aria-modal="true" aria-labelledby="batch-work-orders-title" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
-              <h2 id="batch-work-orders-title" className="text-xl font-bold">{batchCreateSuggestions.length} work orders detected</h2>
-              <p className="mt-1 text-sm text-slate-400">CMPRI found multiple maintenance issues in one report. Review them before anything is submitted. You can edit an issue or remove one that should not become a separate work order.</p>
+              <h2 id="batch-work-orders-title" className="text-xl font-bold">{batchCreateSuggestions.length} {tx("work orders detected")}</h2>
+              <p className="mt-1 text-sm text-slate-400">{tx("CMPRI found multiple maintenance issues in one report. Review them before anything is submitted. You can edit an issue or remove one that should not become a separate work order.")}</p>
 
               <div className="mt-2 max-h-[58vh] space-y-1.5 overflow-y-auto pr-1">
                 {batchCreateSuggestions.map((suggestion, index) => {
@@ -2427,7 +2751,7 @@ export default function WorkOrdersPage() {
                     <div key={suggestion.key} className="rounded-xl border border-slate-700 bg-slate-950 p-2">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Work Order {index + 1}</p>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{tx("Work Order")}{" "}{index + 1}</p>
                           <div className="mt-1">
                             <SearchableSelect
                               value={rowLocation.id}
@@ -2457,20 +2781,19 @@ export default function WorkOrdersPage() {
                           onClick={() => handleBatchSuggestionRemoval(index)}
                           className="rounded-lg border border-red-500/50 px-3 py-1 text-xs font-semibold text-red-300 hover:bg-red-950/40"
                         >
-                          Remove
-                        </button>
+                          {tx("Remove")}</button>
                       </div>
                       <div className="mt-1.5 grid gap-1.5 text-xs text-slate-300 sm:grid-cols-3">
-                        <span><span className="text-slate-500">Asset:</span> {relatedAsset?.name ?? suggestion.assetName}</span>
-                        <span><span className="text-slate-500">Category:</span> {suggestion.category}</span>
-                        <span><span className="text-slate-500">Priority:</span> {suggestion.priority}</span>
+                        <span><span className="text-slate-500">{tx("Asset:")}</span> {relatedAsset?.name ?? suggestion.assetName}</span>
+                        <span><span className="text-slate-500">{tx("Category:")}</span> {tx(suggestion.category)}</span>
+                        <span><span className="text-slate-500">{tx("Priority:")}</span> {tx(suggestion.priority)}</span>
                       </div>
                       {duplicate && (
-                        <p className="mt-1.5 rounded-lg border border-orange-500/40 bg-orange-950/30 px-2 py-1 text-xs font-semibold text-orange-200">Possible duplicate: {formatWorkOrder(duplicate.display_id, "existing work order")} — {duplicate.issue || "similar active issue"}</p>
+                        <p className="mt-1.5 rounded-lg border border-orange-500/40 bg-orange-950/30 px-2 py-1 text-xs font-semibold text-orange-200">{tx("Possible duplicate:")}{" "}{formatWorkOrder(duplicate.display_id, "existing work order")} — {duplicate.issue || tx("similar active issue")}</p>
                       )}
                       <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        <button type="button" onClick={() => void createSingleBatchWorkOrder(suggestion)} className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-1 text-xs font-bold text-amber-100 hover:bg-amber-900/40">Submit This</button>
-                        <button type="button" onClick={() => handleBatchSuggestionRemoval(index)} className="rounded-lg border border-red-500/50 px-3 py-1 text-xs font-bold text-red-200 hover:bg-red-950/40">Remove</button>
+                        <button type="button" onClick={() => void createSingleBatchWorkOrder(suggestion)} className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-1 text-xs font-bold text-amber-100 hover:bg-amber-900/40">{tx("Submit This")}</button>
+                        <button type="button" onClick={() => handleBatchSuggestionRemoval(index)} className="rounded-lg border border-red-500/50 px-3 py-1 text-xs font-bold text-red-200 hover:bg-red-950/40">{tx("Remove")}</button>
                       </div>
                     </div>
                   );
@@ -2478,9 +2801,9 @@ export default function WorkOrdersPage() {
               </div>
 
               <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <button type="button" autoFocus disabled={creatingBatchWorkOrders} onClick={() => { setShowBatchCreateDialog(false); setBatchCreateSuggestions([]); }} className="rounded-lg border border-slate-600 px-4 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50">Back to Form</button>
+                <button type="button" autoFocus disabled={creatingBatchWorkOrders} onClick={() => { setShowBatchCreateDialog(false); setBatchCreateSuggestions([]); }} className="rounded-lg border border-slate-600 px-4 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50">{tx("Back to Form")}</button>
                 <button type="button" disabled={creatingBatchWorkOrders || batchCreateSuggestions.length < 2} onClick={() => void createBatchWorkOrders()} className="rounded-lg bg-amber-400 px-4 py-1.5 text-sm font-bold text-slate-950 disabled:opacity-60">
-                  {creatingBatchWorkOrders ? "Submitting..." : `Submit All (${batchCreateSuggestions.length})`}
+                  {creatingBatchWorkOrders ? tx("Submitting...") : tx("Submit All ({value1})", { value1: batchCreateSuggestions.length })}
                 </button>
               </div>
             </div>
@@ -2505,12 +2828,10 @@ export default function WorkOrdersPage() {
                   id="related-work-orders-title"
                   className="text-xl font-bold"
                 >
-                  Are you sure you want to create these work orders?
-                </h2>
+                  {tx("Are you sure you want to create these work orders?")}</h2>
 
                 <p className="mt-1 text-sm text-slate-400">
-                  Review the separate issues found in the technician notes. Category, priority, and troubleshooting will still be saved, but they are intentionally hidden from this confirmation.
-                </p>
+                  {tx("Review the separate issues found in the technician notes. Category, priority, and troubleshooting will still be saved, but they are intentionally hidden from this confirmation.")}</p>
 
                 <div className="mt-2 max-h-[55vh] space-y-1.5 overflow-y-auto pr-1">
                   {relatedIssueSuggestions.map(
@@ -2530,8 +2851,7 @@ export default function WorkOrdersPage() {
                         >
                           <div className="grid gap-1.5 sm:grid-cols-[110px_1fr]">
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Room
-                            </p>
+                              {tx("Room")}</p>
 
                             <p className="text-sm font-semibold">
                               {
@@ -2540,8 +2860,7 @@ export default function WorkOrdersPage() {
                             </p>
 
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Asset
-                            </p>
+                              {tx("Asset")}</p>
 
                             <p className="text-sm">
                               {relatedAsset?.name ??
@@ -2549,8 +2868,7 @@ export default function WorkOrdersPage() {
                             </p>
 
                             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Issue
-                            </p>
+                              {tx("Issue")}</p>
 
                             <p className="text-sm">
                               {
@@ -2575,8 +2893,7 @@ export default function WorkOrdersPage() {
                     }
                     className="rounded-lg border border-slate-600 px-4 py-1.5 text-sm font-semibold text-slate-200 hover:bg-slate-800 disabled:opacity-50"
                   >
-                    Cancel
-                  </button>
+                    {tx("Cancel")}</button>
 
                   <button
                     type="button"
@@ -2589,8 +2906,8 @@ export default function WorkOrdersPage() {
                     className="rounded-lg bg-amber-400 px-4 py-1.5 text-sm font-bold text-slate-950 disabled:opacity-60"
                   >
                     {creatingRelatedWorkOrders
-                      ? "Creating..."
-                      : `Yes, Create ${relatedIssueSuggestions.length} Work Order${relatedIssueSuggestions.length === 1 ? "" : "s"}`}
+                      ? tx("Creating...")
+                      : tx(relatedIssueSuggestions.length === 1 ? "Yes, Create 1 Work Order" : "Yes, Create {count} Work Orders", { count: relatedIssueSuggestions.length })}
                   </button>
                 </div>
               </div>

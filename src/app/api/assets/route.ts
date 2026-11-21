@@ -6,7 +6,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { parseAssetInstallYear } from "@/lib/asset-install-year";
 import { allows } from "@/lib/server/access";
-import { requireCapability, requireUser } from "@/lib/server/auth";
+import { requireCapability, requireUserAttempt } from "@/lib/server/auth";
+import { canReadChiefModuleData } from "@/lib/dashboard/chief-module-access";
 import { canEditEquipment, canReadEquipment } from "@/lib/server/roles";
 import { extractManualPdfText, hasScannedManualContent, manualPdfSha256 } from "@/lib/manual-pdf-knowledge";
 import { eligibleManualLinks } from "@/lib/manual-applicability";
@@ -59,8 +60,8 @@ function optionalText(value: unknown, label: string, maximum = 500) {
 export async function GET(request: NextRequest) {
   const staged = await dispatchConsolidation(request, baseline.GET);
   if (staged) return staged;
-  const auth = await requireUser(request);
-  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await requireUserAttempt(request);
+  if (!auth.ok) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const mode = request.nextUrl.searchParams.get("mode") || "management";
 
   if (mode === "create") {
@@ -82,14 +83,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ assets }, { headers: { "Cache-Control": "no-store" } });
   }
 
-  if (!canReadEquipment(auth.principal.profile.role)) {
+  const legacyEquipmentAccess = canReadEquipment(auth.principal.profile.role);
+  if (!legacyEquipmentAccess && (auth.mcp || !canReadChiefModuleData(auth.principal))) {
     return NextResponse.json({ error: "Equipment management permission is required." }, { status: 403 });
   }
   const includeDocumentation = request.nextUrl.searchParams.get("include_documentation") !== "false";
   const assets: Array<Record<string, unknown> & { id: string }> = [];
   for (let offset = 0; ; offset += ASSET_PAGE_SIZE) {
-    const { data, error } = await auth.admin.from("assets")
-      .select("id, location_id, asset_type, name, asset_tag, binder_tag, quantity, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key, documentation_verified_at, documentation_verified_by, documentation_revision_id, updated_at")
+    const query = auth.admin.from("assets")
+      .select("id, location_id, asset_type, name, asset_tag, binder_tag, quantity, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key, documentation_verified_at, documentation_verified_by, documentation_revision_id, updated_at");
+    const { data, error } = await (legacyEquipmentAccess ? query : query.eq("hotel_id", auth.principal.hotelId))
       .range(offset, offset + ASSET_PAGE_SIZE - 1)
       .order("name", { ascending: true });
     if (error) return NextResponse.json({ error: "Equipment could not be loaded." }, { status: 503 });

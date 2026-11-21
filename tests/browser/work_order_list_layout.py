@@ -3,6 +3,8 @@ from cmpri_fixture import *
 from datetime import datetime, timezone
 import re
 
+PALETTE=json.loads((Path(__file__).resolve().parents[2]/'src/lib/ui/site-palette.json').read_text())
+
 async def main():
  results=[]
  async with async_playwright() as p:
@@ -26,6 +28,7 @@ async def main():
    async def extra(route):
     path=urlparse(route.request.url).path
     if path=='/api/work-orders/sample-0':return await route.fulfill(json={'workOrder':examples[0],'mentionTickets':[]})
+    if path=='/api/work-orders/sample-0/parts':return await route.fulfill(json={'items':[],'parts':[],'poLines':[]})
     if path!='/api/work-orders':return await route.fallback()
     q=parse_qs(urlparse(route.request.url).query);rows=examples[:]
     query=q.get('q',[''])[0].lower();f=q.get('filter',['all'])[0];sort=q.get('sort',['default'])[0]
@@ -41,9 +44,8 @@ async def main():
    page.on('request',lambda request:writes.append(request.url) if request.method not in ['GET','HEAD'] and '/api/work-orders' in request.url else None)
    await page.clock.set_fixed_time(datetime(2026,11,6,14,0,tzinfo=timezone.utc))
    await page.goto(BASE+'/engineering',timeout=60000)
-   await page.get_by_role('button',name='Work Order List',exact=True).wait_for(timeout=60000)
-   await page.get_by_role('button',name='Work Order List',exact=True).focus()
-   await page.get_by_role('button',name='Work Order List',exact=True).press('Enter')
+   launch=await reveal_dashboard_launcher(page.locator('.cmpri-header-v23 [data-key="work-order-list"]'))
+   await launch.focus();await launch.press('Enter')
    modal=page.locator('[data-cmpri-desktop-window="work-order-list"]')
    await expect(modal).to_be_visible(timeout=15000)
    await expect(modal.locator('.work-order-ticket-line')).to_have_count(6)
@@ -103,7 +105,8 @@ async def main():
    assert await modal.locator('.work-order-tier-key').count()==1
    await expect(help.locator('.tier-ambassador')).to_be_visible()
    badge=help.locator('.work-order-tier-question')
-   assert await badge.evaluate('e=>getComputedStyle(e).backgroundColor')=='rgb(220, 38, 38)'
+   expected_badge='rgb('+', '.join(PALETTE['semantic']['control-rgb'].split(','))+')'
+   assert await badge.evaluate('e=>getComputedStyle(e).backgroundColor')==expected_badge
    markbox,qbox,closebox=await help.locator('.tier-m').bounding_box(),await badge.bounding_box(),await close.bounding_box()
    assert qbox['x']>=markbox['x']+markbox['width']/2 and qbox['y']<markbox['y']+markbox['height']/2
    assert qbox['x']+qbox['width']<closebox['x']
@@ -148,7 +151,7 @@ async def main():
    await modal.locator('[data-preview-status]').first.click()
    detail=page.locator('[data-cmpri-desktop-window="/work-orders/sample-0"]')
    await expect(detail).to_be_visible()
-   await expect(detail.locator('.cmpri-desktop-titlebar .cmpri-window-guest img[alt="CN"]')).to_have_count(1)
+   await expect(detail.locator('.cmpri-desktop-titlebar .cmpri-title-guest img[alt="CN"]')).to_have_count(1)
    ticket=detail.frame_locator('iframe')
    await expect(ticket.locator('[data-work-order-guest] img[alt="CN"]')).to_have_count(1)
    await expect(ticket.locator('[data-preview-detail-title] img[alt="CN"]')).to_have_count(0)
@@ -164,8 +167,8 @@ async def main():
    await context.route_web_socket(re.compile(r'^wss://[^/]*\.supabase\.co/'),lambda socket:socket.close())
    page=await context.new_page()
    await page.goto(BASE+('/front-desk' if role=='front_desk' else '/engineering'))
-   launch=page.get_by_role('button',name='Work Order List',exact=True)
-   await launch.wait_for(timeout=60000);await launch.focus();await launch.press('Enter')
+   launch=await reveal_dashboard_launcher(page.locator('.cmpri-header-v23 [data-key="work-order-list"]'))
+   await launch.focus();await launch.press('Enter')
    dialog=page.locator('[data-cmpri-desktop-window="work-order-list"]')
    await expect(dialog).to_be_visible()
    await expect(dialog.locator('[data-preview-status]')).to_have_count(1)

@@ -7,6 +7,7 @@ import React from 'react';
 import * as jsx from 'react/jsx-runtime';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as provenance from '../src/lib/work-order-import-provenance.ts';
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 
 const { workOrderImportLabel } = provenance;
 const batch = 'CMPRI-final-20260915-IMP-';
@@ -37,6 +38,7 @@ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/Wo
 }).outputText, { exports, require(name) {
   if (name === 'react/jsx-runtime') return jsx;
   if (name === '@/lib/work-order-import-provenance') return provenance;
+  if (name === '@/components/UiLanguageProvider') return uiLanguageDependency;
   throw new Error(name);
 } });
 
@@ -47,7 +49,7 @@ test('repeated rendering has one pill, preserves original attribution/notes/stat
     const html = renderToStaticMarkup(React.createElement(exports.default, { order }));
     assert.equal((html.match(/data-work-order-import-pill/g) || []).length, 1);
     assert.match(html, /Imported from Mitti/);
-    assert.match(html, /title="Imported from SafetyCulture \/ Mitti via the approved September 15, 2026 workbook"/);
+    assert.match(html, /title="Imported From SafetyCulture \/ Mitti Via The Approved September 15, 2026 Workbook"/);
     assert.doesNotMatch(html, /<button|<a /);
   }
   assert.equal(JSON.stringify(order), before);

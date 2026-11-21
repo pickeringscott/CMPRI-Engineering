@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -14,8 +15,8 @@ globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
 const React=await import('react');const {createRoot}=await import('react-dom/client');const require=createRequire(import.meta.url);
 const code=ts.transpileModule(readFileSync(new URL('../src/components/WorkOrderSourcePages.tsx',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
-const exports={};vm.runInNewContext(code,{exports,require(name){if(name==='./PdfHtmlPreview')return {default:props=>React.createElement('div',{'data-pdf-html-preview':true},props.pageNumbers.map(page=>React.createElement('div',{key:page},props.renderPage(page,React.createElement('div',{'data-pdf-html-page':page})))))};if(name==='react'||name==='react/jsx-runtime')return require(name);
-      if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});if(name==='@/lib/manual-document-html')return manualHtml;if(name==='@/lib/work-orders/diagram-theme')return diagramTheme;if(name==='@/lib/supabase/client')return {getValidSession:async()=>null};throw Error(name);}});
+const exports={};vm.runInNewContext(code,{exports,require(name){if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;if(name==='./PdfHtmlPreview')return {default:props=>React.createElement('div',{'data-pdf-html-preview':true},props.pageNumbers.map(page=>React.createElement('div',{key:page},props.renderPage(page,React.createElement('div',{'data-pdf-html-page':page})))))};if(name==='react'||name==='react/jsx-runtime')return require(name);
+      if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'@/components/UiLanguageProvider':uiLanguageDependency,'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});if(name==='@/lib/manual-document-html')return manualHtml;if(name==='@/lib/work-orders/diagram-theme')return diagramTheme;if(name==='@/lib/supabase/client')return {getValidSession:async()=>null};throw Error(name);}});
 
 test('source pages are continuous in original order and reset with their documents',async()=>{
  const parent=document.createElement('div');document.body.appendChild(parent);const root=createRoot(parent);

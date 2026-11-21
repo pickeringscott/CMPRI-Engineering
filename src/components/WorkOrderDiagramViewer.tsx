@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import { useLayoutEffect, useRef, useState } from "react";
 import type { SourceSemantics } from "@/lib/work-orders/source-semantics";
@@ -28,6 +29,7 @@ function bounded(view: View, geometry: Geometry): View {
 
 /** The parent supplies an authorized image; no extra fetch or proxy is used. */
 export default function WorkOrderDiagramViewer({ imageUrl, title, onClose, semantics, initialTouches }: Props) {
+  const { t } = useUiLanguage();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -157,18 +159,18 @@ export default function WorkOrderDiagramViewer({ imageUrl, title, onClose, seman
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b p-2 sm:p-3" style={{ backgroundColor: "rgba(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb)),.12)", borderColor: "var(--cmpri-outline,rgba(var(--cmpri-palette-control-rgb),.42))" }}>
         <h2 className="min-w-0 flex-1 break-words text-sm font-semibold">{title}</h2>
         {semantics && <span data-source-semantics={semantics.kind} style={{ color: semantics.color }} className="text-xs font-semibold">{semantics.label}</span>}
-        <button ref={closeRef} type="button" aria-label="Close diagram" onClick={onClose} style={controlStyle} className="min-h-11 rounded-lg border px-3 text-sm">Close</button>
-        <div className="flex w-full items-center justify-center gap-2 sm:w-auto" role="group" aria-label="Diagram zoom controls">
-          <button type="button" aria-label="Zoom out" disabled={phase !== "ready" || view.scale <= 1} onClick={() => zoom(1 / 1.5)} style={controlStyle} className="min-h-11 min-w-11 rounded-lg border px-3 disabled:opacity-40">−</button>
+        <button ref={closeRef} type="button" aria-label={t("Close diagram")} onClick={onClose} style={controlStyle} className="min-h-11 rounded-lg border px-3 text-sm">{t("Close")}</button>
+        <div className="flex w-full items-center justify-center gap-2 sm:w-auto" role="group" aria-label={t("Diagram zoom controls")}>
+          <button type="button" aria-label={t("Zoom out")} disabled={phase !== "ready" || view.scale <= 1} onClick={() => zoom(1 / 1.5)} style={controlStyle} className="min-h-11 min-w-11 rounded-lg border px-3 disabled:opacity-40">−</button>
           <output aria-live="polite" className="min-w-14 text-center text-xs">{Math.round(view.scale * 100)}%</output>
-          <button type="button" aria-label="Zoom in" disabled={phase !== "ready" || view.scale >= 6} onClick={() => zoom(1.5)} style={controlStyle} className="min-h-11 min-w-11 rounded-lg border px-3 disabled:opacity-40">+</button>
-          <button type="button" aria-label="Reset zoom" disabled={phase !== "ready"} onClick={reset} style={controlStyle} className="min-h-11 rounded-lg border px-3 text-sm disabled:opacity-40">Reset</button>
+          <button type="button" aria-label={t("Zoom in")} disabled={phase !== "ready" || view.scale >= 6} onClick={() => zoom(1.5)} style={controlStyle} className="min-h-11 min-w-11 rounded-lg border px-3 disabled:opacity-40">+</button>
+          <button type="button" aria-label={t("Reset zoom")} disabled={phase !== "ready"} onClick={reset} style={controlStyle} className="min-h-11 rounded-lg border px-3 text-sm disabled:opacity-40">{t("Reset")}</button>
         </div>
       </div>
-      <p className="shrink-0 px-3 py-1.5 text-center text-xs" style={{ color: "var(--cmpri-modal-muted,var(--cmpri-palette-desktop-tone-8))" }}>Pinch to zoom or use the zoom controls. Drag the enlarged diagram to move it.</p>
-      {phase === "loading" && <p role="status" className="px-3 py-1 text-xs text-slate-300">Loading diagram…</p>}
-      {phase === "error" && <p role="alert" className="px-3 py-1 text-sm text-amber-200">This diagram could not be opened. Close it and try the source again.</p>}
-      <div ref={viewportRef} data-diagram-viewport="true" data-diagram-scale={view.scale} data-diagram-x={view.x} data-diagram-y={view.y} role="region" aria-label="Diagram image. Pinch or use the zoom controls, then drag to move." tabIndex={0} className="relative min-h-0 flex-1 overflow-hidden outline-offset-[-3px] focus-visible:outline focus-visible:outline-2" style={{ ...surfaceStyle, outlineColor: "var(--cmpri-modal-text,var(--cmpri-palette-modal-text))", touchAction: "none", cursor: view.scale > 1 ? "grab" : "default" }} onPointerDown={event => {
+      <p className="shrink-0 px-3 py-1.5 text-center text-xs" style={{ color: "var(--cmpri-modal-muted,var(--cmpri-palette-desktop-tone-8))" }}>{t("Pinch to zoom or use the zoom controls. Drag the enlarged diagram to move it.")}</p>
+      {phase === "loading" && <p role="status" className="px-3 py-1 text-xs text-slate-300">{t("Loading diagram…")}</p>}
+      {phase === "error" && <p role="alert" className="px-3 py-1 text-sm text-amber-200">{t("This diagram could not be opened. Close it and try the source again.")}</p>}
+      <div ref={viewportRef} data-diagram-viewport="true" data-diagram-scale={view.scale} data-diagram-x={view.x} data-diagram-y={view.y} role="region" aria-label={t("Diagram image. Pinch or use the zoom controls, then drag to move.")} tabIndex={0} className="relative min-h-0 flex-1 overflow-hidden outline-offset-[-3px] focus-visible:outline focus-visible:outline-2" style={{ ...surfaceStyle, outlineColor: "var(--cmpri-modal-text,var(--cmpri-palette-modal-text))", touchAction: "none", cursor: view.scale > 1 ? "grab" : "default" }} onPointerDown={event => {
         if (phase !== "ready" || event.button !== 0 && event.pointerType === "mouse") return;
         event.preventDefault(); event.stopPropagation();
         pointers.current.set(event.pointerId, point(event));

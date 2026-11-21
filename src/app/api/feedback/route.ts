@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { APP_TITLE, BUILD_VERSION, HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
+import { requireChiefModuleRead } from "@/lib/server/chief-module-read";
 import { createSupabaseAdmin } from "@/lib/server/supabase-admin";
 
 const FEEDBACK_TYPES = ["Problem", "Bug", "Suggestion"] as const;
@@ -23,13 +24,13 @@ function validRoute(value: unknown): value is string {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = await requireCapability(request, "review_feedback");
+  const auth = await requireChiefModuleRead(request, "review_feedback");
   if (!auth) return NextResponse.json({ error: "Feedback review access is required." }, { status: 403 });
 
   if (request.nextUrl.searchParams.get("mode") === "count") {
     const { count, error } = await auth.admin.from("user_feedback")
       .select("id", { count: "exact", head: true })
-      .eq("hotel_id", HOTEL_ID)
+      .eq("hotel_id", auth.principal.hotelId)
       .eq("status", "New");
     if (error) return NextResponse.json({ error: "Feedback count could not be loaded." }, { status: 503 });
     return NextResponse.json({ count: count || 0 }, { headers: { "Cache-Control": "private, no-store" } });
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await auth.admin.from("user_feedback")
     .select("id, created_at, user_id, user_name, user_role, feedback_type, description, page_route, app_version, status, reviewed_at, resolved_at")
-    .eq("hotel_id", HOTEL_ID)
+    .eq("hotel_id", auth.principal.hotelId)
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: "Feedback could not be loaded." }, { status: 503 });
   return NextResponse.json({ feedback: data || [] }, { headers: { "Cache-Control": "private, no-store" } });

@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -63,12 +64,12 @@ function harness(options={}) {
     return reply(payload());
   };
   const visits={};
-  vm.runInNewContext(visitCode,{exports:visits,Error,crypto,fetch:fetchFixture,sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},setTimeout,clearTimeout,BroadcastChannel:options.BroadcastChannel || class {postMessage(){}close(){}},require(name){if(name==='../supabase/client')return {getValidSession:getAuth};throw Error(name);}});
+  vm.runInNewContext(visitCode,{exports:visits,Error,crypto,fetch:fetchFixture,sessionStorage:{getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},setTimeout,clearTimeout,BroadcastChannel:options.BroadcastChannel || class {postMessage(){}close(){}},require(name){if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;if(name==='../supabase/client')return {getValidSession:getAuth};throw Error(name);}});
   const exports={};
   vm.runInNewContext(code,{exports,Error,crypto,AbortController,queueMicrotask,console,fetch:fetchFixture,
-    require(name){if(name==='./WorkOrderTroubleshootingChecklist.module.css')return {default:{step:'step',checkbox:'checkbox',box:'box',tick:'tick'}};
+    require(name){if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;if(name==='./WorkOrderTroubleshootingChecklist.module.css')return {default:{step:'step',checkbox:'checkbox',box:'box',tick:'tick'}};
       if(name==='react'||name==='react/jsx-runtime')return require(name);
-      if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});
+      if(name==='./ManualSourceLink')return loadTs('src/components/ManualSourceLink.tsx',{'@/components/UiLanguageProvider':uiLanguageDependency,'react':require('react'),'react/jsx-runtime':require('react/jsx-runtime'),'@/lib/supabase/client':{getValidSession:async()=>null}},{window,URL});
       if(name==='@/components/WorkOrderStepMedia')return {default:()=>null};
       if(name==='@/components/CopyButton')return {default:({text,label})=>React.createElement('button',{onClick:()=>copies.push(text)},label)};
       if(name==='@/lib/pm/task-review')return taskReview;

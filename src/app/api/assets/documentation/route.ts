@@ -10,7 +10,8 @@ import { reviewPdfFields, sameReviewedFields } from "@/lib/stored-pdf-link";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
-import { requireCapability, requireUser } from "@/lib/server/auth";
+import { requireCapability, requireUserAttempt } from "@/lib/server/auth";
+import { canReadChiefModuleData } from "@/lib/dashboard/chief-module-access";
 import { canEditEquipment, canReadEquipment } from "@/lib/server/roles";
 import { prepareUploadedGuide } from "@/lib/manual-source";
 import { extractManualPdfText, manualPdfSha256 } from "@/lib/manual-pdf-knowledge";
@@ -47,9 +48,9 @@ async function ensureBucket(admin: SupabaseClient) {
 export async function GET(request: NextRequest) {
   const staged = await dispatchConsolidation(request, baseline.GET);
   if (staged) return staged;
-  const auth = await requireUser(request);
-  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!canReadEquipment(auth.principal.profile.role)) {
+  const auth = await requireUserAttempt(request);
+  if (!auth.ok) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canReadEquipment(auth.principal.profile.role) && (auth.mcp || auth.principal.hotelId !== HOTEL_ID || !canReadChiefModuleData(auth.principal))) {
     return NextResponse.json({ error: "Equipment documentation access is required." }, { status: 403 });
   }
   if (request.nextUrl.searchParams.get("mode") === "stored") {

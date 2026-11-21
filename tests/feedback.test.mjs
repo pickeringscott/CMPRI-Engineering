@@ -18,7 +18,7 @@ function fixture({ role = 'Front Desk', denied = [], rows = [], adminUnavailable
   const updates = [];
   const deleted = [];
   const profile = { full_name: 'Feedback Reporter', role };
-  const principal = { identity: { id: 'reporter-id' }, profile };
+  const principal = { identity: { id: 'reporter-id' }, profile, hotelId: HOTEL_ID };
   const db = {
     from(table) {
       const query = { table, filters: [], operation: 'select', data: null };
@@ -58,6 +58,7 @@ function fixture({ role = 'Front Desk', denied = [], rows = [], adminUnavailable
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
       if (name === '@/lib/constants') return { APP_TITLE: 'CMPRI', BUILD_VERSION: '2.0', HOTEL_ID };
       if (name === '@/lib/server/auth') return { requireCapability: async (_request, capability) => denied.includes(capability) ? null : { principal, admin: db } };
+      if (name === '@/lib/server/chief-module-read') return { requireChiefModuleRead: async (_request, capability) => denied.includes(capability) && role !== 'Senior Management' ? null : { principal, admin: db } };
       if (name === '@/lib/server/supabase-admin') return { createSupabaseAdmin: () => adminUnavailable ? null : db };
       throw new Error(`Unexpected module ${name}`);
     },

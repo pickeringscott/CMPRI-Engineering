@@ -1,3 +1,5 @@
+"use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { accountRoleDisplayName } from "@/lib/account-display";
 
 type AccountSummaryUser = {
@@ -8,13 +10,14 @@ type AccountSummaryUser = {
 };
 
 export default function AccountSummary({ user }: { user: AccountSummaryUser }) {
+  const { t } = useUiLanguage();
   const displayRole = accountRoleDisplayName(user);
   const submitOnly = ["Front Desk", "Front Desk Manager", "Lead Housekeeper"].includes(displayRole);
 
   return (
-    <div role="group" aria-label="Signed-in account" className="flex min-w-0 flex-col items-start gap-y-1 text-xs text-slate-400">
-      <span className={submitOnly ? "text-[14pt] font-semibold tracking-tight text-amber-400" : "text-[14pt] font-semibold tracking-tight text-slate-100"}>{user.name?.trim() || "Name not set"}</span>
-      {!submitOnly && <span className="text-[9pt] font-medium text-sky-200/90">{displayRole}</span>}
+    <div role="group" aria-label={t("Signed-in account")} className="flex min-w-0 flex-col items-start gap-y-1 text-xs text-slate-400">
+      <span className={submitOnly ? "text-[14pt] font-semibold tracking-tight text-amber-400" : "text-[14pt] font-semibold tracking-tight text-slate-100"}>{user.name?.trim() || t("Name not set")}</span>
+      {!submitOnly && <span className="text-[9pt] font-medium text-sky-200/90">{t(displayRole)}</span>}
       {!submitOnly && user.email && <span>{user.email}</span>}
     </div>
   );

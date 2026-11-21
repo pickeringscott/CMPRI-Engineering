@@ -1,4 +1,7 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { translateNotificationMessage } from "@/lib/i18n/notification-text";
+
 
 import { formatWorkOrderNotification } from "@/lib/work-order-reference.js";
 
@@ -8,10 +11,10 @@ import { unreadWorkOrderNotificationCount, type WorkOrderNotification } from "@/
 import { priorityClass, type DesktopWorkOrder } from "./WorkOrderListWindow";
 import { roomStatusBadge } from "@/lib/room-availability";
 
-function formatWhen(value: string) {
+function formatWhen(value: string, locale = "en-US") {
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return "";
-  return new Date(time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return new Date(time).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export default function WorkOrderApprovalsWindow({
@@ -36,25 +39,26 @@ export default function WorkOrderApprovalsWindow({
   onClear: (notificationId: string) => void;
   onClearAll: () => void;
 }) {
+  const { t, locale } = useUiLanguage();
   return (
     <div data-work-order-approvals className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.6em] overflow-auto p-[0.6em]">
       <div className={`grid min-h-0 flex-1 gap-[0.6em] ${canReview ? "@3xl:grid-cols-2" : ""} ${canReview && awaitingApproval.length === 0 ? "grid-rows-[auto_minmax(0,1fr)] @3xl:grid-rows-1" : ""}`}>
         {canReview && (
           <div className={`flex flex-col overflow-hidden rounded-md border border-purple-400/30 bg-slate-900/60 ${awaitingApproval.length ? "min-h-[8em]" : "self-start"}`}>
             <div className="flex shrink-0 items-center justify-between gap-[0.5em] border-b border-slate-800 px-[0.7em] py-[0.4em]">
-              <span className="font-bold text-purple-100">Awaiting approval</span>
+              <span className="font-bold text-purple-100">{t("Awaiting approval")}</span>
               <span className="font-bold text-slate-400">{awaitingApproval.length}</span>
             </div>
-            {awaitingApproval.length > 0 && <ul aria-label="Work orders awaiting approval" className="min-h-0 flex-1 divide-y divide-slate-800 overflow-auto">
+            {awaitingApproval.length > 0 && <ul aria-label={t("Work orders awaiting approval")} className="min-h-0 flex-1 divide-y divide-slate-800 overflow-auto">
               {awaitingApproval.map((order) => (
                 <li key={order.id}>
                   <button type="button" onClick={() => onOpenWorkOrder(order.id)} className="flex w-full items-start gap-[0.6em] px-[0.7em] py-[0.45em] text-left hover:bg-slate-800/60">
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-semibold text-white">{order.display_id ? `${formatWorkOrder(order.display_id)} · ` : ""}{order.room || "No location"}{roomStatusBadge(order.room_status) && <span className={`ml-1 inline-flex rounded-full border px-1.5 py-0.5 align-middle text-[10px] font-bold leading-none ${roomStatusBadge(order.room_status)!.className}`}>{roomStatusBadge(order.room_status)!.label}</span>}</span>
-                      <span className="block truncate text-[0.88em] text-slate-300">{order.issue || "No issue description"}</span>
-                      <span className="block truncate text-[0.8em] text-slate-500">{order.technician_name || "Unassigned"}</span>
+                      <span className="block truncate font-semibold text-white">{order.display_id ? t("{value0} · ", { value0: String(formatWorkOrder(order.display_id)) }) : ""}{order.room || t("No location")}{roomStatusBadge(order.room_status) && <span className={`ml-1 inline-flex rounded-full border px-1.5 py-0.5 align-middle text-[10px] font-bold leading-none ${roomStatusBadge(order.room_status)!.className}`}>{t(roomStatusBadge(order.room_status)!.label)}</span>}</span>
+                      <span className="block truncate text-[0.88em] text-slate-300">{order.issue || t("No issue description")}</span>
+                      <span className="block truncate text-[0.8em] text-slate-500">{order.technician_name || t("Unassigned")}</span>
                     </span>
-                    {order.priority && <span className={`shrink-0 rounded-full border px-[0.5em] text-[0.8em] font-semibold ${priorityClass(order.priority)}`}>{order.priority}</span>}
+                    {order.priority && <span className={`shrink-0 rounded-full border px-[0.5em] text-[0.8em] font-semibold ${priorityClass(order.priority)}`}>{t(order.priority)}</span>}
                   </button>
                 </li>
               ))}
@@ -64,21 +68,21 @@ export default function WorkOrderApprovalsWindow({
 
         <div className="flex min-h-[8em] flex-col overflow-hidden rounded-md border border-sky-400/30 bg-slate-900/60">
           <div className="flex shrink-0 items-center justify-between gap-[0.5em] border-b border-slate-800 px-[0.7em] py-[0.4em]">
-            <span className="font-bold text-sky-100">Notifications <span className="font-normal text-slate-400">({unreadWorkOrderNotificationCount(notifications)} unread)</span></span>
+            <span className="font-bold text-sky-100">{t("Notifications ")}<span className="font-normal text-slate-400">({unreadWorkOrderNotificationCount(notifications)}{t(" unread)")}</span></span>
             {notifications.length > 0 && (
-              <button type="button" onClick={onClearAll} className="rounded border border-sky-400/40 px-[0.6em] py-[0.1em] text-[0.85em] font-semibold text-sky-100 hover:bg-sky-950/40">Clear all</button>
+              <button type="button" onClick={onClearAll} className="rounded border border-sky-400/40 px-[0.6em] py-[0.1em] text-[0.85em] font-semibold text-sky-100 hover:bg-sky-950/40">{t("Clear all")}</button>
             )}
           </div>
-          {notificationError && <p role="status" className="shrink-0 border-b border-amber-400/30 bg-amber-950/25 px-[0.7em] py-[0.35em] text-[0.88em] text-amber-100">{notificationError}</p>}
+          {notificationError && <p role="status" className="shrink-0 border-b border-amber-400/30 bg-amber-950/25 px-[0.7em] py-[0.35em] text-[0.88em] text-amber-100">{t(notificationError)}</p>}
           <ul aria-live="polite" className="min-h-0 flex-1 divide-y divide-slate-800 overflow-auto">
-            {notifications.length === 0 && <li className="p-[0.7em] text-slate-400">No notifications. New ones stay on your account, on every computer, until you clear them.</li>}
+            {notifications.length === 0 && <li className="p-[0.7em] text-slate-400">{t("No notifications. New ones stay on your account, on every computer, until you clear them.")}</li>}
             {notifications.map((notification) => (
               <li key={notification.id} className="flex items-start gap-[0.4em] px-[0.7em] py-[0.4em] hover:bg-slate-800/40">
-                <button type="button" onClick={() => onOpenNotification(notification)} className="min-w-0 flex-1 text-left" aria-label={`${notification.is_read ? "Read" : "Unread"} notification: ${formatWorkOrderNotification(notification)}`}>
-                  <span className={`block hover:underline ${notification.is_read ? "text-slate-400" : "font-semibold text-slate-100"}`}>{formatWorkOrderNotification(notification)}</span>
-                  <span className="block text-[0.8em] text-slate-500">{formatWhen(notification.recorded_at)}</span>
+                <button type="button" onClick={() => onOpenNotification(notification)} className="min-w-0 flex-1 text-left" aria-label={t("{value0} notification: {value1}", { value0: String(t(notification.is_read ? "Read" : "Unread")), value1: String(translateNotificationMessage(formatWorkOrderNotification(notification), t)) })}>
+                  <span className={`block hover:underline ${notification.is_read ? "text-slate-400" : "font-semibold text-slate-100"}`}>{translateNotificationMessage(formatWorkOrderNotification(notification), t)}</span>
+                  <span className="block text-[0.8em] text-slate-500">{formatWhen(notification.recorded_at, locale)}</span>
                 </button>
-                <button type="button" onClick={() => onClear(notification.id)} aria-label={`Clear notification: ${formatWorkOrderNotification(notification)}`} className="shrink-0 rounded border border-slate-700 px-[0.5em] text-[0.82em] text-slate-300 hover:border-slate-500 hover:text-white">Clear</button>
+                <button type="button" onClick={() => onClear(notification.id)} aria-label={t("Clear notification: {value0}", { value0: String(translateNotificationMessage(formatWorkOrderNotification(notification), t)) })} className="shrink-0 rounded border border-slate-700 px-[0.5em] text-[0.82em] text-slate-300 hover:border-slate-500 hover:text-white">{t("Clear")}</button>
               </li>
             ))}
           </ul>

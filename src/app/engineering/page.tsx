@@ -1,8 +1,13 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+
 import { SITE_SEASONAL_THEME } from "@/lib/ui/site-seasonal-theme";
 import { subscribeResources } from "@/lib/events/browser";
 import { canReviewEmployment } from "@/lib/employment-access";
 import { canUseWinterPreparedness } from "@/lib/winter-preparedness-access";
+import { canOpenEnseo, canOpenGss, canOpenRoomOperations, canOpenWeather, isChiefMenuRole } from "@/lib/dashboard/menu-access";
+import { dashboardMenuGroups, usesThreeTabDashboard, WEATHER_MENU_PATH } from "@/lib/dashboard/menu-groups";
+import { canReadChiefModules } from "@/lib/dashboard/chief-module-access";
 import {mergeConfirmedWorkOrder,reconcileWorkOrderList,workOrderListSnapshot} from "@/lib/work-order-list-sync";
 import { formatWorkOrder } from "@/lib/work-order-reference.js";
 import { claimWorkOrder, releaseWorkOrder } from "@/lib/open-work-orders";
@@ -13,7 +18,7 @@ import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
 import { hasCapability, loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
 import { usesChiefEngineerMobileLayout } from "@/lib/dashboard/chief-engineer-mobile";
-import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
+import { accountRoleDisplayName } from "@/lib/account-display";
 import {
   clearServerDashboardNotifications,
   fetchDashboardInbox,
@@ -43,6 +48,8 @@ import PoolStatus from "@/components/desktop/PoolStatus";
 import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
+import DesktopWorkspaceResume from "@/components/desktop/DesktopWorkspaceResume";
+import type { WorkspaceState } from "@/lib/ui/workspace-resume";
 import WeatherPreviewWindow from "@/components/desktop/WeatherPreviewWindow";
 import { armWeatherWarningSound } from "@/lib/weather-warning-sound";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
@@ -57,7 +64,7 @@ const NEW_ORDER_SOUND_PREF_KEY = "cmpri:new-order-sound:v1";
 const LAUNCHER_CLOSE_WINDOW_MS = 5_000;
 const WORK_ORDER_LIST_KEY = "work-order-list";
 const APPROVALS_KEY = "work-order-approvals";
-const WEATHER_PREVIEW_PATH = "/previews/cmpri-weather-preview.html";
+const WEATHER_PREVIEW_PATH = WEATHER_MENU_PATH;
 const WORK_ORDER_LIMIT_MESSAGE = "You can have up to five work orders open. Close a work order before opening another.";
 const DEFAULT_WINDOW_SIZE: WindowSize = { width: 1040, height: 720 };
 
@@ -82,7 +89,6 @@ type Launcher = {
   preferred?: WindowSize;
 };
 
-type LauncherGroup = { label: string; items: Array<Launcher | false> };
 
 function DashboardLauncherButton({
   launcher,
@@ -95,16 +101,17 @@ function DashboardLauncherButton({
   onLaunch: (launcher: Launcher, clickedAt: number) => void;
   className?: string;
 }) {
+  const { t, tt } = useUiLanguage();
   return (
     <button
       type="button"
       data-cmpri-desktop-launch={launcher.key}
       data-open={open ? "true" : "false"}
-      title={launcher.label}
+      title={tt(launcher.label)}
       onClick={() => onLaunch(launcher, Date.now())}
       className={className || `cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-1 py-0.5 font-semibold shadow-sm shadow-black/20 ${launcher.tone}`}
     >
-      {launcher.label}
+      {t(launcher.label)}
     </button>
   );
 }
@@ -133,6 +140,7 @@ function writeSoundPreference(enabled: boolean) {
 }
 
 export default function EngineeringDashboardPage() {
+  const { t, tt } = useUiLanguage();
   const router = useRouter();
   const refreshInFlightRef = useRef(false);
   const refreshQueuedRef = useRef(false);
@@ -393,7 +401,7 @@ export default function EngineeringDashboardPage() {
   }, [applyServerInbox, cmpriSession, loadDashboard]);
 
   useEffect(() => {
-    if (!cmpriSession || !hasCapability(cmpriSession, "review_feedback")) return;
+    if (!cmpriSession || (!hasCapability(cmpriSession, "review_feedback") && !canReadChiefModules(cmpriSession.user))) return;
     let current = true;
     const refreshFeedbackCount = async () => {
       try {
@@ -412,11 +420,11 @@ export default function EngineeringDashboardPage() {
   }, [cmpriSession]);
 
   useEffect(() => {
-    const baseTitle = roleKey(cmpriSession?.user.role) === "front_desk" || window.location.pathname === "/front-desk" ? "CMPRI Front Desk" : "CMPRI Engineering";
+    const baseTitle = t(roleKey(cmpriSession?.user.role) === "front_desk" || window.location.pathname === "/front-desk" ? "CMPRI Front Desk" : "CMPRI Engineering");
     previousTitleRef.current = baseTitle;
     document.title = inbox.length > 0 ? `(${inbox.length}) ${baseTitle}` : baseTitle;
     return () => { document.title = baseTitle; };
-  }, [inbox.length, cmpriSession?.user.role]);
+  }, [inbox.length, cmpriSession?.user.role, t]);
 
   // ---------- Window manager ----------
 
@@ -559,6 +567,10 @@ export default function EngineeringDashboardPage() {
     openRoute(`/work-orders/${encodeURIComponent(workOrderId)}`);
   }, [openRoute]);
 
+  const openWorkOrderList = useCallback(() => {
+    openWindow({ key: WORK_ORDER_LIST_KEY, title: "Work Order List", kind: "list", accent: "bg-slate-300", preferred: { width: 1100, height: 640 } });
+  }, [openWindow]);
+
   const openDraft = useCallback((draftId: string) => {
     const origin = window.location.origin;
     openWindow({
@@ -604,6 +616,12 @@ export default function EngineeringDashboardPage() {
           return;
         }
         case "cmpri-open-modal":
+          if (data.href === "/work-order-list") {
+            const source = windowsRef.current.find(entry => entry.key === key);
+            const token = source?.src && new URL(source.src, window.location.origin).searchParams.get("modalToken");
+            if (key === "/technician" && token && data.modalToken === token && hasCapability(cmpriSession, "view_work_orders")) openWorkOrderList();
+            return;
+          }
           if (typeof data.href === "string") openRoute(data.href, typeof data.title === "string" ? data.title : undefined);
           return;
         case "cmpri-open-related-work-order":
@@ -615,9 +633,11 @@ export default function EngineeringDashboardPage() {
           void refreshChatgptConnection();
           return;
         case "cmpri-modal-close":
-        case "cmpri-modal-dashboard":
         case "cmpri-work-order-cancelled":
           closeWindow(key);
+          return;
+        case "cmpri-modal-dashboard":
+          requestCloseWindow(key);
           return;
         case "cmpri-work-order-created":
         case "cmpri-work-order-saved":
@@ -626,13 +646,14 @@ export default function EngineeringDashboardPage() {
           void loadDashboard(true);
           return;
         case "cmpri-modal-sign-out":
+          window.dispatchEvent(new Event("cmpri-workspace-sign-out"));
           window.location.replace("/");
           return;
       }
     };
     window.addEventListener("message", handleWindowMessage);
     return () => window.removeEventListener("message", handleWindowMessage);
-  }, [closeWindow, loadDashboard, openRoute, openWorkOrder, refreshChatgptConnection]);
+  }, [closeWindow, requestCloseWindow, cmpriSession, loadDashboard, openRoute, openWorkOrder, openWorkOrderList, refreshChatgptConnection]);
 
   if (!cmpriSession) {
     return (
@@ -641,34 +662,28 @@ export default function EngineeringDashboardPage() {
             The hidden header lets the artwork observe its eventual height. */}
         <header className="cmpri-desktop-topbar" hidden aria-hidden="true" />
         <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
-          <p role="status" aria-live="polite" className="cmpri-sign-in-card relative z-10 mx-auto mt-4 w-fit rounded-[22px] border p-4 text-center text-[16pt] font-semibold">
-            Loading Dashboard...<br />Have a wonderful day!
-          </p>
+          <p role="status" aria-live="polite" className="cmpri-sign-in-card relative z-10 mx-auto mt-4 w-fit rounded-[22px] border p-4 text-center text-[16pt] font-semibold">{t("Loading Dashboard...")}<br />{t("Have a wonderful day!")}</p>
         </div>
       </main>
     );
   }
 
   const session = cmpriSession;
-  const engineerDesktopMenus = roleKey(session.user.role) === "engineer" || session.user.secondary_roles?.some(role => roleKey(role) === "engineer");
-  const systemAdminHeader = roleKey(session.user.role) === "system_admin" || session.user.secondary_roles?.some(role => roleKey(role) === "system_admin");
-  const chiefHeaderPresentation = engineerDesktopMenus || systemAdminHeader;
+  const chiefHeaderPresentation = isChiefMenuRole(session.user);
+  const canReadChiefOnlyModules = canReadChiefModules(session.user);
   const frontDeskLayout = roleKey(session.user.role) === "front_desk";
+  const threeTabLayout = usesThreeTabDashboard(session.user.role);
   const chiefEngineerMobileLayout = usesChiefEngineerMobileLayout(session.user);
-  const isHousekeepingDashboard = roleDisplayName(session.user.role) === "Lead Housekeeper";
+  const isHousekeepingDashboard = roleKey(session.user.role) === "housekeeping";
   const canOpenTroubleshootingGuides = canAccessTroubleshootingGuides(session.user);
-  const canUseEngineeringAdminTools = ["engineer", "system_admin"].includes(roleKey(session.user.role));
   const awaitingApproval = orders.filter(isPendingApproval);
-  const displayName = session.user.name?.trim() || "Name not set";
+  const displayName = session.user.name?.trim() || t("Name not set");
   const displayRole = accountRoleDisplayName(session.user);
 
   async function signOut() {
+    window.dispatchEvent(new Event("cmpri-workspace-sign-out"));
     await signOutDevice();
     router.replace("/");
-  }
-
-  function openWorkOrderList() {
-    openWindow({ key: WORK_ORDER_LIST_KEY, title: "Work Order List", kind: "list", accent: "bg-slate-300", preferred: { width: 1100, height: 640 } });
   }
 
   function openApprovals() {
@@ -691,56 +706,35 @@ export default function EngineeringDashboardPage() {
     else if (notification.work_order_id) openWorkOrder(notification.work_order_id);
   }
 
-  const launcherGroups: LauncherGroup[] = [
-    {
-      label: "Work Orders",
-      items: [
-        hasCapability(session, "view_work_orders") && { key: WORK_ORDER_LIST_KEY, label: "Work Order List", action: "work-order-list", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300" },
-        roleKey(session.user.role) === "technician" && { key: "/technician", label: "Technician Dashboard", href: "/technician", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
-        hasCapability(session, "submit") && { key: "/work-orders", label: "+ Work Order", href: "/work-orders", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
-      ],
-    },
-    {
-      label: "Operations",
-      items: [
-        process.env.NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW === "1" && hasCapability(session, "view_dashboard") && { key: WEATHER_PREVIEW_PATH, label: "Weather", href: `${WEATHER_PREVIEW_PATH}?weather=open`, tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 1280, height: 800 } },
-        canUseWinterPreparedness(session.user) && { key: "/engineering/winter-preparedness", label: "Winter Preparedness 2026", href: "/engineering/winter-preparedness", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
-        canReviewEmployment(session.user,session.user) && { key: "/engineering/employment", label: "Candidate questionnaires", href: "/engineering/employment", tone: "border-yellow-400 bg-slate-900 text-yellow-300", accent: "bg-yellow-400", preferred: { width: 850, height: 700 } },
-        { key: "/staff-notes", label: "Staff Notes", href: "/staff-notes", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400" },
-        (hasCapability(session, "view_dashboard") || hasCapability(session, "view_pool_log")) && { key: "/engineering/pool-log", label: "Pool Log", href: "/engineering/pool-log", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
-        (canUseEngineeringAdminTools || roleKey(session.user.role) === "manager") && { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
-        canUseEngineeringAdminTools && { key: "/engineering/gss", label: "GSS Reports", href: "/engineering/gss", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400", preferred: { width: 820, height: 600 } },
-        canUseEngineeringAdminTools && { key: "/engineering/enseo-assignments", label: "Enseo Assignments", href: "/engineering/enseo-assignments", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
-        { key: "/engineering/room-ranking", label: "Room Ranker", href: "/engineering/room-ranking", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
-        hasCapability(session, "view_pm") && { key: "/engineering/preventive-maintenance", label: "Preventive Maintenance", href: "/engineering/preventive-maintenance", tone: "border-emerald-400/50 bg-emerald-950/30 text-emerald-100", accent: "bg-emerald-400", preferred: { width: 1200, height: 780 } },
-      ],
-    },
-    {
-      label: chiefHeaderPresentation ? "Assets and Inventory" : "Assets & Supply",
-      items: [
-        hasCapability(session, "manage_assets") && { key: "/management/equipment", label: "Assets", href: "/management/equipment", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
-        hasCapability(session, "manage_assets") && { key: "/engineering/parts", label: "Inventory", href: "/engineering/parts", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
-        canUseEngineeringAdminTools && { key: "/engineering/purchasing", label: "POs", href: "/engineering/purchasing", tone: "border-orange-400/50 bg-orange-950/30 text-orange-100", accent: "bg-orange-400" },
-      ],
-    },
-    {
-      label: "Admin",
-      items: [
-        hasCapability(session, "manage_rooms") && { key: "/management/rooms", label: "Manage Locations", href: "/management/rooms", tone: "border-indigo-400/50 bg-indigo-950/30 text-indigo-100", accent: "bg-indigo-400" },
-        hasCapability(session, "manage_users") && { key: "/management/users", label: "Manage Users", href: "/management/users", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
-        hasCapability(session, "review_feedback") && { key: "/feedback", label: `Feedback${newFeedbackCount > 0 ? ` (${newFeedbackCount})` : ""}`, href: `/feedback?route=${encodeURIComponent("/engineering")}`, tone: "border-amber-500/50 bg-amber-950/20 text-amber-100", accent: "bg-amber-500" },
-      ],
-    },
-    {
-      label: "Account",
-      items: [
-        (engineerDesktopMenus || profileCanUseHoursTracker(session.user)) && { key: "/engineering/hours-tracker", label: "Hours Tracker", href: "/engineering/hours-tracker", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 448, height: 310 } },
-        hasCapability(session, "view_profiles") && { key: "/profile", label: "Manage Profile", href: "/profile", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
-        hasCapability(session, "view_profiles") && !chatgptConnected && { key: "/profile", label: "Connect ChatGPT", href: "/profile", tone: "border-sky-500/50 bg-sky-950/30 text-sky-100", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
-        { key: "sign-out", label: "Sign Out", action: "sign-out", tone: "border-red-400/50 bg-red-950/30 text-red-100", accent: "bg-red-400" },
-      ],
-    },
+  const launchers: Array<Launcher | false> = [
+    hasCapability(session, "view_work_orders") && { key: WORK_ORDER_LIST_KEY, label: "Work Order List", action: "work-order-list", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300" },
+    roleKey(session.user.role) === "technician" && { key: "/technician", label: "Technician Dashboard", href: "/technician", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
+    hasCapability(session, "submit") && { key: "/work-orders", label: "+ Work Order", href: "/work-orders", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
+    process.env.NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW === "1" && canOpenWeather(session.user) && { key: WEATHER_PREVIEW_PATH, label: "Weather", href: `${WEATHER_PREVIEW_PATH}?weather=open`, tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 1280, height: 800 } },
+    canUseWinterPreparedness(session.user) && { key: "/engineering/winter-preparedness", label: "Winter Preparedness 2026", href: "/engineering/winter-preparedness", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
+    canReviewEmployment(session.user,session.user) && { key: "/engineering/employment", label: "Candidate questionnaires", href: "/engineering/employment", tone: "border-yellow-400 bg-slate-900 text-yellow-300", accent: "bg-yellow-400", preferred: { width: 850, height: 700 } },
+    { key: "/staff-notes", label: "Staff Notes", href: "/staff-notes", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400" },
+    { key: "/notes", label: "Notes", href: "/notes", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400" },
+    hasCapability(session, "view_pool_log") && { key: "/engineering/pool-log", label: "Pool Log", href: "/engineering/pool-log", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
+    canOpenRoomOperations(session.user) && { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
+    canOpenGss(session.user) && { key: "/engineering/gss", label: "GSS Reports", href: "/engineering/gss", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400", preferred: { width: 820, height: 600 } },
+    canOpenEnseo(session.user) && { key: "/engineering/enseo-assignments", label: "Enseo Assignments", href: "/engineering/enseo-assignments", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
+    { key: "/engineering/room-ranking", label: "Room Ranker", href: "/engineering/room-ranking", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
+    hasCapability(session, "view_pm") && { key: "/engineering/preventive-maintenance", label: chiefHeaderPresentation ? "Preventative Maintenance" : "Preventive Maintenance", href: "/engineering/preventive-maintenance", tone: "border-emerald-400/50 bg-emerald-950/30 text-emerald-100", accent: "bg-emerald-400", preferred: { width: 1200, height: 780 } },
+    (hasCapability(session, "manage_assets") || canReadChiefOnlyModules) && { key: "/management/equipment", label: "Assets", href: "/management/equipment", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
+    (hasCapability(session, "manage_assets") || canReadChiefOnlyModules) && { key: "/engineering/parts", label: "Inventory", href: "/engineering/parts", tone: "border-amber-400/50 bg-amber-950/30 text-amber-100", accent: "bg-amber-400" },
+    chiefHeaderPresentation && (hasCapability(session, "manage_assets") || canReadChiefOnlyModules) && { key: "/engineering/purchasing", label: "PO", href: "/engineering/purchasing", tone: "border-orange-400/50 bg-orange-950/30 text-orange-100", accent: "bg-orange-400" },
+    hasCapability(session, "view_locations") && { key: "/management/rooms", label: "Manage Locations", href: "/management/rooms", tone: "border-indigo-400/50 bg-indigo-950/30 text-indigo-100", accent: "bg-indigo-400" },
+    (hasCapability(session, "manage_users") || canReadChiefOnlyModules) && { key: "/management/users", label: "Manage Users", href: "/management/users", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
+    (hasCapability(session, "review_feedback") || canReadChiefOnlyModules) && { key: "/feedback", label: `Feedback${newFeedbackCount > 0 ? ` (${newFeedbackCount})` : ""}`, href: `/feedback?route=${encodeURIComponent("/engineering")}`, tone: "border-amber-500/50 bg-amber-950/20 text-amber-100", accent: "bg-amber-500" },
+    profileCanUseHoursTracker(session.user) && { key: "/engineering/hours-tracker", label: "Hours Tracker", href: "/engineering/hours-tracker", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 448, height: 310 } },
+    hasCapability(session, "view_profiles") && { key: "/profile", label: "Manage Profile", href: "/profile", tone: "border-slate-600 bg-slate-800 text-slate-100", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
+    hasCapability(session, "view_profiles") && !chatgptConnected && { key: "/profile", label: "Connect ChatGPT", href: "/profile", tone: "border-sky-500/50 bg-sky-950/30 text-sky-100", accent: "bg-slate-300", preferred: { width: 880, height: 720 } },
+    { key: "sign-out", label: "Sign Out", action: "sign-out", tone: "border-red-400/50 bg-red-950/30 text-red-100", accent: "bg-red-400" },
   ];
+  const availableLaunchers = launchers.filter((item): item is Launcher => Boolean(item));
+  const visibleLauncherGroups = dashboardMenuGroups(session.user.role, availableLaunchers, chiefHeaderPresentation);
+
   function launchWindow(key: string, clickedAt: number, open: () => void) {
     // The approved list launcher must bring a background list forward even
     // immediately after it was opened, so other windows can stay mounted.
@@ -772,93 +766,79 @@ export default function EngineeringDashboardPage() {
     }
   }
 
-  {const operations=launcherGroups.find(g=>g.label==="Operations");operations?.items.push({key:"pool-status",label:"Pool",tone:"border-cyan-400/50 bg-cyan-950/30 text-cyan-100",accent:"bg-green-400"});}
-  if (chiefHeaderPresentation) {
-    const work = launcherGroups.find(group => group.label === "Work Orders")!;
-    const operations = launcherGroups.find(group => group.label === "Operations")!;
-    const assets = launcherGroups.find(group => group.label === "Assets and Inventory")!;
-    const admin = launcherGroups.find(group => group.label === "Admin")!;
-    const account = launcherGroups.find(group => group.label === "Account")!;
-    const rooms = admin.items.find(item => item && item.key === "/management/rooms");
-    if (rooms) { admin.items = admin.items.filter(item => item !== rooms); operations.items.push(rooms); }
-    const reorder = (group: LauncherGroup, keys: string[]) => {
-      const present = group.items.filter((item): item is Launcher => Boolean(item));
-      group.items = [...keys.flatMap(key => present.filter(item => item.key === key)), ...present.filter(item => !keys.includes(item.key))];
-    };
-    reorder(work, ["/work-orders", WORK_ORDER_LIST_KEY]);
-    reorder(operations, ["/engineering/preventive-maintenance", WEATHER_PREVIEW_PATH, "/engineering/room-operations", "/management/rooms", "/engineering/pool-log", "pool-status", "/engineering/room-ranking", "/engineering/gss", "/engineering/enseo-assignments", "/staff-notes"]);
-    reorder(assets, ["/engineering/purchasing", "/engineering/parts", "/management/equipment"]);
-    const tracker = account.items.find(item => item && item.key === "/engineering/hours-tracker");
-    if (tracker) {
-      account.items = account.items.filter(item => item !== tracker);
-      const profileIndex = account.items.findIndex(item => item && item.label === "Manage Profile");
-      account.items.splice(profileIndex + 1, 0, tracker);
-    }
-    for (const group of [work, operations, assets]) for (const item of group.items) {
-      if (!item) continue;
-      if (item.key === "/work-orders") item.label = "+ Work Order";
-      if (item.key === "/engineering/preventive-maintenance") item.label = "Preventative Maintenance";
-      if (item.key === "/engineering/purchasing") item.label = "PO";
-    }
-  }
-  // Work Order List belongs to Operations for every dashboard role.
-  const workGroup = launcherGroups.find(group => group.label === 'Work Orders');
-  const operationsGroup = launcherGroups.find(group => group.label === 'Operations');
-  if (workGroup && operationsGroup) { const list = workGroup.items.find(item => item && item.key === WORK_ORDER_LIST_KEY); workGroup.items = workGroup.items.filter(item => item !== list); if (list) operationsGroup.items.unshift(list); }
-  const frontDeskKeys = ["/engineering/room-ranking", WORK_ORDER_LIST_KEY, "/staff-notes", "sign-out"];
-  const presentationGroups = frontDeskLayout ? [{ label: "Front Desk", items: frontDeskKeys.map(key => launcherGroups.flatMap(group => group.items).find(item => item && item.key === key) || false) }] : launcherGroups;
-  const visibleLauncherGroups = presentationGroups
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item): item is Launcher => Boolean(item && item.key !== "pool-status" && item.key !== "/work-orders")),
-    }))
-    .filter((group) => group.items.length > 0);
   const openKeys = new Set(windows.filter(entry => !entry.weatherCached).map((entry) => entry.key));
   const activeKey = zOrder.at(-1) || "";
   const canReviewTickets = hasCapability(session, "review_tickets");
   const unreadCount = unreadWorkOrderNotificationCount(inbox);
   const notificationCount = unreadCount + (canReviewTickets ? approvalTotal : 0);
+
+  function restoreWorkspaceDesktop(saved: WorkspaceState["desktop"]) {
+    const byKey = new Map(saved.views.map(view => [view.key, view]));
+    for (const key of saved.zOrder) {
+      const view = byKey.get(key);
+      if (!view) continue;
+      if (view.kind === "list") openWorkOrderList();
+      else if (view.kind === "pool-status") openPoolStatus();
+      else if (view.kind === "approvals") openWindow({ key: APPROVALS_KEY, title: canReviewTickets ? "Work Order Approvals" : "Work Order Notifications",
+        kind: "approvals", accent: canReviewTickets ? "bg-purple-400" : "bg-sky-400", preferred: { width: 780, height: 540 } });
+      else if (view.key.startsWith("work-order-draft:") && view.href) {
+        const draftId = new URL(view.href, window.location.origin).searchParams.get("draftId");
+        if (draftId) openDraft(draftId);
+      } else if (view.href) {
+        const path = new URL(view.href, window.location.origin).pathname;
+        const launcher = availableLaunchers.find(item => item.href?.split("?")[0] === path);
+        openRoute(view.href, launcher ? launcher.label : undefined, launcher || undefined);
+      }
+    }
+  }
   const bellLabel = canReviewTickets
-    ? `Work order approvals for ${displayName} (${displayRole}): ${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}, ${approvalTotal} awaiting approval`
-    : `Notifications for ${displayName} (${displayRole}): ${unreadCount} unread`;
-  const createWorkOrderLauncher = launcherGroups
-    .flatMap((group) => group.items)
-    .find((launcher): launcher is Launcher => Boolean(launcher && launcher.key === "/work-orders"));
+    ? t("Work order approvals for {name} ({role}): {count} unread, {approvals} awaiting approval", { name: displayName, role: t(displayRole), count: unreadCount, approvals: approvalTotal })
+    : t("Notifications for {name} ({role}): {count} unread", { name: displayName, role: t(displayRole), count: unreadCount });
+  const createWorkOrderLauncher = availableLaunchers.find(launcher => launcher.key === "/work-orders");
 
   return (
-    <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || frontDeskLayout) ? "true" : undefined} data-chief-engineer-mobile={(chiefEngineerMobileLayout || systemAdminHeader) ? "true" : undefined}>
-      <header className="cmpri-desktop-topbar relative z-[200] flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pb-2 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3 lg:pb-3">
+    <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || threeTabLayout) ? "true" : undefined} data-chief-engineer-mobile={chiefHeaderPresentation ? "true" : undefined}>
+      <DesktopWorkspaceResume session={session}
+        allowedHrefs={availableLaunchers.flatMap(item => item.href ? [item.href] : [])}
+        views={windows.filter(entry => !entry.weatherCached).map(entry => ({ key: entry.key, kind: entry.kind, ...(entry.src ? { href: entry.src } : {}) }))}
+        zOrder={zOrder} onRestore={restoreWorkspaceDesktop}
+        onSessionChanged={() => window.location.reload()}
+        onStorageError={() => setMessage("This device could not save the open workspace. Keep this window open to preserve the current view.")} />
+      <header className="cmpri-desktop-topbar cmpri-dashboard-titlebar relative flex shrink-0 flex-col items-start gap-1 border-b border-slate-800 bg-gradient-to-b from-slate-900/95 to-slate-950/95 px-3 pt-[8pt] shadow-lg shadow-black/30 lg:gap-3">
         <div className="cmpri-header-shelf">
           <div className="cmpri-header-identity">
-            <p data-dashboard-title data-front-desk-colors={frontDeskLayout ? "true" : undefined} className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight">
-              <span className="text-amber-300">CMPRI</span>{" "}
-              <span className="text-amber-300">{frontDeskLayout ? "Front Desk" : isHousekeepingDashboard ? "Housekeeping" : "Engineering"}</span>
+            <p data-dashboard-title data-cmpri-menu-title="" data-front-desk-colors={frontDeskLayout ? "true" : undefined} className="flex items-center gap-1 text-[14pt] font-bold leading-none tracking-tight">
+              <span className="text-amber-300">{t("CMPRI")}</span>{" "}
+              <span className="text-amber-300">{frontDeskLayout ? t("Front Desk") : isHousekeepingDashboard ? t("Housekeeping") : t("Engineering")}</span>
                                <DashboardNotificationBell
                     count={notificationCount}
                     label={bellLabel}
                     aria-label={bellLabel}
-                    title={canReviewTickets
-                      ? `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s) · ${approvalTotal} awaiting approval`
-                      : `${displayName} · ${displayRole}${session.user.email ? ` · ${session.user.email}` : ""}\n${unreadCount} unread notification(s)`}
+                    title={tt(canReviewTickets
+                      ? `${displayName} · ${t(displayRole)}${session.user.email ? ` · ${session.user.email}` : ""}\n${t("{count} unread notifications · {approvals} awaiting approval", { count: unreadCount, approvals: approvalTotal })}`
+                      : `${displayName} · ${t(displayRole)}${session.user.email ? ` · ${session.user.email}` : ""}\n${t("{count} unread notifications", { count: unreadCount })}`)}
                     onClick={openApprovals}
                   /></p>
             <div data-dashboard-account className="mt-2 text-left leading-tight">
               <div className="flex min-w-0 items-center gap-2">
                 <p data-dashboard-name className="max-w-[18rem] truncate text-[14pt] font-semibold tracking-tight text-slate-100">{displayName}</p>
-
               </div>
-              <p data-dashboard-role className="mt-1 text-[9pt] font-medium text-sky-200/90">{displayRole}</p>
+              <p data-dashboard-role data-cmpri-chief-engineer={displayRole === "Chief Engineer" ? "true" : "false"} className="mt-1 text-[9pt] font-medium text-sky-200/90">{t(displayRole)}</p>
             </div>
           </div>
-          <div className="cmpri-header-utilities" data-front-desk={frontDeskLayout}><PoolStatus controlOnly onOpen={openPoolStatus}/>
-        {createWorkOrderLauncher && <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch} className="cmpri-header-create" />}
+          <div className="cmpri-header-utilities" data-front-desk={frontDeskLayout}>
+            <PoolStatus controlOnly onOpen={openPoolStatus} />
+            {createWorkOrderLauncher && <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch} className="cmpri-header-create" />}
           </div>
         </div>
-
-        <nav aria-label="Open dashboard windows" className="w-full min-w-0">
-          <ApprovedDashboardMenus groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
+        <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
+          <ApprovedDashboardMenus anchored restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
         </nav>
 
+        {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
+      </header>
+
+      <div className="flex shrink-0 flex-col items-start gap-0.5 px-0.5 empty:hidden">
         {hasCapability(session, "view_work_orders") && <WorkOrderWindowSwitcher
           tickets={windows.filter(entry => /^\/work-orders\/[^/]+$/.test(entry.key)).map(entry => {
             const details = windowGuests[entry.key] || orders.find(order => entry.key === `/work-orders/${order.id}`);
@@ -870,101 +850,102 @@ export default function EngineeringDashboardPage() {
           onRaise={key => raise(key, true)}
         />}
 
-        {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
-
         {canOpenTroubleshootingGuides && (chiefEngineerMobileLayout ? <div className="hidden lg:contents"><TroubleshootingGuideDropdown /></div> : <TroubleshootingGuideDropdown />)}
-      </header>
+      </div>
 
       <div ref={setWeatherBulletinHost} data-weather-desktop-bulletin-host className="relative z-[200] w-full shrink-0" />
 
-      <div ref={desktopRef} className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
+      <div className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
         {openKeys.size === 0 && (
-          <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">CMPRI {frontDeskLayout ? "Front Desk" : "Engineering"}</p>
+          <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">{t("CMPRI ")}{frontDeskLayout ? t("Front Desk") : t("Engineering")}</p>
         )}
         {message && (
           <div role="alert" className="absolute bottom-2 left-2 z-[150] flex max-w-md items-start gap-2 rounded-md border border-red-400/40 bg-red-950/80 px-3 py-2 text-xs text-red-100 shadow-lg">
-            <span className="flex-1">{message}</span>
-            <button type="button" onClick={() => setMessage("")} aria-label="Dismiss dashboard error" className="text-red-200 hover:text-white">×</button>
+            <span className="flex-1">{t(message)}</span>
+            <button type="button" onClick={() => setMessage("")} aria-label={t("Dismiss dashboard error")} className="text-red-200 hover:text-white">×</button>
           </div>
         )}
-        {windows.map((entry) => {
-          const rect = rects[entry.key];
-          if (!rect) return null;
-          const zIndex = 10 + Math.max(0, zOrder.indexOf(entry.key));
-          if (entry.key === WEATHER_PREVIEW_PATH && entry.kind === "frame" && entry.src) {
-            return <WeatherPreviewWindow key={entry.key} windowKey={entry.key} title={entry.title} accentClass={entry.accent} src={entry.src}
-              visible={!entry.weatherCached} use24HourTime={chiefEngineerMobileLayout} bulletinHost={weatherBulletinHost}
-              rect={rect} bounds={bounds} zIndex={zIndex} active={activeKey === entry.key} onFocus={() => raise(entry.key)}
-              onClose={() => requestCloseWindow(entry.key)} onRectCommit={next => commitRect(entry.key, next)}
-              registerFrame={frame => { if (frame) frameRefs.current.set(entry.key, frame); }}
-              onOpen={(href, title) => openRoute(href, title)} onReturnToDesktop={() => closeWindow(entry.key)} />;
-          }
-          return (
-            <DesktopWindow
-              guest={windowGuests[entry.key] || orders.find(order => entry.key === `/work-orders/${order.id}`)}
-              key={entry.key}
-              windowKey={entry.key}
-              title={entry.title}
-              accentClass={entry.accent}
-              rect={rect}
-              bounds={bounds}
-              zIndex={zIndex}
-              active={activeKey === entry.key}
-              onFocus={() => raise(entry.key)}
-              onClose={() => requestCloseWindow(entry.key)}
-              onRectCommit={(next) => commitRect(entry.key, next)}
-            >
-              {entry.kind === "frame" && entry.src && (
-                <DesktopFrame
-                  src={entry.src}
-                  title={entry.title}
-                  registerFrame={(frame) => {
-                    if (frame) frameRefs.current.set(entry.key, frame);
-                  }}
-                  onFocus={() => raise(entry.key)}
-                  onOpen={(href, title) => openRoute(href, title)}
-                  onReturnToDesktop={() => closeWindow(entry.key)}
-                />
-              )}
-              {entry.kind === "pool-status" && <PoolStatus canReopen={profileCanReopenPool(session.user)}/>}
-              {entry.kind === "list" && (
-                <WorkOrderListWindow
-                  frontDeskLayout={frontDeskLayout}
-                  orders={orders}
-                  drafts={drafts.map((draft) => ({
-                    ...draft,
-                    potential_duplicate: orders.some((order) => likelyDuplicate(draft, order)),
-                  }))}
-                  loading={loading}
-                  onOpenWorkOrder={(order) => openWorkOrder(order.id)}
-                  onOpenDraft={openDraft}
-                />
-              )}
-              {entry.kind === "approvals" && (
-                <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1">
-                <WorkOrderApprovalsWindow
-                  user={session.user}
-                  notifications={inbox}
-                  awaitingApproval={awaitingApproval}
-                  canReview={canReviewTickets}
-                  notificationError={notificationError}
-                  soundEnabled={soundEnabled}
-                  onToggleSound={toggleSound}
-                  onOpenWorkOrder={openWorkOrder}
-                  onOpenNotification={openNotification}
-                  onClear={(id) => void clearNotifications([id])}
-                  onClearAll={() => void clearNotifications(inbox.map((notification) => notification.id))}
-                /></div>
-                {canReviewTickets && <nav aria-label="Approval pages" className="flex justify-between gap-2 p-2 text-sm">
-                  <button disabled={loading || approvalPage === 0} onClick={() => { approvalPageRef.current--; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Previous</button>
-                  <span>Page {approvalPage + 1} · {approvalTotal} awaiting approval</span>
-                  <button disabled={loading || (approvalPage + 1) * 100 >= approvalTotal} onClick={() => { approvalPageRef.current++; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>Next</button>
-                </nav>}
-                </div>
-              )}
-            </DesktopWindow>
-          );
-        })}
+        <div ref={desktopRef} className="cmpri-dashboard-window-layer">
+          {windows.map((entry) => {
+            const rect = rects[entry.key];
+            if (!rect) return null;
+            const zIndex = 10 + Math.max(0, zOrder.indexOf(entry.key));
+            if (entry.key === WEATHER_PREVIEW_PATH && entry.kind === "frame" && entry.src) {
+              return <WeatherPreviewWindow key={entry.key} windowKey={entry.key} title={entry.title} accentClass={entry.accent} src={entry.src}
+                visible={!entry.weatherCached} use24HourTime={chiefEngineerMobileLayout} bulletinHost={weatherBulletinHost}
+                rect={rect} bounds={bounds} zIndex={zIndex} active={activeKey === entry.key} onFocus={() => raise(entry.key)}
+                onClose={() => requestCloseWindow(entry.key)} onRectCommit={next => commitRect(entry.key, next)}
+                registerFrame={frame => { if (frame) frameRefs.current.set(entry.key, frame); }}
+                onOpen={(href, title) => openRoute(href, title)} onReturnToDesktop={() => requestCloseWindow(entry.key)} />;
+            }
+            return (
+              <DesktopWindow
+                guest={windowGuests[entry.key] || orders.find(order => entry.key === `/work-orders/${order.id}`)}
+                key={entry.key}
+                windowKey={entry.key}
+                title={entry.title}
+                accentClass={entry.accent}
+                rect={rect}
+                bounds={bounds}
+                zIndex={zIndex}
+                active={activeKey === entry.key}
+                onFocus={() => raise(entry.key)}
+                onClose={() => requestCloseWindow(entry.key)}
+                onRectCommit={(next) => commitRect(entry.key, next)}
+              >
+                {entry.kind === "frame" && entry.src && (
+                  <DesktopFrame
+                    src={entry.src}
+                    title={entry.title}
+                    registerFrame={(frame) => {
+                      if (frame) frameRefs.current.set(entry.key, frame);
+                    }}
+                    onFocus={() => raise(entry.key)}
+                    onOpen={(href, title) => openRoute(href, title)}
+                    onReturnToDesktop={() => requestCloseWindow(entry.key)}
+                  />
+                )}
+                {entry.kind === "pool-status" && <PoolStatus canReopen={profileCanReopenPool(session.user)}/>}
+                {entry.kind === "list" && (
+                  <WorkOrderListWindow
+                    preferencesScope={`${session.hotelId}:${session.user.id}`}
+                    frontDeskLayout={frontDeskLayout}
+                    orders={orders}
+                    drafts={drafts.map((draft) => ({
+                      ...draft,
+                      potential_duplicate: orders.some((order) => likelyDuplicate(draft, order)),
+                    }))}
+                    loading={loading}
+                    onOpenWorkOrder={(order) => openWorkOrder(order.id)}
+                    onOpenDraft={openDraft}
+                  />
+                )}
+                {entry.kind === "approvals" && (
+                  <div className="flex h-full min-h-0 flex-col"><div className="min-h-0 flex-1">
+                  <WorkOrderApprovalsWindow
+                    user={session.user}
+                    notifications={inbox}
+                    awaitingApproval={awaitingApproval}
+                    canReview={canReviewTickets}
+                    notificationError={notificationError}
+                    soundEnabled={soundEnabled}
+                    onToggleSound={toggleSound}
+                    onOpenWorkOrder={openWorkOrder}
+                    onOpenNotification={openNotification}
+                    onClear={(id) => void clearNotifications([id])}
+                    onClearAll={() => void clearNotifications(inbox.map((notification) => notification.id))}
+                  /></div>
+                  {canReviewTickets && <nav aria-label={t("Approval pages")} className="flex justify-between gap-2 p-2 text-sm">
+                    <button disabled={loading || approvalPage === 0} onClick={() => { approvalPageRef.current--; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>{t("Previous")}</button>
+                    <span>{t("Page ")}{approvalPage + 1} · {approvalTotal}{t(" awaiting approval")}</span>
+                    <button disabled={loading || (approvalPage + 1) * 100 >= approvalTotal} onClick={() => { approvalPageRef.current++; setApprovalPage(approvalPageRef.current); void loadDashboard(true); }}>{t("Next")}</button>
+                  </nav>}
+                  </div>
+                )}
+              </DesktopWindow>
+            );
+          })}
+        </div>
       </div>
     </main>
   );

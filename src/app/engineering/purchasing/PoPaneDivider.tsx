@@ -1,8 +1,10 @@
 'use client';
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import {useEffect,useRef} from 'react';
 import {paneBounds} from '@/lib/po-presentation';
 import styles from './po-receiving.module.css';
 export default function PoPaneDivider(){
+  const {t: ui, tt: tip} = useUiLanguage();
  const ref=useRef<HTMLDivElement>(null);
  useEffect(()=>{
   const el=ref.current,workspace=el?.parentElement;if(!el||!workspace)return;
@@ -17,5 +19,5 @@ export default function PoPaneDivider(){
   el.addEventListener('pointerdown',down);el.addEventListener('pointermove',move);el.addEventListener('pointerup',finish);el.addEventListener('pointercancel',finish);el.addEventListener('keydown',key);
   return()=>{observer.disconnect();el.removeEventListener('pointerdown',down);el.removeEventListener('pointermove',move);el.removeEventListener('pointerup',finish);el.removeEventListener('pointercancel',finish);el.removeEventListener('keydown',key);};
  },[]);
- return <div ref={ref} className={styles.paneDivider} role="separator" tabIndex={0} aria-label="Resize orders and order details" aria-controls="po-orders-pane po-detail-pane" aria-orientation="vertical" title="Drag to resize; arrow keys, Home and End"/>;
+ return <div ref={ref} className={styles.paneDivider} role="separator" tabIndex={0} aria-label={ui("Resize orders and order details")} aria-controls="po-orders-pane po-detail-pane" aria-orientation="vertical" title={tip("Drag to resize; arrow keys, Home and End")}/>;
 }

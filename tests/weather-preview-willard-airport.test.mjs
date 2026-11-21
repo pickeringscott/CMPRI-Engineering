@@ -6,7 +6,7 @@ import { JSDOM, ResourceLoader } from 'jsdom';
 const source = readFileSync(new URL('../public/previews/weather/willard-airport.js', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../public/previews/weather/willard-airport.css', import.meta.url), 'utf8');
 const clockSource = readFileSync(new URL('../public/previews/weather/weather-clock.js', import.meta.url), 'utf8');
-const TRACKER = 'https://avioadsb.org/embed/map?lat=40.03&lon=-88.28&zoom=9&compact=1';
+const TRACKER = '/api/willard-tracker';
 const START = Date.parse('2026-11-20T20:05:00Z');
 const MINUTE = 60000;
 
@@ -27,7 +27,7 @@ function payload() {
 
 function fixture(options = {}) {
   const chief = options.chief !== false;
-  const requests = [], flightCalls = [], forbidden = [], errors = [], timers = new Map();
+  const requests = [], flightCalls = [], forbidden = [], errors = [], timers = new Map(), trackers = [];
   class CapturedResources extends ResourceLoader {
     fetch(url) { requests.push(url); return null; }
   }
@@ -61,6 +61,20 @@ function fixture(options = {}) {
   window.PushManager = class { subscribe() { return reject('push subscription')(); } };
   window.Storage.prototype.setItem = reject('persistent storage');
   window.supabase = { from: reject('database'), rpc: reject('database') };
+  window.cmpriWillardTracker = { create(host, trackerOptions) {
+    assert.equal(host.matches('[data-willard-tracker]'), true);
+    assert.ok(['24', '12'].includes(trackerOptions.clockMode));
+    const record = { host, options: trackerOptions, activeCalls: [], destroyCalls: 0,
+      state: { active: false, status: 'not-requested', pendingRequests: 0, destroyed: false } };
+    trackers.push(record);
+    record.api = {
+      setActive(value) { record.activeCalls.push(value); record.state.active = value === true;
+        record.state.status = record.state.active ? 'live' : 'inactive'; },
+      getState() { return { ...record.state }; },
+      destroy() { record.destroyCalls++; record.state.active = false; record.state.destroyed = true; },
+    };
+    return record.api;
+  } };
   window.addEventListener('error', event => errors.push(event.error?.message || event.message));
   window.eval(clockSource); window.eval(source);
   const details = window.document.getElementById('willardAirport');
@@ -81,31 +95,41 @@ function fixture(options = {}) {
   async function cleanup() {
     api.destroy(); await new Promise(resolve => setTimeout(resolve, 0));
     assert.equal(timers.size, 0); assert.equal(frame(), null);
+    assert.ok(trackers.every(tracker => tracker.destroyCalls === 1 && !tracker.state.active),
+      'airport destruction releases every retained native tracker exactly once');
+    assert.deepEqual(requests, [], 'the airport never creates an external browsing context');
     assert.deepEqual(forbidden, [], 'no polling, notification, storage or database work');
     assert.deepEqual(errors, []); dom.window.close();
   }
-  return { window, details, api, frame, disclose, visibility, advance, timers, requests, flightCalls, settle, cleanup };
+  return { window, details, api, frame, trackers, disclose, visibility, advance, timers, requests, flightCalls, settle, cleanup };
 }
 
 function rows(f, kind) { return Array.from(f.details.querySelectorAll('[data-willard-'+kind+'] tbody tr[data-flight]')); }
 
-test('collapsed and inactive airport perform no flight read; active expansion mounts one provider and reads native boards once', async () => {
+test('collapsed and inactive airport do no work; expansion activates one native tracker and reads boards once', async () => {
   const f = fixture();
   try {
     f.api.setActive(true); await f.settle();
     assert.equal(f.details.open, false); assert.equal(f.frame(), null); assert.deepEqual(f.flightCalls, []);
-    assert.deepEqual(f.requests, []); assert.equal(f.timers.size, 0);
+    assert.deepEqual(f.requests, []); assert.equal(f.trackers.length, 0); assert.equal(f.timers.size, 0);
     f.api.setActive(false); f.disclose(true); await f.settle();
     assert.equal(f.frame(), null); assert.equal(f.flightCalls.length, 0);
     f.api.setActive(true); await f.settle();
-    assert.deepEqual(f.requests, [TRACKER]); assert.equal(f.flightCalls.length, 1);
-    assert.equal(f.frame().getAttribute('src'), TRACKER);
-    assert.equal(f.frame().hasAttribute('sandbox'), false);
-    assert.equal(f.details.querySelector('[data-willard-tracker]').children.length, 1);
+    assert.deepEqual(f.requests, []); assert.equal(f.flightCalls.length, 1); assert.equal(f.frame(), null);
+    assert.equal(f.trackers.length, 1); assert.equal(f.trackers[0].state.active, true);
+    assert.equal(f.api.getState().trackerSource, TRACKER);
+    assert.equal(f.api.getState().trackerMounted, true); assert.equal(f.api.getState().trackerActive, true);
+    assert.equal(f.trackers[0].options.clockMode, '24');
     f.api.setActive(true); f.disclose(true); await f.settle();
-    assert.equal(f.flightCalls.length, 1); assert.equal(f.requests.length, 1);
+    assert.equal(f.flightCalls.length, 1); assert.equal(f.requests.length, 0); assert.equal(f.trackers.length, 1);
     assert.equal(f.timers.size, 1, 'only the display clock runs');
     assert.equal(f.api.getState().boardStatus, 'live'); assert.equal(f.api.getState().backgroundPolling, false);
+    f.disclose(false); await f.settle();
+    assert.equal(f.api.getState().trackerMounted, true, 'collapse retains the same native map instance');
+    assert.equal(f.api.getState().trackerActive, false); assert.equal(f.trackers[0].destroyCalls, 0);
+    f.disclose(true); await f.settle();
+    assert.equal(f.trackers.length, 1); assert.equal(f.api.getState().trackerActive, true);
+    assert.equal(f.flightCalls.length, 1, 'quick reopen reuses board cache independently of tracker activation');
   } finally { await f.cleanup(); }
 });
 
@@ -124,7 +148,7 @@ test('native London boards preserve every codeshare, published status and wall t
       assert.equal(rows(f,'arrivals')[2].querySelector('.wa-flight-date').textContent, 'Nov 21');
       const board = f.details.querySelector('[data-willard-board]');
       assert.doesNotMatch(board.textContent, /actual|scheduled|\d+\s*min(?:ute)?s?\s*(?:late|delay)|last updated/i);
-      assert.equal(f.details.querySelectorAll('iframe').length, 1, 'the timetable is native DOM, not a provider board iframe');
+      assert.equal(f.details.querySelectorAll('iframe').length, 0, 'boards and tracker use native DOM, without provider iframes');
       assert.equal(f.details.querySelector('.wa-source a').textContent, 'Avionio');
       assert.match(f.details.querySelector('.wa-source').textContent, chief ? /Retrieved:.*14:05 CST/ : /Retrieved:.*2:05 PM CST/);
       assert.equal(board.querySelector('input,select,button,img'), null, 'no style controls or provider logo');
@@ -205,7 +229,7 @@ test('pending requests dedupe and abort on collapse, hide, inactive Weather, rem
       f.api.setActive(true); f.disclose(true); await f.settle();
       f.api.setActive(true); f.disclose(true); await f.settle();
       assert.equal(f.flightCalls.length,1); assert.equal(f.api.getState().flightPending,true);
-      const firstFrame=f.frame();
+      const tracker=f.trackers[0];
       if(stop==='collapse')f.disclose(false);
       if(stop==='hidden')f.visibility(true);
       if(stop==='inactive')f.api.setActive(false);
@@ -213,7 +237,8 @@ test('pending requests dedupe and abort on collapse, hide, inactive Weather, rem
       if(stop==='destroy')f.api.destroy();
       await f.settle();
       assert.equal(f.flightCalls[0].init.signal.aborted,true,stop+' must abort');
-      assert.equal(firstFrame.isConnected,false); assert.equal(f.timers.size,0);
+      assert.equal(tracker.state.active,false); assert.equal(f.timers.size,0);
+      assert.equal(tracker.destroyCalls,stop==='destroy'?1:0,'only airport destruction destroys the retained tracker');
       resolve(Response.json(payload())); await f.settle();
       assert.equal(rows(f,'arrivals').length,0,'late data must not render after '+stop);
       assert.equal(f.api.getState().arrivals?.status==='live',false);
@@ -255,20 +280,20 @@ test('unavailable or unverified responses remain unknown and all provider text i
   } finally {await f.cleanup();}
 });
 
-test('the Central clock follows the shared role preference and provider unload ignores detached load events', async () => {
+test('the Central clock follows role preference and the native tracker deactivates on page hide', async () => {
   for (const chief of [true,false]) {
     const f=fixture({chief});
     try {
       f.api.setActive(true);f.disclose(true);await f.settle();
-      const frame=f.frame();frame.dispatchEvent(new f.window.Event('load'));
-      const at=f.api.getState().lastDocumentLoadedAt;
-      assert.ok(at);assert.equal(f.api.getState().aircraftCoverageVerified,false);
+      assert.equal(f.frame(),null);assert.equal(f.trackers.length,1);
+      assert.equal(f.api.getState().trackerState.active,true);
+      assert.equal(f.trackers[0].options.clockMode,chief?'24':'12');
       const clock=f.details.querySelector('[data-willard-clock]');
       assert.equal(clock.textContent,chief?'14:05 CST':'2:05 PM CST');
       f.advance(MINUTE+50);assert.equal(clock.textContent,chief?'14:06 CST':'2:06 PM CST');
       f.window.dispatchEvent(new f.window.Event('pagehide'));
       assert.equal(f.frame(),null);assert.equal(f.timers.size,0);assert.equal(f.api.getState().active,false);
-      frame.dispatchEvent(new f.window.Event('load'));assert.equal(f.api.getState().lastDocumentLoadedAt,at);
+      assert.equal(f.api.getState().trackerActive,false);assert.equal(f.trackers[0].destroyCalls,0);
     } finally {await f.cleanup();}
   }
   for(const asset of [source,styles]) {
@@ -277,4 +302,75 @@ test('the Central clock follows the shared role preference and provider unload i
     assert.match(asset,/The above copyright notice and this permission notice shall be included/);
     assert.match(asset,/THE SOFTWARE IS PROVIDED "AS IS"/);
   }
+});
+
+test('visible boards age at the retrieval deadline without polling or discarding rows', async () => {
+  const f = fixture({ fetch: async () => {
+    const value = payload();
+    for (const board of Object.values(value.boards)) board.retrievedAt = new Date(START - 20000).toISOString();
+    return Response.json(value);
+  } });
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    const retrieved = f.details.querySelector('.wa-source').textContent;
+    assert.equal(f.api.getState().boardStatus, 'live');
+    f.advance(39999); assert.equal(f.api.getState().boardStatus, 'live');
+    f.advance(1); assert.equal(f.api.getState().boardStatus, 'stale');
+    assert.equal(rows(f, 'arrivals').length, 3);
+    assert.equal(f.details.querySelector('.wa-source').textContent, retrieved);
+    assert.match(f.details.querySelector('[data-willard-arrivals] .wa-board-status').title, /one minute/);
+    f.advance(10 * MINUTE);
+    assert.equal(f.flightCalls.length, 1, 'aging is local display work, never flight polling');
+    assert.equal(f.api.getState().backgroundPolling, false);
+  } finally { await f.cleanup(); }
+});
+
+test('an open board becomes unverified across Central midnight without a request', async () => {
+  const night = Date.parse('2026-11-21T05:59:40Z');
+  const f = fixture({ now: night, fetch: async () => {
+    const value = payload();
+    for (const board of Object.values(value.boards)) board.retrievedAt = new Date(night).toISOString();
+    return Response.json(value);
+  } });
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    assert.equal(f.api.getState().boardStatus, 'live');
+    f.advance(20025);
+    assert.equal(f.api.getState().boardStatus, 'stale');
+    assert.match(f.details.querySelector('[data-willard-arrivals] .wa-board-status').title, /earlier Central date/);
+    assert.equal(f.flightCalls.length, 1);
+    assert.equal(rows(f, 'arrivals').length, 3);
+  } finally { await f.cleanup(); }
+});
+
+test('reopening an aged board checks once and accepts newly retrieved data', async () => {
+  const f = fixture({ fetch: async () => {
+    const value = payload();
+    for (const board of Object.values(value.boards)) board.retrievedAt = new f.window.Date().toISOString();
+    return Response.json(value);
+  } });
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    f.advance(MINUTE); assert.equal(f.api.getState().boardStatus, 'stale');
+    f.disclose(false); f.disclose(true); await f.settle();
+    assert.equal(f.flightCalls.length, 2);
+    assert.equal(f.api.getState().boardStatus, 'live');
+    f.advance(MINUTE); assert.equal(f.api.getState().boardStatus, 'stale');
+    assert.equal(f.flightCalls.length, 2);
+  } finally { await f.cleanup(); }
+});
+
+test('unverifiable retrieval time cannot keep flight rows labeled live', async () => {
+  const f = fixture({ fetch: async () => {
+    const value = payload();
+    for (const board of Object.values(value.boards)) board.retrievedAt = null;
+    return Response.json(value);
+  } });
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    assert.equal(f.api.getState().boardStatus, 'stale');
+    assert.equal(rows(f, 'departures').length, 1);
+    assert.match(f.details.querySelector('[data-willard-departures] .wa-board-status').title, /cannot be verified/);
+    assert.equal(f.flightCalls.length, 1);
+  } finally { await f.cleanup(); }
 });

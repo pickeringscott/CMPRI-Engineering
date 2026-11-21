@@ -1,4 +1,7 @@
 import test from 'node:test';
+import { makeUiTranslator, uiTitleCase } from '../src/lib/i18n/ui.ts';
+const ui = { t: makeUiTranslator('en'), tt: (text, values) => uiTitleCase(makeUiTranslator('en')(text, values)), locale: 'en-US' };
+const languageProvider = { useUiLanguage: () => ui };
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
@@ -17,6 +20,7 @@ function renderModule(relativePath, overrides = {}, props = {}) {
         const mod = { exports: {} };
         new Function('require', 'module', 'exports', compiled)(name => {
             if (Object.hasOwn(overrides, name)) return overrides[name];
+            if (name === '@/components/UiLanguageProvider') return languageProvider;
             if (name.endsWith('.css')) return new Proxy({}, { get: (_, key) => key === '__esModule' ? false : key });
             if (name.startsWith('.')) {
                 const base = resolve(dirname(target), name);
@@ -35,7 +39,7 @@ const read = file => readFileSync(new URL(file, import.meta.url), 'utf8');
 test('GSS replacement retains accessible source tables and its own approved typography', () => {
     const page = read('../src/app/engineering/gss/page.tsx');
     assert.match(page, /<GssScorecard \/>/);
-    assert.match(page, /hasCapability\(session, "view_engineering_operations"\)/);
+    assert.match(page, /canOpenGss\(session\.user\)/);
     const html = renderModule('../src/app/engineering/gss/GssScorecard.tsx');
     assert.equal((html.match(/<table/g) || []).length, 6);
     assert.equal((html.match(/data-property=/g) || []).length, 30);
@@ -84,7 +88,7 @@ test('source report shows only reports newer than the verified tables', () => {
 test('source report rejects partial or malformed responses', () => {
     const source = read('../src/app/engineering/gss/GssSourceReportView.tsx');
     const exports = {};
-    new Function('require', 'exports', ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText)(name => name.endsWith('.css') ? {} : require(name), exports);
+    new Function('require', 'exports', ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText)(name => name.endsWith('.css') ? {} : name === '@/components/UiLanguageProvider' ? languageProvider : require(name), exports);
     const image = period => ({ period, dataUrl: 'data:image/png;base64,YQ==' });
     assert.ok(exports.parseSourceReport({ date: '2026-11-16', images: [image('First ranking'), image('Second ranking')] }));
     assert.equal(exports.parseSourceReport({ date: '2026-02-30', images: [image('First ranking'), image('Second ranking')] }), null);

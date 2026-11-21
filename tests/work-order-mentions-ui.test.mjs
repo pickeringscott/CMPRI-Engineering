@@ -1,3 +1,4 @@
+import { englishUiLanguage, uiLanguageDependency } from './helpers/ui-language.mjs';
 import {plainTextParts} from '../src/lib/plain-text-links.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,11 +11,12 @@ const policy=loadTs('src/lib/work-order-mentions.ts',{'./plain-text-links':{plai
 const links={plainTextParts};
 const mentions=policy.workOrderMentionDirectory([{id:'scott',full_name:'Scott Pickering',role:'Chief Engineer'},{id:'dana',full_name:'Dana Reed',role:'Front Desk Manager'}]);
 const nodes=(tree,predicate)=>{const out=[];function visit(n){if(!n||typeof n!=='object')return;if(Array.isArray(n)){n.forEach(visit);return;}if(predicate(n))out.push(n);visit(n.props?.children);}visit(tree);return out;};
-function harness(){
+function harness(language = englishUiLanguage){
+ const uiDependency = {useUiLanguage:()=>language};
  let states=[],cursor=0,value='';
  const react={useState(initial){const i=cursor++;if(!(i in states))states[i]=initial;return [states[i],v=>states[i]=typeof v==='function'?v(states[i]):v]},useRef(initial){const i=cursor++;if(!(i in states))states[i]={current:initial};return states[i]},useCallback:f=>f,useEffect(){},useLayoutEffect(){}};
  const jsx=(type,props)=>({type,props:props||{}}),exports={};
- vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/WorkOrderNoteComposer.tsx',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require(name){return ({react,'react/jsx-runtime':{jsx,jsxs:jsx},'@/lib/work-order-mentions':policy,'@/lib/work-order-reference.js':references,'@/lib/plain-text-links':links})[name]||(()=>{throw Error(name)})()},requestAnimationFrame:fn=>fn()});
+ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/WorkOrderNoteComposer.tsx',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require(name){if(name==='@/components/UiLanguageProvider')return uiDependency;return ({react,'react/jsx-runtime':{jsx,jsxs:jsx},'@/lib/work-order-mentions':policy,'@/lib/work-order-reference.js':references,'@/lib/plain-text-links':links})[name]||(()=>{throw Error(name)})()},requestAnimationFrame:fn=>fn()});
  const render=()=>{cursor=0;return exports.default({value,onChange:v=>value=v,mentions,tickets:[{id:'abcdef12-0000-4000-8000-000000000001',display_id:'123',room:'Room 209',issue:'Fan'}]})};
  const input=t=>nodes(t,n=>n.type==='textarea')[0];
  return {render,input,type(text,caret=text.length){let t=render();input(t).props.onFocus();input(t).props.onChange({target:{value:text,selectionStart:caret}});return render()},value:()=>value};
@@ -45,7 +47,7 @@ test('typed and pasted mentions remain visible and blue with exact native text; 
 });
 test('saved notes render staff and full roles, preserve URLs, and keep numeric and legacy ticket navigation',()=>{
  const jsx=(type,props)=>({type,props:props||{}});const exports={};
- vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/WorkOrderMentionText.tsx',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require:name=>({'react/jsx-runtime':{jsx,jsxs:jsx},'@/components/PlainTextLinks':{default:'links'},'@/lib/work-order-mentions':policy})[name]});
+ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/components/WorkOrderMentionText.tsx',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require:name=>({'@/components/UiLanguageProvider':uiLanguageDependency,'react/jsx-runtime':{jsx,jsxs:jsx},'@/components/PlainTextLinks':{default:'links'},'@/lib/work-order-mentions':policy})[name]});
  const text='@Scott ask @Front Desk Manager. https://example.test/@Scott';
  const rendered=exports.default({text,mentions});
  const highlights=nodes(rendered,n=>n.props?.['data-work-order-mention']);assert.equal(highlights.length,2);assert.equal(highlights[1].props.children,'@Front Desk Manager');
@@ -53,7 +55,7 @@ test('saved notes render staff and full roles, preserve URLs, and keep numeric a
  function visit(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='renderHistoryText')fn=n.getText(ast);ts.forEachChild(n,visit)}visit(ast);assert.ok(fn);
  const tickets=[{id:'abcdef12-0000-4000-8000-000000000001',display_id:null,room:'Room 209'},{id:'other-legacy',display_id:null},{id:'ticket-number',display_id:'123'}];const opened=[];const e={};
  const program=ts.transpileModule(fn+'\nexports.run=renderHistoryText',{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX}}).outputText;
- vm.runInNewContext(program,{exports:e,require:()=>({jsx,jsxs:jsx}),plainTextParts:links.plainTextParts,...references,referencePrefixes:{abcdef12:tickets[0].id},referenceTickets:tickets,referenceError:'',mentionDirectory:mentions,ticketMentionLabel:t=>references.formatWorkOrder(t.display_id,`WO-${t.id.slice(0,8)}`),openMentionedTicket:t=>opened.push(t.id),PlainTextLinks:'links',WorkOrderMentionText:'mentions'});
+ vm.runInNewContext(program,{exports:e,t:englishUiLanguage.t,tt:englishUiLanguage.tt,require:()=>({jsx,jsxs:jsx}),plainTextParts:links.plainTextParts,...references,referencePrefixes:{abcdef12:tickets[0].id},referenceTickets:tickets,referenceError:'',mentionDirectory:mentions,ticketMentionLabel:t=>references.formatWorkOrder(t.display_id,`WO-${t.id.slice(0,8)}`),openMentionedTicket:t=>opened.push(t.id),PlainTextLinks:'links',WorkOrderMentionText:'mentions'});
  const result=e.run('@Scott @WO#123 @WO-abcdef12');const buttons=nodes(result,n=>n.type==='button');assert.equal(buttons.length,2);buttons.forEach(b=>b.props.onClick());assert.deepEqual(opened,['ticket-number',tickets[0].id]);
 });
 
@@ -64,4 +66,22 @@ test('fully typed first names, full role titles and ticket labels close suggesti
   const tree=h.type(value);assert.equal(h.input(tree).props.value,value);assert.equal(nodes(tree,n=>n.props?.role==='option').length,0,value);assert.ok(nodes(tree,n=>n.props?.['data-composer-mention']!==undefined).length,value);
  }
  const partial=h.type('@Front Desk M');assert.ok(nodes(partial,n=>n.props?.role==='option').length>0);
+});
+
+
+test('Spanish composer labels preserve canonical mention tokens and user-authored notes', () => {
+ const {makeUiTranslator, uiTitleCase} = loadTs('src/lib/i18n/ui.ts');
+ const t = makeUiTranslator('es');
+ const h = harness({language:'es',locale:'es-US',t,tt:(...args)=>uiTitleCase(t(...args))});
+ const draft = 'La habitación 124 necesita ayuda de @Front Desk M';
+ const tree = h.type(draft);
+ assert.equal(h.input(tree).props['aria-label'], 'Nota de la orden de trabajo');
+ assert.equal(h.input(tree).props.placeholder, 'Nota de la orden de trabajo — añada una nota…');
+ const list = nodes(tree, node=>node.props?.role==='listbox')[0];
+ assert.equal(list.props['aria-label'], 'Mencionar personal, funciones u órdenes');
+ const option = nodes(tree, node=>node.props?.role==='option')[0];
+ assert.equal(option.props.children[1].props.children, 'Rol');
+ option.props.onClick();
+ assert.equal(h.value(), 'La habitación 124 necesita ayuda de @Front Desk Manager ');
+ assert.equal(h.input(h.render()).props.value, h.value());
 });

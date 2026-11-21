@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import './helpers/resolve-ts.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -87,6 +88,7 @@ test('shared modal guest indicators show CN immediately after the name without r
  const exports={};
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText,{
   exports,React,require(name){
+   if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;
    if(name==='./GuestGroupBadge')return {default:({badge})=>badge?React.createElement('img',{alt:badge}):null};
    if(name==='./LoyaltyBadge')return {default:({tier})=>tier?React.createElement('span',null,tier):null};
    if(name==='@/lib/loyalty-tier')return {loyaltyTier:value=>value};
@@ -102,6 +104,7 @@ test('work order title follows the occupied guest through checkout to the incomi
  const exports={};
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.React}}).outputText,{
   exports,React,require(name){
+   if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;
    if(name==='@/components/GuestGroupBadge')return {default:({badge})=>badge?React.createElement('img',{alt:badge}):null};
    if(name==='@/components/LoyaltyBadge')return {default:({tier})=>tier?React.createElement('span',null,tier):null};
    if(name==='@/lib/loyalty-tier')return {loyaltyTier:value=>value};

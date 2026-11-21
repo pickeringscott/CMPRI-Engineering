@@ -17,20 +17,18 @@ function declaration(name) {
   assert.ok(found,`Missing dashboard declaration: ${name}`);
   return found;
 }
-function property(node,name) {
-  return node.properties.find(item=>item.name?.getText(file).replaceAll('"','')===name)?.initializer;
-}
-const path=vm.runInNewContext(declaration('WEATHER_PREVIEW_PATH').getText(file));
-const operations=declaration('launcherGroups').elements.find(group=>property(group,'label')?.text==='Operations');
-assert.ok(operations,'Weather belongs in the existing Operations group');
-const weather=property(operations,'items').elements.find(item=>item.getText(file).includes('label: "Weather"'));
-assert.ok(weather,'Missing native Operations Weather launcher');
-function launcher(flag,canViewDashboard) {
+const roles=loadTs('src/lib/server/roles.ts');
+const menu=loadTs('src/lib/dashboard/menu-groups.ts',{'../server/roles':roles});
+const {canOpenWeather}=loadTs('src/lib/dashboard/menu-access.ts');
+const path=vm.runInNewContext(declaration('WEATHER_PREVIEW_PATH').getText(file),{WEATHER_MENU_PATH:menu.WEATHER_MENU_PATH});
+const weather=declaration('launchers').elements.find(item=>item.getText(file).includes('label: "Weather"'));
+assert.ok(weather,'Missing native Weather launcher');
+function launcher(flag,role) {
   return vm.runInNewContext('('+weather.getText(file)+')',{
     WEATHER_PREVIEW_PATH:path,
     process:{env:{NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW:flag}},
-    session:{capabilities:canViewDashboard?['view_dashboard']:[]},
-    hasCapability:(session,capability)=>session.capabilities.includes(capability),
+    session:{user:{role}},
+    canOpenWeather,
   });
 }
 
@@ -45,21 +43,28 @@ test('the compiled Weather launcher is enabled in production, previews and local
   }
 });
 
-test('native Operations retains the Weather flag and dashboard permission checks',()=>{
-  for(const flag of ['0',undefined])assert.equal(launcher(flag,true),false);
-  assert.equal(launcher('1',false),false);
-  const action=launcher('1',true);
+test('Weather stays in Safety & Logs for Front Desk and Lead Housekeeper',()=>{
+  for(const flag of ['0',undefined])assert.equal(launcher(flag,'chief_engineer'),false);
+  assert.equal(launcher('1','unknown'),false);
+  for(const role of ['assistant_manager','front_desk_manager'])assert.equal(launcher('1',role),false);
+  const action=launcher('1','chief_engineer');
   assert.equal(action.label,'Weather');
   assert.equal(action.key,path);
   assert.equal(action.href,path+'?weather=open');
   assert.equal(action.accent,'bg-amber-400');
   assert.equal(action.preferred.width,1280);
   assert.equal(action.preferred.height,800);
+  for(const role of ['front_desk','housekeeping']) {
+    const groups=menu.dashboardMenuGroups(role,[launcher('1',role),{key:'sign-out',label:'Sign Out'},{key:'/engineering/pool-log',label:'Pool Log'}]);
+    assert.deepEqual(Array.from(groups,group=>group.label),['Rooms & Reports','Safety & Logs','Account']);
+    assert.deepEqual(Array.from(groups[1].items,item=>item.label),['Weather']);
+    assert.equal(groups[2].centered,true);
+  }
 });
 
 test('Weather uses the existing same-origin desktop frame route and host window sizing',()=>{
   const windows=loadTs('src/lib/ui/desktop-windows.ts',{}, {URL});
-  const action=launcher('1',true), origin='https://branch.example';
+  const action=launcher('1','chief_engineer'), origin='https://branch.example';
   assert.equal(windows.isDesktopRoute(action.href,origin),true);
   assert.equal(windows.desktopWindowKeyForHref(action.href,origin),path);
   const frame=new URL(windows.desktopFrameHref(action.href,'weather-review-token',origin),origin);

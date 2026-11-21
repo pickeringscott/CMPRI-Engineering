@@ -1,6 +1,7 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import WorkOrderAttachmentHistory from "@/components/WorkOrderAttachmentHistory";
-import WorkOrderMediaComposer from "@/components/WorkOrderMediaComposer";
+import WorkOrderMediaComposer, { type MediaRecoveryActions } from "@/components/WorkOrderMediaComposer";
 import WorkOrderTitleGuest from "@/components/WorkOrderTitleGuest";
 import WorkOrderTierKey from "@/components/WorkOrderTierKey";
 import WorkOrderSectionIcon from "@/components/WorkOrderSectionIcon";
@@ -545,11 +546,11 @@ function normalizeDiagnosticCode(
 }
 
 
-function formatDateTime(value?: string | null) {
+function formatDateTime(value?: string | null, locale = "en-US") {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString();
+  return date.toLocaleString(locale);
 }
 
 function explicitPartSuggestion(issue: string) {
@@ -593,6 +594,7 @@ export default function WorkOrderTicketPage() {
 }
 
 function WorkOrderTicketEditor({ id }: { id: string }) {
+  const { language, locale, t, tt } = useUiLanguage();
   const router = useRouter();
   const [troubleshootingVisitId, setTroubleshootingVisitId] = useState(() => crypto.randomUUID());
   const troubleshootingOpened = useRef(false);
@@ -696,6 +698,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const [photoUploading, setPhotoUploading] = useState(false);
   const [removingPhotoId, setRemovingPhotoId] = useState<string | null>(null);
   const [hasPendingNoteMedia, setHasPendingNoteMedia] = useState(false);
+  const mediaRecoveryActions = useRef<MediaRecoveryActions | null>(null);
   const [photoUploadError, setPhotoUploadError] = useState("");
   const [photoUploadMessage, setPhotoUploadMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -757,14 +760,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     })();
     return () => controller.abort();
   }, [id]);
-  const [notesLanguage, setNotesLanguage] = useState<"en" | "es">("en");
-  useEffect(() => {
-    const sync = () => setNotesLanguage(document.documentElement.lang === "es" ? "es" : "en");
-    sync();
-    const observer = new MutationObserver(sync);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["lang"] });
-    return () => observer.disconnect();
-  }, []);
+  const notesLanguage = language;
 
   const [currentActor, setCurrentActor] = useState("CMPRI User");
   const [stagedNoteIds, setStagedNoteIds] = useState<string[]>([]);
@@ -888,7 +884,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
   async function removeSavedPhoto(image: WorkOrderImage) {
     if (!id || !image.can_remove || photoUploading || removingPhotoId) return;
-    if (!window.confirm("Remove this saved photo from this work order? This cannot be undone.")) return;
+    if (!window.confirm(t("Remove this saved photo from this work order? This cannot be undone."))) return;
     setRemovingPhotoId(image.id);
     setPhotoUploadError("");
     setPhotoUploadMessage("");
@@ -1973,15 +1969,17 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     const link = document.createElement("a"); link.href = url; link.download = "cmpri-work-order-draft.json"; link.click();
     URL.revokeObjectURL(url);
   }
-  function closeAndKeepDraft() {
-    if (saving || hasPendingNoteMedia) return;
+  async function closeAndKeepDraft() {
+    if (saving) return;
+    if (hasPendingNoteMedia && !await mediaRecoveryActions.current?.flush()) { setMessage("Selected attachments could not be retained. Keep this window open until they are uploaded."); return; }
     // Persist the current render synchronously: an effect may not have run yet,
     // and storage can fail after an earlier successful write.
     if (!persistLocalDraft()) return;
     closeEmbeddedTicket();
   }
-  function discardLocalDraftAndClose() {
+  async function discardLocalDraftAndClose() {
     if (saving || !cmpriSession || !order) return;
+    if (hasPendingNoteMedia && !await mediaRecoveryActions.current?.discard()) { setMessage("Selected attachments could not be discarded. Your work remains open."); return; }
     try {
       // A storage failure must keep this editing visit open before its journal
       // is finalized. Retain in-memory edits and recovery until exit succeeds.
@@ -2002,7 +2000,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     if (!embedded) return;
     const handleModalCancelRequest = (event: Event) => {
       event.preventDefault();
-      if (hasPendingNoteMedia || saving || saveInFlight.current || exitInFlight.current) {
+      if (hasPendingNoteMedia) { setShowCancelConfirm(true); return; }
+      if (saving || saveInFlight.current || exitInFlight.current) {
         setMessage(hasPendingNoteMedia ? "Submit or remove the pending attachments before closing." : "Please wait for the current save to finish.");
         return;
       }
@@ -2024,9 +2023,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-slate-950 p-6 text-white">
-        Loading work order...
-      </main>
+      <main className="min-h-screen bg-slate-950 p-6 text-white">{t("Loading work order...")} </main>
     );
   }
 
@@ -2034,19 +2031,17 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     return (
       <main className="min-h-screen bg-slate-950 p-6 text-white">
         {!embedded && (
-          <Link href="/engineering" className="text-amber-400">
-            ← Engineering Dashboard
-          </Link>
+          <Link href="/engineering" className="text-amber-400">{t("← Engineering Dashboard")} </Link>
         )}
         <div className="mt-6 rounded-xl border border-red-400/30 bg-red-950/20 p-4">
-          {message || "Work order not found."}
+          {t(message) || t("Work order not found.")}
         </div>
       </main>
     );
   }
 
   const technicianOptions = [
-    { value: "", label: "Unassigned" },
+    { value: "", label: t("Unassigned") },
     ...technicians
       .filter((profile) => !!profile.full_name?.trim())
       .map((profile) => ({
@@ -2061,7 +2056,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   ) {
     technicianOptions.push({
       value: technicianName.trim(),
-      label: `${technicianName.trim()} (current assignment)`,
+      label: t("{name} (current assignment)", { name: technicianName.trim() }),
     });
   }
 
@@ -2130,7 +2125,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             : "This Location";
       return {
         value: asset.id,
-          label: asset.location_name ? `${asset.name} - ${asset.location_name}` : `${asset.name}${asset.location_id === null ? " (Template - no room assignment)" : ""}`,
+          label: asset.location_name ? `${asset.name} - ${asset.location_name}` : `${asset.name}${asset.location_id === null ? ` (${t("Template - no room assignment")})` : ""}`,
         group,
         keywords: [
           asset.asset_type,
@@ -2145,14 +2140,14 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     }),
     {
       value: "",
-      label: "No specific asset / equipment",
+      label: t("No specific asset / equipment"),
       group: "Other",
     },
   ];
 
 
   const categoryOptions = workOrderCategoryOptions(category);
-  const priorityOptions = ['Urgent','High','Medium','Low'].map((value) => ({ value, label: value }));
+  const priorityOptions = ['Urgent','High','Medium','Low'].map((value) => ({ value, label: t(value) }));
   const canAccessAssignedWork = canAccessWorkOrderByAssignment(cmpriSession && (profileIsChiefEngineer(cmpriSession.user) || profileIsEstablishedHoursChief(cmpriSession.user)) ? "Chief Engineer" : cmpriSession?.user.role, cmpriSession?.user.name, order);
   const canEditTicket = canAccessAssignedWork && Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
   const canReviewTicket = Boolean(cmpriSession?.capabilities.includes("review_tickets"));
@@ -2160,7 +2155,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
   const chief = !!cmpriSession && (profileIsChiefEngineer(cmpriSession.user) || profileIsEstablishedHoursChief(cmpriSession.user));
   const pendingField = (key: string) => pendingTicketField(chief, initialFingerprint, currentFingerprint, key)
-    ? <span data-pending-field={key} aria-label="Unsaved change" title="Unsaved change" className="text-red-500" style={{ fontSize: "inherit" }}> !</span>
+    ? <span data-pending-field={key} aria-label={t("Unsaved change")} title={tt("Unsaved change")} className="text-red-500" style={{ fontSize: "inherit" }}> !</span>
     : null;
   const isTechnician = !chief && roleKey(cmpriSession?.user.role) === "technician";
   const canClaimWorkOrder = isTechnician &&
@@ -2201,7 +2196,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     const values = ["Open", "In Progress", "Completed", "Will Not Do", "Closed"];
     return status === "Pending Verification" ? ["Pending Verification", ...values] : values;
   })();
-  const statusOptions = Array.from(new Set(statusValues)).map((value) => ({ value, label: value }));
+  const statusOptions = Array.from(new Set(statusValues)).map((value) => ({ value, label: t(value) }));
   // Color only a confirmed change, and restore the normal color if the opening value is selected again.
   const metadataSelectionChanged = (field: string, selected: string, confirmed: string) =>
     selected === confirmed && metadataBaseline.current?.id === order.id && metadataBaseline.current.values[field] !== confirmed;
@@ -2235,13 +2230,13 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
         refs.push({ start: match.index!, end: match.index! + match[0].length, number: workOrderNumber(ticket.display_id) || "", label: ticketMentionLabel(ticket) });
       }
     }
-    const output: React.ReactNode[] = referenceError ? [<span key="reference-error" role="status" className="block text-xs text-amber-300">{referenceError}</span>] : [];
+    const output: React.ReactNode[] = referenceError ? [<span key="reference-error" role="status" className="block text-xs text-amber-300">{t(referenceError)}</span>] : [];
     let at = 0;
     for (const ref of refs.sort((a,b) => a.start - b.start)) {
       const matches = referenceTickets.filter(candidate => workOrderNumber(candidate.display_id) === ref.number);
       const ticket = legacyTargets.get(ref.start) || (matches.length === 1 ? matches[0] : undefined);
       output.push(<span key={`text-${at}`}><WorkOrderMentionText text={text.slice(at, ref.start)} mentions={mentionDirectory} /></span>);
-      output.push(ticket ? <button key={`mention-${ref.start}`} type="button" onClick={() => openMentionedTicket(ticket)} className="font-semibold text-sky-300 underline decoration-sky-500/60 underline-offset-2 hover:text-sky-200" title={`Open ${ref.label} - ${ticket.room || "No location"}`}>{ref.label}</button> : <span key={`mention-${ref.start}`} className="text-slate-400">{ref.label}</span>);
+      output.push(ticket ? <button key={`mention-${ref.start}`} type="button" onClick={() => openMentionedTicket(ticket)} className="font-semibold text-sky-300 underline decoration-sky-500/60 underline-offset-2 hover:text-sky-200" title={tt("Open {reference} - {location}", { reference: ref.label, location: ticket.room || t("No location") })}>{ref.label}</button> : <span key={`mention-${ref.start}`} className="text-slate-400">{ref.label}</span>);
       at = ref.end;
     }
     output.push(<span key="remaining"><WorkOrderMentionText text={text.slice(at)} mentions={mentionDirectory} /></span>);
@@ -2288,20 +2283,20 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
   return (
     <main data-ticket-layout aria-busy={exitFlushing} className="min-h-screen bg-slate-950 text-[16px] text-white">
-      {exitFlushing && <p role="status" className="sr-only">Saving checklist activity before leaving this work order.</p>}
+      {exitFlushing && <p role="status" className="sr-only">{t("Saving checklist activity before leaving this work order.")}</p>}
       <div inert={exitFlushing} className="mx-auto max-w-7xl px-3 pb-4 sm:px-4">
         <div data-preview-locked-pane className="sticky top-0 z-20 -mx-3 flex flex-wrap items-start justify-between gap-2 bg-slate-950/95 px-3 py-2 backdrop-blur sm:-mx-4 sm:px-4">
           {!embedded && <div className="cmpri-desktop-titlebar cmpri-work-order-titlebar cmpri-standalone-work-order-titlebar w-full">
             <span aria-hidden="true" className="size-2 shrink-0 rounded-full bg-amber-400" />
             <span className="cmpri-title-content">
-              <span className="min-w-0 flex-1 truncate">Work Order</span>
+              <span className="min-w-0 flex-1 truncate">{t("Work Order")}</span>
               <WorkOrderTitleGuest guest={order as unknown as Record<string, unknown>} />
             </span>
             <WorkOrderTierKey />
           </div>}
           <div data-preview-mobile-number><button
               type="button"
-              title="Copy work order number"
+              title={tt("Copy work order number")}
               onClick={() => { if (order.display_id) void navigator.clipboard?.writeText(formatWorkOrder(order.display_id)); }}
               className="whitespace-nowrap rounded-full border border-orange-500/50 bg-orange-950/45 px-2 py-0.5 text-[10px] font-bold text-orange-200"
             >
@@ -2315,27 +2310,25 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   event.preventDefault(); requestTicketNavigation("/engineering");
                 }}
                 className="text-xs font-semibold text-amber-400 hover:text-amber-300"
-              >
-                ← Engineering Dashboard
-              </Link>
+              >{t("← Engineering Dashboard")} </Link>
             )}
             <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1 p-2">
               <div className="min-w-0 flex-1">
                 <div data-preview-detail-title className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                   <div className="min-w-0">
                     <h1 className="flex min-w-0 items-center gap-1.5 text-lg font-bold leading-tight text-white">
-                      <span className="truncate">{order.room || "Work Order"}</span>
+                      <span className="truncate">{order.room || t("Work Order")}</span>
                     </h1>
 
                   </div>
-                  {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{roomOccupancy.label}</span>}
-                  {checkout && checkoutDisplay && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{checkoutDisplay.label}</span>}
-                  {priority && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${priorityClass(priority)}`}>{priorityLabel(priority)}</span>}
+                  {roomOccupancy && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${roomOccupancy.className}`}>{t(roomOccupancy.label)}</span>}
+                  {checkout && checkoutDisplay && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${checkout.className}`}>{t(checkoutDisplay.label)}</span>}
+                  {priority && <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${priorityClass(priority)}`}>{t(priorityLabel(priority))}</span>}
                   <PartsStatusPill status={order.parts_status} />
-                  <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{normalizeKpiStatus(status)}</span>
+                  <span className={`inline-flex whitespace-nowrap rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-tight ${statusClass(status)}`}>{t(normalizeKpiStatus(status))}</span>
                 </div>
                 <div className="mt-1 flex min-w-0 flex-col items-start gap-y-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-x-2">
-                  <p className="w-full min-w-0 break-words text-sm leading-5 text-white sm:flex-1" title={issue || "No reported issue"}>{issue || "No reported issue"}</p>
+                  <p className="w-full min-w-0 break-words text-sm leading-5 text-white sm:flex-1" title={issue || tt("No reported issue")}>{issue || t("No reported issue")}</p>
                 </div>
               </div>
             </div>
@@ -2344,7 +2337,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
           <div className="order-1 ml-auto grid shrink-0 justify-items-end gap-1 self-start sm:order-none">
             <button data-preview-desktop-number
               type="button"
-              title="Copy work order number"
+              title={tt("Copy work order number")}
               onClick={() => { if (order.display_id) void navigator.clipboard?.writeText(formatWorkOrder(order.display_id)); }}
               className="whitespace-nowrap rounded-full border border-orange-500/50 bg-orange-950/45 px-2 py-0.5 text-[10px] font-bold text-orange-200"
             >
@@ -2358,9 +2351,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 onClick={cancelTicket}
                 disabled={saving || issueSaving || metadataSaving || exitFlushing}
                 className="min-h-9 whitespace-nowrap rounded-lg border border-slate-600 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-slate-900 disabled:opacity-60"
-              >
-                Cancel
-              </button>
+              >{t("Cancel")} </button>
               {(editableFields.length > 0 || canReviewCurrentTicket) && <button
                 type="button"
                 onClick={() => { void saveTicket(); }}
@@ -2376,51 +2367,49 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 }`}
               >
                 {saveState === "saving"
-                  ? "Saving..."
+                  ? t("Saving...")
                   : saveState === "saved"
-                    ? "Saved"
+                    ? t("Saved")
                     : hasUnsavedChanges
-                      ? canAddWorkOrderNotes && !canEditWorkOrder && !canReviewCurrentTicket ? "Save Notes" : "Save Changes"
-                      : canAddWorkOrderNotes && !canEditWorkOrder && !canReviewCurrentTicket ? "Save Notes" : "Save Work Order"}
+                      ? canAddWorkOrderNotes && !canEditWorkOrder && !canReviewCurrentTicket ? t("Save Notes") : t("Save Changes")
+                      : canAddWorkOrderNotes && !canEditWorkOrder && !canReviewCurrentTicket ? t("Save Notes") : t("Save Work Order")}
               </button>}
             </div>
         </div>
 
         {rankerAlert.active && <div role="status" className="mx-1 mb-1 min-w-0 rounded-lg border border-red-500/70 bg-red-950/40 px-2 py-1 text-xs text-red-100">
-          <div className="text-center font-bold text-red-300">Room Ranker Alert</div>
-          <div className="overflow-x-auto whitespace-nowrap">Also see: {rankerAlert.related.length ? rankerAlert.related.map((ticket, index) => <span key={ticket.id}>{index > 0 && " · "}<button type="button" className="underline" onClick={() => openMentionedTicket(ticket as MentionTicket)}>{formatWorkOrder(ticket.display_id)}</button></span>) : "No other open work orders"}</div>
+          <div className="text-center font-bold text-red-300">{t("Room Ranker Alert")}</div>
+          <div className="overflow-x-auto whitespace-nowrap">{t("Also see:")} {rankerAlert.related.length ? rankerAlert.related.map((ticket, index) => <span key={ticket.id}>{index > 0 && " · "}<button type="button" className="underline" onClick={() => openMentionedTicket(ticket as MentionTicket)}>{formatWorkOrder(ticket.display_id)}</button></span>) : t("No other open work orders")}</div>
         </div>}
         {message && (
           <div className="mt-2 rounded-xl border border-slate-700 bg-slate-900 p-2 text-sm">
-            {message}
-            {hasUnsavedChanges && <button type="button" onClick={exportUnsavedDraft} className="ml-2 min-h-9 text-sky-300 underline">Download draft copy</button>}
+            {t(message)}
+            {hasUnsavedChanges && <button type="button" onClick={exportUnsavedDraft} className="ml-2 min-h-9 text-sky-300 underline">{t("Download draft copy")}</button>}
           </div>
         )}
 
-        {exitFlushing && <p role="status" className="mt-2 text-sm text-sky-200">Saving checklist activity to this work order before leaving…</p>}
-        {exitError && <p role="alert" className="mt-2 rounded-xl border border-amber-500 bg-amber-950/40 p-2 text-sm text-amber-100">{exitError}</p>}
+        {exitFlushing && <p role="status" className="mt-2 text-sm text-sky-200">{t("Saving checklist activity to this work order before leaving…")}</p>}
+        {exitError && <p role="alert" className="mt-2 rounded-xl border border-amber-500 bg-amber-950/40 p-2 text-sm text-amber-100">{t(exitError)}</p>}
 
         {localDraftFailed && hasUnsavedChanges && (
-          <div role="alert" className="mt-2 rounded-xl border border-amber-500 bg-amber-950/40 p-2 text-sm text-amber-100">
-            Your changes could not be saved on this device. Keep this view open and save the work order, or download a copy of your text before leaving.
-            <button type="button" onClick={exportUnsavedDraft} className="ml-2 min-h-9 text-sky-300 underline">Download draft copy</button>
+          <div role="alert" className="mt-2 rounded-xl border border-amber-500 bg-amber-950/40 p-2 text-sm text-amber-100">{t("Your changes could not be saved on this device. Keep this view open and save the work order, or download a copy of your text before leaving.")} <button type="button" onClick={exportUnsavedDraft} className="ml-2 min-h-9 text-sky-300 underline">{t("Download draft copy")}</button>
           </div>
         )}
 
         {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.ranker || order?.room) && !roomOperationalContext.loading && roomOperationalContext.checkoutError && (
-          <p role="alert" className="mt-2 text-xs text-red-300">Room checkout details are unavailable: {roomOperationalContext.checkoutError}</p>
+          <p role="alert" className="mt-2 text-xs text-red-300">{t("Room checkout details are unavailable:")} {t(roomOperationalContext.checkoutError)}</p>
         )}
 
         <div aria-busy={saving} className="mt-2 grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
           <div className="min-w-0 space-y-2">
             <details data-reported-issue data-ticket-accordion="reported-issue" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
               <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
-                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="report" />Reported Issue{pendingField("issue")}</h2>
+                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="report" />{t("Reported Issue")}{pendingField("issue")}</h2>
               </summary>
               {editingIssue && canEditField("issue") ? (
                 <>
                   <textarea
-                    aria-label="Reported Issue"
+                    aria-label={t("Reported Issue")}
                     onBlur={(event) => { void saveReportedIssue(event.currentTarget.value); }}
                     autoFocus
                     disabled={saving}
@@ -2432,70 +2421,70 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   />
                 </>
               ) : (
-                <button type="button" disabled={!canEditField("issue") || saving} onClick={() => setEditingIssue(true)} aria-label="Edit reported issue" className="w-full whitespace-pre-wrap break-words p-0 text-left text-lg font-bold leading-tight text-slate-200">{issue || "No issue"}</button>
+                <button type="button" disabled={!canEditField("issue") || saving} onClick={() => setEditingIssue(true)} aria-label={t("Edit reported issue")} className="w-full whitespace-pre-wrap break-words p-0 text-left text-lg font-bold leading-tight text-slate-200">{issue || t("No issue")}</button>
               )}
 
               {order.can_correct_report && (
                 <div className="mt-2">
-                  <label htmlFor="report-location" className="text-xs font-semibold text-slate-400">Room/Location{pendingField("locationId")}</label>
-                  {editingField === "location_id" ? <select autoFocus onBlur={() => setEditingField(null)} id="report-location" aria-label="Room/Location" value={locationId} onChange={event => setLocationId(event.target.value)} disabled={saving || !reportLocations.length} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm">
-                    {!reportLocations.some(location => location.id === locationId) && <option value={locationId}>{order.room || "Select location"}</option>}
+                  <label htmlFor="report-location" className="text-xs font-semibold text-slate-400">{t("Room/Location")}{pendingField("locationId")}</label>
+                  {editingField === "location_id" ? <select autoFocus onBlur={() => setEditingField(null)} id="report-location" aria-label={t("Room/Location")} value={locationId} onChange={event => setLocationId(event.target.value)} disabled={saving || !reportLocations.length} className="mt-1 block w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-sm">
+                    {!reportLocations.some(location => location.id === locationId) && <option value={locationId}>{order.room || t("Select location")}</option>}
                     {reportLocations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}
                   </select> : <button type="button" disabled={saving} onClick={() => setEditingField("location_id")} className="min-h-10 text-sm">{reportLocations.find(location => location.id === locationId)?.name || order.room}</button>}
-                  {locationError && <p role="alert" className="text-xs text-red-300">{locationError}</p>}
-                  {locationId !== (order.location_id || "") && <p className="text-xs text-amber-300">Saving corrects the room and reported issue only. Equipment and other ticket details stay unchanged; Engineering must verify equipment for the corrected room.</p>}
+                  {locationError && <p role="alert" className="text-xs text-red-300">{t(locationError)}</p>}
+                  {locationId !== (order.location_id || "") && <p className="text-xs text-amber-300">{t("Saving corrects the room and reported issue only. Equipment and other ticket details stay unchanged; Engineering must verify equipment for the corrected room.")}</p>}
                 </div>
               )}
-              {equipmentLocationMismatch && <p role="alert" className="mt-2 text-xs text-amber-300">Saved equipment belongs to another location. Its guide is hidden until Engineering verifies the equipment for this room.</p>}
+              {equipmentLocationMismatch && <p role="alert" className="mt-2 text-xs text-amber-300">{t("Saved equipment belongs to another location. Its guide is hidden until Engineering verifies the equipment for this room.")}</p>}
 
               {order.reporter_notes && (
                 <div className="mt-2 rounded-lg border border-slate-700 bg-slate-950/60 p-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reporter Notes</div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("Reporter Notes")}</div>
                   <p className="mt-1 whitespace-pre-wrap text-sm leading-5 text-slate-300"><PlainTextLinks text={order.reporter_notes} /></p>
                 </div>
               )}
 
               {status === "Pending Verification" && canReviewTicket && (
                 <div className="mt-2 flex justify-end">
-                  <button type="button" onClick={() => { void saveTicket("Open"); }} disabled={saving} className="rounded-lg border border-purple-400/50 bg-purple-950/40 px-3 py-2 text-xs font-bold text-purple-100 hover:bg-purple-900/50 disabled:opacity-60">Approve → Open</button>
+                  <button type="button" onClick={() => { void saveTicket("Open"); }} disabled={saving} className="rounded-lg border border-purple-400/50 bg-purple-950/40 px-3 py-2 text-xs font-bold text-purple-100 hover:bg-purple-900/50 disabled:opacity-60">{t("Approve → Open")}</button>
                 </div>
               )}
 
               <div data-preview-metadata className="cmpri-ticket-metadata-groups mt-2 grid gap-2 md:grid-cols-2">
-                <section className="cmpri-ticket-metadata-group min-w-0 rounded-lg border border-slate-700 p-2" aria-label="Work details">
-                  <h3 className="mb-2 border-b border-slate-700 pb-1 text-xs font-bold text-amber-300">Work details</h3>
+                <section className="cmpri-ticket-metadata-group min-w-0 rounded-lg border border-slate-700 p-2" aria-label={t("Work details")}>
+                  <h3 className="mb-2 border-b border-slate-700 pb-1 text-xs font-bold text-amber-300">{t("Work details")}</h3>
                   <div className="grid gap-2">
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("asset_id", assetId, order.asset_id || "")}>
-                      <div className="mb-1 text-xs font-semibold text-slate-400">Asset / Equipment{pendingField("assetId")}</div>
-                      <SearchableSelect value={assetId} onChange={value => saveMetadataSelection("asset_id", value)} disabled={saving || !canEditField("asset_id") || assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? "Loading equipment…" : assetReferenceError ? "Equipment unavailable" : "Asset / Equipment"} options={assetOptions.some(option => option.value === assetId) ? assetOptions : [{ value: assetId, label: order.asset_name || "Current equipment" }, ...assetOptions]} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? "+ Add New Asset" : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />
-                      {assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{assetReferenceError}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">Retry loading equipment</button></div>}
-                      {systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-1 text-xs font-semibold text-emerald-400">System best guess</p>}
+                      <div className="mb-1 text-xs font-semibold text-slate-400">{t("Asset / Equipment")}{pendingField("assetId")}</div>
+                      <SearchableSelect value={assetId} onChange={value => saveMetadataSelection("asset_id", value)} disabled={saving || !canEditField("asset_id") || assetReferenceLoading || Boolean(assetReferenceError)} placeholder={assetReferenceLoading ? t("Loading equipment…") : assetReferenceError ? t("Equipment unavailable") : t("Asset / Equipment")} options={assetOptions.some(option => option.value === assetId) ? assetOptions : [{ value: assetId, label: order.asset_name || t("Current equipment") }, ...assetOptions]} topSuggestions={3} expandOnOpen footerActionLabel={canEditField("asset_name") ? t("+ Add New Asset") : undefined} onFooterAction={canEditField("asset_name") ? () => setShowAddAsset(true) : undefined} />
+                      {assetReferenceError && <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amber-300"><span role="alert">{t(assetReferenceError)}</span><button type="button" onClick={() => void loadMaintenanceReference()} className="font-semibold underline">{t("Retry loading equipment")}</button></div>}
+                      {systemGuessAssetId && systemGuessAssetId === assetId && <p className="mt-1 text-xs font-semibold text-emerald-400">{t("System best guess")}</p>}
                     </div>
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("category", category, order.category || "General")}>
-                      <label htmlFor="ticket-category" className="mb-1 block text-xs font-semibold text-slate-400">Category{pendingField("category")}</label>
-                      <select id="ticket-category" value={category} onChange={event => saveMetadataSelection("category", event.target.value)} disabled={saving || !canEditField("category")} className="cmpri-ticket-select">{categoryOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+                      <label htmlFor="ticket-category" className="mb-1 block text-xs font-semibold text-slate-400">{t("Category")}{pendingField("category")}</label>
+                      <select id="ticket-category" value={category} onChange={event => saveMetadataSelection("category", event.target.value)} disabled={saving || !canEditField("category")} className="cmpri-ticket-select">{categoryOptions.map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}</select>
                     </div>
                   </div>
                 </section>
-                <section className="cmpri-ticket-metadata-group min-w-0 rounded-lg border border-slate-700 p-2" aria-label="Assignment and timing">
-                  <h3 className="mb-2 border-b border-slate-700 pb-1 text-xs font-bold text-amber-300">Assignment &amp; timing</h3>
-                  <p className="text-[10px] leading-tight text-slate-500">Created by <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span>{order.creator_display_role && <span className="text-sky-200"> · {order.creator_display_role}</span>} · {formatDateTime(order.created_at)}</p>
+                <section className="cmpri-ticket-metadata-group min-w-0 rounded-lg border border-slate-700 p-2" aria-label={t("Assignment and timing")}>
+                  <h3 className="mb-2 border-b border-slate-700 pb-1 text-xs font-bold text-amber-300">{t("Assignment & timing")}</h3>
+                  <p className="text-[10px] leading-tight text-slate-500">{t("Created by")} <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span>{order.creator_display_role && <span className="text-sky-200"> · {t(order.creator_display_role)}</span>} · {formatDateTime(order.created_at, locale)}</p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("priority", priority, order.priority || "Medium")}>
-                      <label htmlFor="ticket-priority" className="mb-1 block text-xs font-semibold text-slate-400">Priority{order.ranker_base_priority && order.ranker_base_priority !== order.priority && <span className="text-red-500" aria-label="Raised by Room Ranker"> !</span>}{pendingField("priority")}</label>
-                      <select id="ticket-priority" value={priority} onChange={event => saveMetadataSelection("priority", event.target.value)} disabled={saving || !canEditField("priority")} className="cmpri-ticket-select">{priorityOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+                      <label htmlFor="ticket-priority" className="mb-1 block text-xs font-semibold text-slate-400">{t("Priority")}{order.ranker_base_priority && order.ranker_base_priority !== order.priority && <span className="text-red-500" aria-label={t("Raised by Room Ranker")}> !</span>}{pendingField("priority")}</label>
+                      <select id="ticket-priority" value={priority} onChange={event => saveMetadataSelection("priority", event.target.value)} disabled={saving || !canEditField("priority")} className="cmpri-ticket-select">{priorityOptions.map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}</select>
                     </div>
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("technician_name", technicianName, order.technician_name || "")}>
-                      <div className="mb-1 text-xs font-semibold text-slate-400">Technician{pendingField("technicianName")}</div>
-                      <SearchableSelect value={technicianName} onChange={value => saveMetadataSelection("technician_name", value)} disabled={saving || !canEditField("technician_name")} placeholder="Technician" options={technicianOptions} topSuggestions={2} expandOnOpen />
-                      {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-1 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-2 py-1 text-xs font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? "Taking work…" : "Take this work"}</button>}
+                      <div className="mb-1 text-xs font-semibold text-slate-400">{t("Technician")}{pendingField("technicianName")}</div>
+                      <SearchableSelect value={technicianName} onChange={value => saveMetadataSelection("technician_name", value)} disabled={saving || !canEditField("technician_name")} placeholder={t("Technician")} options={technicianOptions} topSuggestions={2} expandOnOpen />
+                      {canClaimWorkOrder && <button type="button" onClick={() => void claimUnassignedWorkOrder()} disabled={saving} className="mt-1 rounded-lg border border-emerald-400/50 bg-emerald-950/40 px-2 py-1 text-xs font-bold text-emerald-100 hover:bg-emerald-900/50 disabled:opacity-50">{saving ? t("Taking work…") : t("Take this work")}</button>}
                     </div>
                     <div className="cmpri-ticket-metadata-field cmpri-ticket-status min-w-0" data-changed={metadataSelectionChanged("status", status, order.status || "Open")}>
-                      <label htmlFor="ticket-status" className="mb-1 block text-xs font-semibold text-slate-400">Status{pendingField("status")}</label>
-                      <select id="ticket-status" value={status} onChange={event => saveMetadataSelection("status", event.target.value)} disabled={saving || !canEditField("status")} className="cmpri-ticket-select">{statusOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+                      <label htmlFor="ticket-status" className="mb-1 block text-xs font-semibold text-slate-400">{t("Status")}{pendingField("status")}</label>
+                      <select id="ticket-status" value={status} onChange={event => saveMetadataSelection("status", event.target.value)} disabled={saving || !canEditField("status")} className="cmpri-ticket-select">{statusOptions.map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}</select>
                     </div>
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("due_by", dueBy, order.due_by ? String(order.due_by).slice(0, 10) : "")}>
-                      <label htmlFor="ticket-due-by" className="mb-1 block text-xs font-semibold text-slate-400">Due By{order.ranker_auto_urgent && <span className="text-red-500" aria-label="Set by Room Ranker"> !</span>}{!order.ranker_auto_urgent && pendingField("dueBy")}</label>
+                      <label htmlFor="ticket-due-by" className="mb-1 block text-xs font-semibold text-slate-400">{t("Due By")}{order.ranker_auto_urgent && <span className="text-red-500" aria-label={t("Set by Room Ranker")}> !</span>}{!order.ranker_auto_urgent && pendingField("dueBy")}</label>
                       <input id="ticket-due-by" type="date" value={dueBy} onChange={event => saveMetadataSelection("due_by", event.target.value)} disabled={saving || !canEditField("due_by") || Boolean(order.ranker_auto_urgent)} className="cmpri-ticket-select" />
                     </div>
                   </div>
@@ -2506,33 +2495,39 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
             <details open data-preview-conversation data-ticket-accordion="notes-history" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
               <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
-                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="notes" />{notesLanguage === "es" ? "Notas e historial de la orden" : "Notes & Ticket History"}</h2>
+                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="notes" />{t("Notes & Ticket History")}</h2>
               </summary>
               <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-lg border border-slate-700 bg-slate-950">
                 {historyEntries.length ? historyEntries.map((entry) => {
                   const when = new Date(entry.timestamp);
-                  const visibleTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleString([], { month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
-                  const hoverTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+                  const visibleTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleString(locale, { month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
+                  const hoverTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+                  const technicianView = entry.id.startsWith("technician-view-")
+                    ? order.technician_view_entries?.find(view => entry.id === `technician-view-${view.id}`) : undefined;
+                  const createdFallback = entry.id === "created";
+                  const actor = createdFallback ? t("System")
+                    : technicianView && !technicianView.technician_name ? t("Technician") : entry.actor;
+                  const historyText = createdFallback || technicianView ? t(entry.text) : entry.text;
                   return (
                     <div key={entry.id} className="grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[7rem_6rem_minmax(0,1fr)_auto] items-start gap-1 border-b border-slate-800 px-2 py-1 text-xs leading-tight last:border-b-0">
                       <span className="text-slate-500" title={hoverTime}>{visibleTime}</span>
-                      <span className="truncate font-semibold text-sky-200">{entry.actor.trim().split(/\s+/)[0] || "CMPRI"}</span>
-                      <span className="text-slate-300">{renderHistoryText(entry.text)}</span>
-                      {entry.locked && <span className="text-xs font-semibold text-amber-300">Locked</span>}
-                      {entry.staged && <button type="button" disabled={saving} onClick={() => editSubmittedNote(entry)} className="font-semibold text-sky-300 hover:text-sky-200">Edit</button>}
+                      <span className="truncate font-semibold text-sky-200">{actor.trim().split(/\s+/)[0] || t("CMPRI")}</span>
+                      <span className="text-slate-300">{renderHistoryText(historyText)}</span>
+                      {entry.locked && <span className="text-xs font-semibold text-amber-300">{t("Locked")}</span>}
+                      {entry.staged && <button type="button" disabled={saving} onClick={() => editSubmittedNote(entry)} className="font-semibold text-sky-300 hover:text-sky-200">{t("Edit")}</button>}
                     </div>
                   );
-                }) : <div className="px-2 py-1.5 text-xs text-slate-500">No ticket history yet.</div>}<WorkOrderAttachmentHistory items={workOrderImages} onRemove={image=>void removeSavedPhoto(image)} removing={!!removingPhotoId || photoUploading}/>
+                }) : <div className="px-2 py-1.5 text-xs text-slate-500">{t("No ticket history yet.")}</div>}<WorkOrderAttachmentHistory items={workOrderImages} onRemove={image=>void removeSavedPhoto(image)} removing={!!removingPhotoId || photoUploading}/>
               </div>
-            {workOrderImageError&&<div role="alert" className="text-xs text-red-200">{workOrderImageError}<button type="button" onClick={()=>void loadWorkOrderImages()} disabled={workOrderImagesLoading}>Retry attachments</button></div>}{workOrderImagesLoading&&<p role="status" className="text-xs text-slate-400">Loading attachments…</p>}{photoUploadError&&<p role="alert" className="text-xs text-red-200">{photoUploadError}</p>}{photoUploadMessage&&<p role="status" className="text-xs text-emerald-300">{photoUploadMessage}</p>}
+            {workOrderImageError&&<div role="alert" className="text-xs text-red-200">{t(workOrderImageError)}<button type="button" onClick={()=>void loadWorkOrderImages()} disabled={workOrderImagesLoading}>{t("Retry attachments")}</button></div>}{workOrderImagesLoading&&<p role="status" className="text-xs text-slate-400">{t("Loading attachments…")}</p>}{photoUploadError&&<p role="alert" className="text-xs text-red-200">{t(photoUploadError)}</p>}{photoUploadMessage&&<p role="status" className="text-xs text-emerald-300">{t(photoUploadMessage)}</p>}
 
 
-              <section className="cmpri-ticket-note-bar mt-2" aria-label="Add a work order note">
+              <section className="cmpri-ticket-note-bar mt-2" aria-label={t("Add a work order note")}>
                 <div className="relative">
-                  <WorkOrderNoteComposer placeholder="Add a note…" label={noteHeading(cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, notesLanguage)} disabled={saving || !canSubmitTicketNote} value={noteDraft} onChange={setNoteDraft} mentions={mentionDirectory} tickets={mentionTickets} />
-                  {mentionDirectoryError && <p role="status" className="mt-1 text-xs text-amber-300">{mentionDirectoryError}</p>}
+                  <WorkOrderNoteComposer placeholder={t("Add a note…")} label={noteHeading(cmpriSession ? accountRoleDisplayName(cmpriSession.user) : undefined, notesLanguage)} disabled={saving || !canSubmitTicketNote} value={noteDraft} onChange={setNoteDraft} mentions={mentionDirectory} tickets={mentionTickets} />
+                  {mentionDirectoryError && <p role="status" className="mt-1 text-xs text-amber-300">{t(mentionDirectoryError)}</p>}
                 </div>
-                <WorkOrderMediaComposer key={order.id} workOrderId={order.id} disabled={saving || !canSubmitTicketNote} hasNote={!!noteDraft.trim()} onSubmitNote={()=>saveTicket(undefined,true)} onUploaded={loadWorkOrderImages} onPendingChange={setHasPendingNoteMedia} onBusyChange={setPhotoUploading}/>
+                <WorkOrderMediaComposer key={order.id} workOrderId={order.id} revision={order.revision} onRecoveryActions={actions => { mediaRecoveryActions.current = actions; }} disabled={saving || !canSubmitTicketNote} hasNote={!!noteDraft.trim()} onSubmitNote={()=>saveTicket(undefined,true)} onUploaded={loadWorkOrderImages} onPendingChange={setHasPendingNoteMedia} onBusyChange={setPhotoUploading}/>
               </section>
             </details>
 
@@ -2540,24 +2535,20 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             <details data-ticket-accordion="troubleshooting" onToggle={event => { setTroubleshootingOpen(event.currentTarget.open); if (event.currentTarget.open) troubleshootingOpened.current = true; else if (troubleshootingOpened.current) { troubleshootingOpened.current = false; void finishTroubleshootingSection(); } }} className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
               <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
                 <h2 className="text-base font-bold leading-tight tracking-tight text-amber-400">
-                  <WorkOrderSectionIcon section="troubleshooting" />
-                  Suggested Troubleshooting
-                </h2>
+                  <WorkOrderSectionIcon section="troubleshooting" />{t("Suggested Troubleshooting")} </h2>
               </summary>
 
-              {manualResult?.readOnly && <p className="mt-1 text-xs text-amber-200" role="status">Preview. Check marks stay in this browser; live work-order records are unchanged.</p>}
+              {manualResult?.readOnly && <p className="mt-1 text-xs text-amber-200" role="status">{t("Preview. Check marks stay in this browser; live work-order records are unchanged.")}</p>}
               {selectedAsset && (manualLoading
-                ? <p role="status" className="mt-1 text-sm text-slate-400">Loading the equipment’s uploaded guide…</p>
-                : !trustedManualKnowledge ? <button type="button" className="mt-1 text-xs text-sky-300 underline" onClick={() => void loadManualForAsset(selectedAsset, () => readLifetime.current.active)}>Retry guide</button> : null)}
+                ? <p role="status" className="mt-1 text-sm text-slate-400">{t("Loading the equipment’s uploaded guide…")}</p>
+                : !trustedManualKnowledge ? <button type="button" className="mt-1 text-xs text-sky-300 underline" onClick={() => void loadManualForAsset(selectedAsset, () => readLifetime.current.active)}>{t("Retry guide")}</button> : null)}
               {!selectedAsset && (
-                <div className="mt-0.5 rounded-xl border border-slate-700 bg-slate-950 p-0.5 text-sm text-slate-300">
-                  Choose the equipment to read its uploaded manual.
-                </div>
+                <div className="mt-0.5 rounded-xl border border-slate-700 bg-slate-950 p-0.5 text-sm text-slate-300">{t("Choose the equipment to read its uploaded manual.")} </div>
               )}
 
               {selectedAsset && !manualLoading && !trustedManualKnowledge && (
                 <div className="mt-1 rounded-xl border border-amber-500/30 bg-amber-950/15 p-1 text-sm text-amber-100">
-                  {manualReason || (manualStatus === "lookup_unavailable"
+                  {t(manualReason || (manualStatus === "lookup_unavailable"
                     ? "The uploaded equipment document could not be checked. Try again or ask Engineering to review the attachment."
                     : manualStatus === "identity_incomplete"
                       ? "Engineering needs to save this equipment’s manufacturer and model before its uploaded manual can be checked."
@@ -2565,7 +2556,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                         ? "The uploaded document matches the equipment, but has no readable troubleshooting instructions."
                       : manualStatus === "ambiguous"
                         ? "More than one approved document matches this equipment. Ask Engineering to choose the intended document."
-                        : "No approved uploaded document is available for this equipment.")}
+                        : "No approved uploaded document is available for this equipment."))}
                 </div>
               )}
 
@@ -2591,31 +2582,29 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 )}
 
               <div className="mt-0.5 pr-1">
-                {selectedAsset && trustedManualKnowledge && !(["no_guidance", "uploaded_document_needs_ocr", "uploaded_document_ocr_processing", "uploaded_document_ocr_failed"].includes(manualStatus || "")) && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">No matching text or instructions were found in the indexed pages. Open the source document to review the complete manual.</p>}
+                {selectedAsset && trustedManualKnowledge && !(["no_guidance", "uploaded_document_needs_ocr", "uploaded_document_ocr_processing", "uploaded_document_ocr_failed"].includes(manualStatus || "")) && !manualSteps.length && !relevantErrorCodes.length && !matchedSourcePages.length && <p className="mt-1 text-sm text-slate-400">{t("No matching text or instructions were found in the indexed pages. Open the source document to review the complete manual.")}</p>}
 
                 {reportedCode && !matchingErrorCode && (
-                  <p className="mt-1 text-sm text-slate-400">
-                    Reported code {reportedCode} has no exact matching entry in verified documentation for the selected asset.
-                  </p>
+                  <p className="mt-1 text-sm text-slate-400">{t("Reported code")} {reportedCode} {t("has no exact matching entry in verified documentation for the selected asset.")} </p>
                 )}
 
                 {relevantErrorCodes.length > 0 && (
                   <div className="mt-1 space-y-0">
                     <div>
-                      <h3 className="text-sm font-semibold text-red-300">Fault / Diagnostic Code Reference</h3>
+                      <h3 className="text-sm font-semibold text-red-300">{t("Fault / Diagnostic Code Reference")}</h3>
                     </div>
                     {relevantErrorCodes.map((item) => {
                       const exact = !!reportedCode && normalizeDiagnosticCode(item.code) === reportedCode;
                       return (
                         <div key={`${item.source_document_id}:${item.code}:${item.subcode}:${item.problem}`} className={`rounded-xl border p-1 ${exact ? "border-red-400/50 bg-red-950/25" : "border-slate-700 bg-slate-950"}`}>
                           <div className="flex flex-wrap items-center gap-0.5">
-                            <p className="font-semibold text-red-300">Code {item.code}{item.subcode ? ` · Subcode ${item.subcode}` : ""}</p>
-                            {exact && <span className="rounded-full border border-red-400/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-200">Reported code</span>}
+                            <p className="font-semibold text-red-300">{t("Code")} {item.code}{item.subcode ? ` · ${t("Subcode {code}", { code: item.subcode })}` : ""}</p>
+                            {exact && <span className="rounded-full border border-red-400/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-200">{t("Reported code")}</span>}
                           </div>
                           <p className="mt-0.5 text-sm font-medium text-slate-100">{item.problem}</p>
-                          {item.unit_response && <p className="mt-0.5 text-sm text-slate-300"><span className="font-semibold text-slate-200">Unit response:</span> {item.unit_response}</p>}
-                          {item.action && <p className="mt-0.5 text-sm text-slate-300"><span className="font-semibold text-slate-200">Source action / response:</span> {item.action}</p>}
-                          {item.source_url && item.source_pages?.[0] && <ManualSourceLink userId={cmpriSession?.user.id} href={`${item.source_url}#page=${item.source_pages[0]}`} className="text-xs text-sky-300 underline">Source · PDF page {item.source_pages[0]}</ManualSourceLink>}
+                          {item.unit_response && <p className="mt-0.5 text-sm text-slate-300"><span className="font-semibold text-slate-200">{t("Unit response:")}</span> {item.unit_response}</p>}
+                          {item.action && <p className="mt-0.5 text-sm text-slate-300"><span className="font-semibold text-slate-200">{t("Source action / response:")}</span> {item.action}</p>}
+                          {item.source_url && item.source_pages?.[0] && <ManualSourceLink userId={cmpriSession?.user.id} href={`${item.source_url}#page=${item.source_pages[0]}`} className="text-xs text-sky-300 underline">{t("Source · PDF page")} {item.source_pages[0]}</ManualSourceLink>}
 
                         </div>
                       );
@@ -2627,7 +2616,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
                 {displayedSteps.length > 0 && (
                   <div className="mt-1">
-                    <h3 className="text-sm font-semibold text-amber-300">General issue-based checks</h3>
+                    <h3 className="text-sm font-semibold text-amber-300">{t("General issue-based checks")}</h3>
                     <ol className="mt-1 space-y-0 text-sm text-slate-300">
                       {displayedSteps.map((step, index) => {
                         return (
@@ -2644,9 +2633,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 )}
 
                 {trustedManualKnowledge && manualSteps.length === 0 && !manualKnowledge?.source_passages?.length && displayedSteps.length === 0 && relevantErrorCodes.length === 0 && !manualLoading && (
-                  <p className="text-sm text-slate-400">
-                    No instructions match this description yet. Describe what you see or hear in the reported issue.
-                  </p>
+                  <p className="text-sm text-slate-400">{t("No instructions match this description yet. Describe what you see or hear in the reported issue.")} </p>
                 )}
               </div>
             </details>
@@ -2660,13 +2647,13 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
               <section className="rounded-2xl border border-orange-500/30 bg-slate-900 p-2">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-orange-300">Linked External Activity</p>
-                    <h2 className="mt-1 text-sm font-semibold">Parts, Shipments & Service Tickets</h2>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-orange-300">{t("Linked External Activity")}</p>
+                    <h2 className="mt-1 text-sm font-semibold">{t("Parts, Shipments & Service Tickets")}</h2>
                   </div>
                   <Link href="/engineering/purchasing" onClick={event => {
                     if (embedded && window.parent !== window || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                     event.preventDefault(); requestTicketNavigation("/engineering/purchasing");
-                  }} className="text-xs font-semibold text-amber-300 hover:underline">View all</Link>
+                  }} className="text-xs font-semibold text-amber-300 hover:underline">{t("View all")}</Link>
                 </div>
 
                 {!!externalActivity.purchases?.length && (
@@ -2674,17 +2661,17 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     {externalActivity.purchases.map((purchase) => (
                       <div key={purchase.id} className="rounded-xl border border-slate-800 bg-slate-950 p-2">
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="font-semibold">{purchase.vendor || "Supplier"}{purchase.order_number ? ` · PO ${purchase.order_number}` : ""}</p>
-                          <span className="rounded-full border border-blue-400/40 bg-blue-950/35 px-2 py-0.5 text-[11px] font-semibold text-blue-200">{purchase.status || "Ordered"}</span>
+                          <p className="font-semibold">{purchase.vendor || t("Supplier")}{purchase.order_number ? ` · PO ${purchase.order_number}` : ""}</p>
+                          <span className="rounded-full border border-blue-400/40 bg-blue-950/35 px-2 py-0.5 text-[11px] font-semibold text-blue-200">{t(purchase.status || "Ordered")}</span>
                         </div>
-                        {purchase.eta && <p className="mt-1 text-xs text-slate-400">ETA: {purchase.eta}</p>}
+                        {purchase.eta && <p className="mt-1 text-xs text-slate-400">{t("ETA:")} {purchase.eta}</p>}
                         {!!purchase.cmpri_purchase_shipments?.length && (
                           <div className="mt-2 space-y-1.5">
                             {purchase.cmpri_purchase_shipments.map((shipment, index: number) => (
                               <div key={shipment.id || `${purchase.id}-${index}`} className="rounded-lg border border-slate-800 px-2.5 py-2 text-xs text-slate-300">
-                                <div className="font-semibold">Shipment {index + 1}{(purchase.cmpri_purchase_shipments?.length || 0) > 1 ? ` of ${purchase.cmpri_purchase_shipments?.length}` : ""} · {shipment.status || "Shipped"}</div>
-                                <div className="mt-0.5 text-slate-500">From: {shipment.ship_from || "Origin not listed"}</div>
-                                <div className="mt-0.5 break-all text-slate-500">Tracking: {shipment.tracking_number || "Not provided"}</div>
+                                <div className="font-semibold">{t("Shipment")} {index + 1}{(purchase.cmpri_purchase_shipments?.length || 0) > 1 ? ` ${t("of {count}", { count: purchase.cmpri_purchase_shipments?.length || 0 })}` : ""} · {t(shipment.status || "Shipped")}</div>
+                                <div className="mt-0.5 text-slate-500">{t("From:")} {shipment.ship_from || t("Origin not listed")}</div>
+                                <div className="mt-0.5 break-all text-slate-500">{t("Tracking:")} {shipment.tracking_number || t("Not provided")}</div>
                               </div>
                             ))}
                           </div>
@@ -2696,22 +2683,22 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
                 {!!externalActivity.enseo?.length && (
                   <div className="mt-2 border-t border-slate-800 pt-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-sky-300">Enseo</p>
-                    {externalActivity.enseo.map((ticket) => <p key={ticket.id} className="mt-1 text-sm text-slate-300">{ticket.ticket_number ? `Ticket ${ticket.ticket_number}` : "Enseo ticket"}{ticket.enseo_endpoint ? ` · ${ticket.enseo_endpoint}` : ticket.room_number ? ` · Room ${ticket.room_number}` : ""} · {ticket.status || "Updated"}</p>)}
+                    <p className="text-xs font-semibold uppercase tracking-wide text-sky-300">{t("Enseo")}</p>
+                    {externalActivity.enseo.map((ticket) => <p key={ticket.id} className="mt-1 text-sm text-slate-300">{ticket.ticket_number ? t("Ticket {number}", { number: ticket.ticket_number }) : t("Enseo ticket")}{ticket.enseo_endpoint ? ` · ${ticket.enseo_endpoint}` : ticket.room_number ? ` · ${t("Room {number}", { number: ticket.room_number })}` : ""} · {t(ticket.status || "Updated")}</p>)}
                   </div>
                 )}
 
                 {!!externalActivity.warranties?.length && (
                   <div className="mt-2 border-t border-slate-800 pt-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-purple-300">Warranty / RMA</p>
-                    {externalActivity.warranties.map((item) => <p key={item.id} className="mt-1 text-sm text-slate-300">{item.rma_number ? `RMA ${item.rma_number}` : item.warranty_case_number ? `Case ${item.warranty_case_number}` : "Warranty case"} · {item.status || "Open"}</p>)}
+                    <p className="text-xs font-semibold uppercase tracking-wide text-purple-300">{t("Warranty / RMA")}</p>
+                    {externalActivity.warranties.map((item) => <p key={item.id} className="mt-1 text-sm text-slate-300">{item.rma_number ? `RMA ${item.rma_number}` : item.warranty_case_number ? t("Case {number}", { number: item.warranty_case_number }) : t("Warranty case")} · {t(item.status || "Open")}</p>)}
                   </div>
                 )}
 
                 {!!externalActivity.followups?.length && (
                   <div className="mt-2 border-t border-slate-800 pt-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-300">Supplier Follow-up</p>
-                    {externalActivity.followups.map((item) => <p key={item.id} className="mt-1 text-sm text-slate-300">{item.status || "Vendor Contacted — Awaiting Response"}</p>)}
+                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-300">{t("Supplier Follow-up")}</p>
+                    {externalActivity.followups.map((item) => <p key={item.id} className="mt-1 text-sm text-slate-300">{t(item.status || "Vendor Contacted — Awaiting Response")}</p>)}
                   </div>
                 )}
               </section>
@@ -2720,19 +2707,18 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             <section>
             <details data-ticket-accordion="labor-parts" id="cmpri-labor-parts" className="rounded-2xl border border-slate-800 bg-slate-900 p-1">
               <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400">
-                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="labor" />Labor & Parts</h2>
+                <h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="labor" />{t("Labor & Parts")}</h2>
                 <span id="cmpri-parts-status" className="ml-auto" />
               </summary>
               {order?.id && cmpriSession?.capabilities.includes("manage_assets") && <WorkOrderSupplies key={`${cmpriSession.hotelId}:${cmpriSession.user.id}:${order.id}`} jobId={order.id} cacheScope={`${cmpriSession.hotelId}:${cmpriSession.user.id}`} issue={issue} notes={notes} disabled={saving || hasUnsavedChanges} onRecorded={() => loadTicket(false, false, true)} registerExitGuard={registerPartExitGuard}/> }
 
-              {order.parts?.trim() && <p className="mt-1 text-xs text-slate-400">Previously recorded parts: {order.parts}</p>}
+              {order.parts?.trim() && <p className="mt-1 text-xs text-slate-400">{t("Previously recorded parts:")} {order.parts}</p>}
 
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <label className="block">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Hours{pendingField("hours")}
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("Hours")}{pendingField("hours")}
                   </span>
-                  {editingField === "hours" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label="hours"
+                  {editingField === "hours" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label={t("hours")}
                     type="number"
                     step="0.25"
                     min="0"
@@ -2740,14 +2726,13 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     onChange={(event) => setHours(event.target.value)}
                     disabled={!canEditField("hours") || saving}
                     className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
-                  /> : <button type="button" disabled={!canEditField("hours") || saving} onClick={() => setEditingField("hours")} aria-label="Edit hours" className="cmpri-ticket-field block min-h-8 w-full whitespace-pre-wrap text-left text-sm">{hours || "None"}</button>}
+                  /> : <button type="button" disabled={!canEditField("hours") || saving} onClick={() => setEditingField("hours")} aria-label={t("Edit hours")} className="cmpri-ticket-field block min-h-8 w-full whitespace-pre-wrap text-left text-sm">{hours || t("None")}</button>}
                 </label>
 
                 <label className="block">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Cost{pendingField("cost")}
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{t("Cost")}{pendingField("cost")}
                   </span>
-                  {editingField === "cost" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label="cost"
+                  {editingField === "cost" ? <input autoFocus onBlur={() => setEditingField(null)} aria-label={t("cost")}
                     type="number"
                     step="0.01"
                     min="0"
@@ -2755,7 +2740,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     onChange={(event) => setCost(event.target.value)}
                     disabled={!canEditField("cost") || saving}
                     className="mt-1 min-h-8 w-full rounded-lg border border-slate-700 bg-slate-950 px-2 text-sm outline-none focus:border-amber-400"
-                  /> : <button type="button" disabled={!canEditField("cost") || saving} onClick={() => setEditingField("cost")} aria-label="Edit cost" className="cmpri-ticket-field block min-h-8 w-full whitespace-pre-wrap text-left text-sm">{cost || "None"}</button>}
+                  /> : <button type="button" disabled={!canEditField("cost") || saving} onClick={() => setEditingField("cost")} aria-label={t("Edit cost")} className="cmpri-ticket-field block min-h-8 w-full whitespace-pre-wrap text-left text-sm">{cost || t("None")}</button>}
                 </label>
               </div>
             </details>
@@ -2766,17 +2751,17 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
 
         {cmpriSession?.capabilities.includes("view_dashboard") && (roomOperationalContext.loading || roomOperationalContext.ranker || order?.room) && (
           <details data-ticket-accordion="preventative-maintenance" className="mt-2 rounded-2xl border border-slate-800 bg-slate-900 p-1">
-            <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400"><h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="maintenance" />Preventative Maintenance</h2></summary>
-            {roomOperationalContext.loading ? <p className="text-sm text-slate-400">Loading live room context…</p> : <>
+            <summary className="cmpri-ticket-accordion-title cursor-pointer text-amber-400"><h2 className="w-fit text-base font-bold leading-tight tracking-tight text-amber-400"><WorkOrderSectionIcon section="maintenance" />{t("Preventative Maintenance")}</h2></summary>
+            {roomOperationalContext.loading ? <p className="text-sm text-slate-400">{t("Loading live room context…")}</p> : <>
               <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-1.5">
-                <b className="text-sm">PM checks and quarterly room forms</b>
+                <b className="text-sm">{t("PM checks and quarterly room forms")}</b>
                 {roomOperationalContext.pm?.error
-                  ? <p className="mt-1 text-xs text-red-300">{roomOperationalContext.pm.error}</p>
-                  : <p className="mt-1 text-xs leading-tight text-slate-400">PM work is entered through the live PM workspace. Technician changes remain pending until a System Administrator confirms them; work orders no longer write directly to the corporate workbook.</p>}
+                  ? <p className="mt-1 text-xs text-red-300">{t(roomOperationalContext.pm.error)}</p>
+                  : <p className="mt-1 text-xs leading-tight text-slate-400">{t("PM work is entered through the live PM workspace. Technician changes remain pending until a System Administrator confirms them; work orders no longer write directly to the corporate workbook.")}</p>}
                 <Link href={`/engineering/preventive-maintenance?workOrder=${encodeURIComponent(order.id)}`} onClick={event => {
                   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
                   event.preventDefault(); requestTicketNavigation(`/engineering/preventive-maintenance?workOrder=${encodeURIComponent(order.id)}`);
-                }} className="mt-1 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-2 py-0.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/40">Open Preventative Maintenance Form</Link>
+                }} className="mt-1 inline-flex rounded-lg border border-cyan-500/40 bg-cyan-950/30 px-2 py-0.5 text-[11px] font-bold text-cyan-100 hover:bg-cyan-900/40">{t("Open Preventative Maintenance Form")}</Link>
               </div>
             </>}
           </details>
@@ -2794,39 +2779,35 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
           setShowCancelConfirm(false);
         }}>
           <div role="dialog" aria-modal="true" className="cmpri-modal-shell border border-slate-700 bg-slate-900 shadow-2xl">
-            <h2 className="text-xl font-bold">Leave this ticket view?</h2>
-            <p className="mt-2 text-sm text-slate-400">Your changes have not been saved to the work order. You can keep a draft on this device if browser storage is available. Leaving this view does not change the ticket status.</p>
-            {localDraftFailed && <p role="alert" className="mt-2 text-sm text-amber-300">The draft could not be saved on this device. Keep editing, save the work order, or download a copy before leaving.</p>}
-            {hasPendingNoteMedia && <p role="alert" className="mt-2 text-sm text-amber-300">Selected attachments are not saved in a device draft. Submit or remove them before closing and keeping your text.</p>}
-            {exitError && <p role="alert" className="mt-2 text-sm text-amber-300">{exitError}</p>}
-            {exitFlushing && <p role="status" className="mt-2 text-sm text-sky-200">Saving checklist activity before leaving…</p>}
+            <h2 className="text-xl font-bold">{t("Leave this ticket view?")}</h2>
+            <p className="mt-2 text-sm text-slate-400">{t("Your changes have not been saved to the work order. You can keep a draft on this device if browser storage is available. Leaving this view does not change the ticket status.")}</p>
+            {localDraftFailed && <p role="alert" className="mt-2 text-sm text-amber-300">{t("The draft could not be saved on this device. Keep editing, save the work order, or download a copy before leaving.")}</p>}
+            {hasPendingNoteMedia && <p role="alert" className="mt-2 text-sm text-amber-300">{t("Selected attachments can be kept on this device with your draft after browser storage confirms the file bytes. They upload only when you submit.")}</p>}
+            {exitError && <p role="alert" className="mt-2 text-sm text-amber-300">{t(exitError)}</p>}
+            {exitFlushing && <p role="status" className="mt-2 text-sm text-sky-200">{t("Saving checklist activity before leaving…")}</p>}
             <div className="mt-6 flex justify-end gap-3">
-              <button type="button" disabled={saving || exitFlushing} onClick={discardLocalDraftAndClose} className="min-h-10 rounded-lg border border-red-500 px-3 text-sm text-red-200">Discard draft and close</button>
-              <button type="button" onClick={exportUnsavedDraft} className="min-h-10 rounded-lg border border-sky-600 px-3 text-sm text-sky-200">Download draft copy</button>
+              <button type="button" disabled={saving || exitFlushing} onClick={discardLocalDraftAndClose} className="min-h-10 rounded-lg border border-red-500 px-3 text-sm text-red-200">{t("Discard draft and close")}</button>
+              <button type="button" onClick={exportUnsavedDraft} className="min-h-10 rounded-lg border border-sky-600 px-3 text-sm text-sky-200">{t("Download draft copy")}</button>
               <button
                 type="button"
                 autoFocus
                 disabled={exitFlushing}
                 onClick={() => { pendingExitAction.current = null; setShowCancelConfirm(false); }}
                 className="rounded-lg border border-slate-600 px-5 py-3 text-sm font-semibold text-slate-200 hover:bg-slate-800"
-              >
-                Keep editing
-              </button>
+              >{t("Keep editing")} </button>
               <button
                 type="button"
                 onClick={closeAndKeepDraft}
-                disabled={saving || exitFlushing || hasPendingNoteMedia}
+                disabled={saving || exitFlushing}
                 className="rounded-lg bg-red-600 px-5 py-3 text-sm font-bold text-white hover:bg-red-500"
-              >
-                Close and keep draft
-              </button>
+              >{t("Close and keep draft")} </button>
             </div>
           </div>
         </div>
       )}
 
       {showAddAsset && order && (
-        <div className="cmpri-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-black/75" role="dialog" aria-modal="true" aria-label="Add New Asset" onKeyDown={(event) => {
+        <div className="cmpri-modal-backdrop fixed inset-0 z-[120] flex items-center justify-center bg-black/75" role="dialog" aria-modal="true" aria-label={t("Add New Asset")} onKeyDown={(event) => {
           if (event.key !== "Escape" || event.defaultPrevented) return;
           event.preventDefault();
           event.stopPropagation();
@@ -2834,34 +2815,34 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
         }}>
           <div className="cmpri-modal-shell border border-slate-700 bg-slate-950 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
-              <div><h2 className="text-2xl font-bold text-white">Add New Equipment</h2><p className="mt-1 text-sm text-slate-400">Create the physical asset first, then link it to this work order.</p></div>
-              <button type="button" onClick={() => setShowAddAsset(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800">Cancel</button>
+              <div><h2 className="text-2xl font-bold text-white">{t("Add New Equipment")}</h2><p className="mt-1 text-sm text-slate-400">{t("Create the physical asset first, then link it to this work order.")}</p></div>
+              <button type="button" onClick={() => setShowAddAsset(false)} className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800">{t("Cancel")}</button>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <input autoFocus value={newAssetType} onChange={(e)=>setNewAssetType(e.target.value)} placeholder="Equipment type, e.g. TV or VTAC" className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" />
+              <input autoFocus value={newAssetType} onChange={(e)=>setNewAssetType(e.target.value)} placeholder={t("Equipment type, e.g. TV or VTAC")} className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" />
               <div className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-300">
-                <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">New asset name</span>
-                <span className="mt-0.5 block font-semibold text-slate-100">{newAssetType.trim() ? `${newAssetType.trim()} – ${order.room || "Location"}` : `Equipment type – ${order.room || "Location"}`}</span>
+                <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t("New asset name")}</span>
+                <span className="mt-0.5 block font-semibold text-slate-100">{newAssetType.trim() ? `${newAssetType.trim()} – ${order.room || t("Location")}` : `${t("Equipment type")} – ${order.room || t("Location")}`}</span>
               </div>
-              <input value={newAssetManufacturer} onChange={(e)=>setNewAssetManufacturer(e.target.value)} placeholder="Manufacturer" className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" />
-              <input value={newAssetModel} onChange={(e)=>setNewAssetModel(e.target.value)} placeholder="Model" className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" />
-              <input value={newAssetSerial} onChange={(e)=>setNewAssetSerial(e.target.value)} placeholder="Serial" className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" />
-              <label className="grid gap-1 text-[13px] text-slate-300">Install / replacement date<input type="date" value={newAssetInstallDate} onChange={(e)=>setNewAssetInstallDate(e.target.value)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" /></label>
+              <input value={newAssetManufacturer} onChange={(e)=>setNewAssetManufacturer(e.target.value)} placeholder={t("Manufacturer")} className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" />
+              <input value={newAssetModel} onChange={(e)=>setNewAssetModel(e.target.value)} placeholder={t("Model")} className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" />
+              <input value={newAssetSerial} onChange={(e)=>setNewAssetSerial(e.target.value)} placeholder={t("Serial")} className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" />
+              <label className="grid gap-1 text-[13px] text-slate-300">{t("Install / replacement date")}<input type="date" value={newAssetInstallDate} onChange={(e)=>setNewAssetInstallDate(e.target.value)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm" /></label>
             </div>
             <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-3">
-              <span className="text-sm font-semibold text-slate-200">Documentation (optional)</span>
+              <span className="text-sm font-semibold text-slate-200">{t("Documentation (optional)")}</span>
               <div className="mt-2 grid gap-2 sm:grid-cols-[12rem_1fr]">
                 <SearchableSelect
                   value={newAssetDocumentType}
                   onChange={setNewAssetDocumentType}
-                  placeholder="Document type"
+                  placeholder={t("Document type")}
                   topSuggestions={2}
-                  options={["Service Manual", "Installation Manual", "Parts Manual", "Wiring Diagram", "Other"].map((value) => ({ value, label: value }))}
+                  options={["Service Manual", "Installation Manual", "Parts Manual", "Wiring Diagram", "Other"].map((value) => ({ value, label: t(value) }))}
                 />
                 <input type="file" accept="application/pdf,.pdf" onChange={(e)=>setNewAssetDocument(e.target.files?.[0] || null)} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-2 py-2 text-sm file:mr-2 file:rounded file:border-0 file:bg-sky-800 file:px-2 file:py-1 file:text-white" />
               </div>
             </div>
-            <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setShowAddAsset(false)} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300">Cancel</button><button type="button" onClick={() => void addAssetFromTicket()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950">Add & Select Asset</button></div>
+            <div className="mt-5 flex justify-end gap-2"><button type="button" onClick={() => setShowAddAsset(false)} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-300">{t("Cancel")}</button><button type="button" onClick={() => void addAssetFromTicket()} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950">{t("Add & Select Asset")}</button></div>
           </div>
         </div>
       )}

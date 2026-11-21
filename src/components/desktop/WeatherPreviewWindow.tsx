@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import type { DesktopBounds, WindowRect } from "@/lib/ui/desktop-windows";
 import { armWeatherWarningSound, playWeatherWarningSound, stopWeatherWarningSound } from "@/lib/weather-warning-sound";
 import styles from "./weather-preview-window.module.css";
@@ -62,6 +63,7 @@ function parseState(input: unknown): SafetyState | null {
 /** Used only for the preview Weather route; every other desktop window keeps
  * its existing frame, titlebar, notification behavior, and permissions. */
 export default function WeatherPreviewWindow(props: Props) {
+  const { t } = useUiLanguage();
   const frameSrc = useMemo(() => {
     const url = new URL(props.src, "https://cmpri.invalid");
     url.searchParams.set("clock", props.use24HourTime ? "24" : "12");
@@ -71,7 +73,7 @@ export default function WeatherPreviewWindow(props: Props) {
     timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
     hourCycle: props.use24HourTime ? "h23" : "h12", timeZoneName: "short",
   }), [props.use24HourTime]);
-  const stamp = (value: number | null) => value === null ? "Unavailable" : central.format(new Date(value));
+  const stamp = (value: number | null) => value === null ? t("Unavailable") : central.format(new Date(value));
   const [safety, setSafety] = useState<SafetyState>(EMPTY);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [soundStatus, setSoundStatus] = useState<"idle" | "blocked" | "unavailable">("idle");
@@ -184,32 +186,33 @@ export default function WeatherPreviewWindow(props: Props) {
   const fullScreen = Boolean(currentRecord && record && (level(record) === "warning" || record.walkwayIceRisk));
   const tickerAlerts = safety.alerts.filter(item => item.status === "active" && item.sourceType === "official" && ["warning", "watch"].includes(level(item)));
   const tickerLevel = tickerAlerts.some(item => level(item) === "warning") ? "warning" : "watch";
-  const tickerText = tickerAlerts.map(item => (item.simulated ? "SIMULATION · " : item.stale ? "LAST VERIFIED · " : "") + item.event + " · expires " + stamp(item.expires)).join("     •     ");
-  const ticker = tickerAlerts.length ? <button type="button" data-weather-alert-ticker data-level={tickerLevel} className={styles.ticker} aria-label={"Open Guest Safety details: " + tickerText} onClick={() => openDetails((tickerAlerts.find(item => level(item) === "warning") || tickerAlerts[0]).key)}>
+  const tickerLabel = (item: SafetyRecord) => (item.simulated ? t("SIMULATION") + " · " : item.stale ? t("LAST VERIFIED") + " · " : "") + t("{event} · expires {time}", { event: t(item.event), time: stamp(item.expires) });
+  const tickerText = tickerAlerts.map(tickerLabel).join("     •     ");
+  const ticker = tickerAlerts.length ? <button type="button" data-weather-alert-ticker data-level={tickerLevel} className={styles.ticker} aria-label={t("Open Guest Safety details: {details}", { details: tickerText })} onClick={() => openDetails((tickerAlerts.find(item => level(item) === "warning") || tickerAlerts[0]).key)}>
     <span className={styles.tickerTrack} style={{ animationDuration: Math.max(16, tickerText.length * .075) + "s" }}>
-      {tickerAlerts.map(item => <span key={item.key} data-level={level(item)} className={styles.tickerItem}>{item.simulated ? "SIMULATION · " : item.stale ? "LAST VERIFIED · " : ""}{item.event} · expires {stamp(item.expires)}</span>)}
+      {tickerAlerts.map(item => <span key={item.key} data-level={level(item)} className={styles.tickerItem}>{tickerLabel(item)}</span>)}
     </span>
   </button> : undefined;
 
   return <>
     {props.bulletinHost && ticker ? createPortal(ticker, props.bulletinHost) : null}
     <div hidden={!props.visible} data-weather-cached-window data-weather-visible={props.visible ? "true" : "false"} style={{ display: props.visible ? "contents" : "none" }}>
-    <DesktopWindow windowKey={props.windowKey} title={props.title} accentClass={props.accentClass} rect={props.rect} bounds={props.bounds} zIndex={props.zIndex} active={props.active} onFocus={props.onFocus} onClose={props.onClose} onRectCommit={props.onRectCommit}>
-      <DesktopFrame src={frameSrc} title={props.title} registerFrame={attachFrame} onFocus={props.onFocus} onOpen={props.onOpen} onReturnToDesktop={props.onReturnToDesktop} />
+    <DesktopWindow windowKey={props.windowKey} title={t(props.title)} accentClass={props.accentClass} rect={props.rect} bounds={props.bounds} zIndex={props.zIndex} active={props.active} onFocus={props.onFocus} onClose={props.onClose} onRectCommit={props.onRectCommit}>
+      <DesktopFrame src={frameSrc} title={t(props.title)} registerFrame={attachFrame} onFocus={props.onFocus} onOpen={props.onOpen} onReturnToDesktop={props.onReturnToDesktop} />
     </DesktopWindow>
     </div>
     {typeof document !== "undefined" ? createPortal(<dialog ref={dialogRef} data-weather-guest-safety-dialog data-level={currentRecord && record ? level(record) : "history"} data-fullscreen={fullScreen ? "true" : "false"} className={styles.dialog} aria-labelledby="weather-guest-safety-title" aria-describedby="weather-guest-safety-summary" onCancel={event => { event.preventDefault(); closeDetails(); }} onClose={() => { if (selected.current) closeDetails(); }}>
-      <header className={styles.dialogHeader}><div><span className={styles.label} data-level={currentRecord && record ? level(record) : "history"}>{!currentRecord && record ? "PAST NOTIFICATION · " : ""}{record?.simulated ? "SIMULATED GUEST SAFETY" : "OFFICIAL NWS · GUEST SAFETY"}</span><h1 id="weather-guest-safety-title">Guest Safety</h1></div><button type="button" data-weather-guest-safety-close className={styles.close} aria-label="Close Guest Safety" onClick={closeDetails}>×</button></header>
+      <header className={styles.dialogHeader}><div><span className={styles.label} data-level={currentRecord && record ? level(record) : "history"}>{!currentRecord && record ? t("PAST NOTIFICATION") + " · " : ""}{record?.simulated ? t("SIMULATED GUEST SAFETY") : t("OFFICIAL NWS · GUEST SAFETY")}</span><h1 id="weather-guest-safety-title">{t("Guest Safety")}</h1></div><button type="button" data-weather-guest-safety-close className={styles.close} aria-label={t("Close Guest Safety")} onClick={closeDetails}>×</button></header>
       {record ? <main className={styles.dialogContent}>
-        <p className={styles.context}>{!currentRecord ? "Past notification · " + record.status + ". This is not the current alert state. " : ""}{record.simulated ? "Simulation only · this message does not establish a current NWS warning or observed walkway condition." : "Official NWS alert applying to Residence Inn Champaign."}{record.stale ? " The last alert check is stale or unavailable; current status is unverified." : ""}</p>
-        {soundStatus === "blocked" && currentRecord && level(record) === "warning" ? <p className={styles.soundStatus} data-weather-warning-sound="blocked">Your browser paused warning sound. <button type="button" onClick={() => { const key = soundKey.current; if (key) void armWeatherWarningSound().then(() => { if (soundKey.current === key) playWarning(key); }); }}>Enable warning sound</button></p> : soundStatus === "unavailable" && currentRecord ? <p className={styles.soundStatus} data-weather-warning-sound="unavailable">Warning sound unavailable.</p> : null}
-        <h2>{record.event}</h2><p id="weather-guest-safety-summary" data-weather-official-summary className={styles.summary}>{record.summary}</p>
-        <section className={styles.action}><h3>Hotel action</h3><p data-weather-hotel-instruction>{record.hotelInstruction}</p></section>
-        <dl className={styles.times}><div><dt>Effective / expected · Central</dt><dd>{stamp(record.effective)}</dd></div><div><dt>Expires · Central</dt><dd>{stamp(record.expires)}</dd></div><div><dt>Status</dt><dd>{record.status}{record.stale ? " · unverified" : ""}</dd></div></dl>
-        {record.description || record.officialInstruction ? <details className={styles.bulletin}><summary>Official NWS bulletin text{record.simulated ? " · sample" : ""}</summary>{record.description ? <p>{record.description}</p> : null}{record.officialInstruction ? <p>{record.officialInstruction}</p> : null}</details> : null}
-        {record.bulletinUrl ? <a href={record.bulletinUrl} target="_blank" rel="noopener noreferrer">Read official NWS bulletin ↗</a> : <p className={styles.context}>{record.simulated ? "Simulation · no official bulletin was issued by this example." : "Official bulletin link unavailable."}</p>}
-        <nav className={styles.otherAlerts} aria-label="Other active Guest Safety notifications">{safety.alerts.filter(item => item.key !== record.key).map(item => <button key={item.key} type="button" onClick={() => openDetails(item.key)}>{item.simulated ? "Simulation · " : ""}{item.event}</button>)}</nav>
-        <button type="button" className={styles.done} onClick={closeDetails}>Close details</button>
+        <p className={styles.context}>{!currentRecord ? t("Past notification · {status}. This is not the current alert state.", { status: t(record.status) }) + " " : ""}{record.simulated ? t("Simulation only · this message does not establish a current NWS warning or observed walkway condition.") : t("Official NWS alert applying to Residence Inn Champaign.")}{record.stale ? " " + t("The last alert check is stale or unavailable; current status is unverified.") : ""}</p>
+        {soundStatus === "blocked" && currentRecord && level(record) === "warning" ? <p className={styles.soundStatus} data-weather-warning-sound="blocked">{t("Your browser paused warning sound.")} <button type="button" onClick={() => { const key = soundKey.current; if (key) void armWeatherWarningSound().then(() => { if (soundKey.current === key) playWarning(key); }); }}>{t("Enable warning sound")}</button></p> : soundStatus === "unavailable" && currentRecord ? <p className={styles.soundStatus} data-weather-warning-sound="unavailable">{t("Warning sound unavailable.")}</p> : null}
+        <h2>{t(record.event)}</h2><p id="weather-guest-safety-summary" data-weather-official-summary className={styles.summary} translate="no">{record.summary}</p>
+        <section className={styles.action}><h3>{t("Hotel action")}</h3><p data-weather-hotel-instruction>{t(record.hotelInstruction)}</p></section>
+        <dl className={styles.times}><div><dt>{t("Effective / expected · Central")}</dt><dd>{stamp(record.effective)}</dd></div><div><dt>{t("Expires · Central")}</dt><dd>{stamp(record.expires)}</dd></div><div><dt>{t("Status")}</dt><dd>{t(record.status)}{record.stale ? " · " + t("unverified") : ""}</dd></div></dl>
+        {record.description || record.officialInstruction ? <details className={styles.bulletin}><summary>{t("Official NWS bulletin text")}{record.simulated ? " · " + t("sample") : ""}</summary>{record.description ? <p translate="no">{record.description}</p> : null}{record.officialInstruction ? <p translate="no">{record.officialInstruction}</p> : null}</details> : null}
+        {record.bulletinUrl ? <a href={record.bulletinUrl} target="_blank" rel="noopener noreferrer">{t("Read official NWS bulletin ↗")}</a> : <p className={styles.context}>{record.simulated ? t("Simulation · no official bulletin was issued by this example.") : t("Official bulletin link unavailable.")}</p>}
+        <nav className={styles.otherAlerts} aria-label={t("Other active Guest Safety notifications")}>{safety.alerts.filter(item => item.key !== record.key).map(item => <button key={item.key} type="button" onClick={() => openDetails(item.key)}>{item.simulated ? t("Simulation") + " · " : ""}{t(item.event)}</button>)}</nav>
+        <button type="button" className={styles.done} onClick={closeDetails}>{t("Close details")}</button>
       </main> : null}
     </dialog>, document.body) : null}
   </>;

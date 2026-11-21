@@ -160,6 +160,17 @@ class OfficialFeedFixtures:
         self.hold_willard=False
         self.willard_gate=asyncio.Event();self.willard_gate.set()
         self.willard_pending=asyncio.Event()
+        self.tracker_calls=0
+        self.tracker_status='live'
+        self.tracker_empty=False
+        self.hold_tracker=False
+        self.tracker_gate=asyncio.Event();self.tracker_gate.set()
+        self.tracker_pending=asyncio.Event()
+        self.layout_calls=0
+        self.layout_status='available'
+        self.hold_layout=False
+        self.layout_gate=asyncio.Event();self.layout_gate.set()
+        self.layout_pending=asyncio.Event()
         self.map_urls = []
         self.exports = []
         self.image_exports = []
@@ -177,10 +188,10 @@ class OfficialFeedFixtures:
         self.basemap_gate = asyncio.Event()
         self.basemap_pending = asyncio.Event()
         self.wms_requests = []
-        self.wms_modes = {name:'fresh' for name in ['reflectivity','velocity','precipitation','satellite','lightning']}
+        self.wms_modes = {name:'fresh' for name in ['reflectivity','velocity','precipitation','cloudCover']}
         self.wms_now = None
         self.wms_colors = {'reflectivity':(30,170,75,180),'velocity':(180,65,205,150),
-            'precipitation':(85,205,225,170),'satellite':(40,85,130,200),'lightning':(250,215,35,210)}
+            'precipitation':(85,205,225,170),'cloudCover':(40,85,130,200)}
         self.wms_legend_images = {}
         self.wms_held_products = set()
         self.wms_product_gates = {name:asyncio.Event() for name in self.wms_modes}
@@ -315,15 +326,24 @@ class OfficialFeedFixtures:
         return {'airport':'KCMI','iata':'CMI','timeZone':'America/Chicago','checkedAt':iso(self.now),'boards':boards}
 
     def wms(self, product):
+        now = self.wms_now or self.now
+        if product == 'cloudCover':
+            first = now.replace(minute=0, second=0, microsecond=0) + HOUR
+            values = [(first + offset * HOUR).strftime('%Y-%m-%dT%H:%M') for offset in range(3)]
+            return {'product':product,'source':'https://digital.weather.gov/ndfd.conus/wms?service=WMS&version=1.1.1&request=GetCapabilities',
+                'checkedAt':iso(self.now),'version':'1.1.1','mapFormats':['image/png','image/jpeg'],
+                'legendSupported':False,'xml':'<!-- explicit local NDFD 1.1.1 test fixture -->',
+                'layers':[{'name':'ndfd.conus.sky','title':'NDFD Forecast conus.sky',
+                    'abstract':'NDFD forecast opaque-cloud percentage; VTIT selects newest source issuance for an exact UTC valid time.',
+                    'crs':['EPSG:3857','EPSG:900913'],'styles':[],'time':None,
+                    'dimensions':{'vtit':{'units':None,'default':'1970-01-01T00:00','current':False,'values':','.join(values)}}}]}
         name, style, path = {
             "reflectivity": ("conus_bref_qcd", "radar_reflectivity", "conus/conus_bref_qcd/ows"),
             "velocity": ("kilx_sr_bvel", "radar_velocity", "kilx/ows"),
             "precipitation": ("conus_pcpn_typ", "radar_precip_type", "conus/conus_pcpn_typ/ows"),
-            'satellite':('goes_longwave_imagery','goes-lir','observations/satellite/ows'),
-            'lightning':('ldn_lightning_strike_density','lightning_density','observations/lightning_detection/ows'),
         }[product]
-        source = ('https://nowcoast.noaa.gov/geoserver/' if product in ['satellite','lightning'] else 'https://opengeo.ncep.noaa.gov/geoserver/') + path
-        age = 180 if self.wms_modes[product] == 'stale' else {'satellite':9,'lightning':2,'precipitation':6}.get(product,4)
+        source = 'https://opengeo.ncep.noaa.gov/geoserver/' + path
+        age = 180 if self.wms_modes[product] == 'stale' else {'precipitation':6}.get(product,4)
         now = self.wms_now or self.now
         times = ([iso(datetime.fromtimestamp(value / 1000, timezone.utc)) for value in self.scan_times]
                  if product == "reflectivity" else [iso(now - timedelta(minutes=age + minutes)) for minutes in [12, 6, 0]])
@@ -336,9 +356,75 @@ class OfficialFeedFixtures:
                 "styles": [{"name": style, "title": "TEST FIXTURE advertised style",
                     "legendUrl": source + "?service=WMS&request=GetLegendGraphic&layer=" + name}]}]}
 
+    def tracker(self):
+        stale=self.tracker_status=='stale'
+        stamp=iso(self.now-timedelta(minutes=10)) if stale else iso(self.now)
+        aircraft=[
+            {'hex':'a1a1a1','callsign':'TEST123','registration':'NTEST1','type':'C172',
+             'lat':40.04,'lon':-88.27,'altitudeFeet':3500,'speedKnots':110,'track':90,'seenSeconds':2,'positionAgeSeconds':2},
+            {'hex':'b2b2b2','callsign':'TEST456','registration':'NTEST2','type':'B738',
+             'lat':40.12,'lon':-88.35,'altitudeFeet':12000,'speedKnots':210,'track':270,'seenSeconds':3,'positionAgeSeconds':3},
+            {'hex':'c3c3c3','callsign':'TEST789','registration':'NTEST3','type':'C172',
+             'lat':40.03,'lon':-88.28,'altitudeFeet':'ground','speedKnots':0,'track':None,'seenSeconds':0,'positionAgeSeconds':0},
+        ]
+        available=self.tracker_status in ['live','stale']
+        return {'airport':'KCMI','center':{'lat':40.03,'lon':-88.28},'radiusNm':50,
+            'status':self.tracker_status,'observedAt':stamp if available else None,'retrievedAt':stamp if available else None,
+            'aircraft':([] if self.tracker_empty else aircraft) if available else None,
+            'error':None if self.tracker_status=='live' else 'TEST FIXTURE aircraft source unavailable',
+            'retryAt':None,'cacheSeconds':180,'staleAfterSeconds':180,
+            'source':{'name':'ADSB.lol','url':'https://api.adsb.lol/v2/point/40.03/-88.28/50',
+                      'documentationUrl':'https://api.adsb.lol/docs'},
+            'sourceUrl':'https://api.adsb.lol/v2/point/40.03/-88.28/50','invalidAircraftCount':0,
+            'license':{'name':'ODbL 1.0','url':'https://opendatacommons.org/licenses/odbl/1-0/'},
+            'attribution':'ADSB.lol · ODbL 1.0','changes':'Fixed KCMI subset; normalized fields.'}
+
+    def airport_layout(self):
+        source='https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/ArcGIS/rest/services/'
+        stamp=iso(self.now-timedelta(days=1)) if self.layout_status=='stale' else iso(self.now)
+        polygons={
+            'runway':[[-88.23,40.06],[-88.21,40.06],[-88.21,40.07],[-88.23,40.07],[-88.23,40.06]],
+            'taxiway':[[-88.25,40.02],[-88.24,40.02],[-88.24,40.025],[-88.25,40.025],[-88.25,40.02]],
+            'apron':[[-88.29,40.05],[-88.285,40.05],[-88.285,40.055],[-88.29,40.055],[-88.29,40.05]],
+        }
+        available=self.layout_status in ['available','partial','stale']
+        features=[{'type':'Feature','id':'TEST-FIXTURE-FAA-'+kind,
+            'properties':{'kind':kind,'designator':'TEST FIXTURE '+kind,'airportId':'KCMI','faaId':'CMI',
+                          'status':'EXISTING','surface':'TEST FIXTURE','sourceId':index},
+            'geometry':{'type':'Polygon','coordinates':[coordinates]}}
+            for index,(kind,coordinates) in enumerate(polygons.items(),1)]
+        layers=[{'kind':kind,'status':'stale' if self.layout_status=='stale' else 'available' if available else 'unavailable',
+            'featureCount':1 if available else None,'sourceUrl':source+'AM_'+name+'/FeatureServer/0',
+            'retrievedAt':stamp if available else None,'effectivePeriod':'2025 FAA reference geometry',
+            'sourceDataEditedAt':'2026-11-01T00:00:00Z','error':None if self.layout_status=='available' else 'TEST FIXTURE layout source unavailable'}
+            for kind,name in [('runway','Runway'),('taxiway','Taxiway'),('apron','Apron')]]
+        return {'airport':'KCMI','status':self.layout_status,
+            'collection':{'type':'FeatureCollection','features':features} if available else None,
+            'retrievedAt':stamp if available else None,'layers':layers,
+            'attribution':'FAA Airport Mapping · TEST FIXTURE','sourceUrl':source+'AM_Runway/FeatureServer/0',
+            'license':{'name':'U.S. Government Public Domain','url':'https://www.faa.gov/website_policies'},
+            'error':None if self.layout_status=='available' else 'TEST FIXTURE layout source unavailable',
+            'cacheSeconds':21600,'operationalStatusNote':'Reference geometry only; not live runway/taxiway closures.'}
+
     async def route(self, route):
         parsed = urlparse(route.request.url)
         require(route.request.method == "GET", "Weather endpoints must remain read-only")
+        if parsed.path=='/api/willard-airport-layout':
+            require(not parsed.query,'Airport layout scope must stay fixed to KCMI')
+            self.layout_calls+=1;self.layout_pending.set()
+            if self.hold_layout: await self.layout_gate.wait()
+            try: await route.fulfill(content_type='application/json',body=json.dumps(self.airport_layout()))
+            except Exception:
+                if not route.request.failure: raise
+            return
+        if parsed.path=='/api/willard-tracker':
+            require(not parsed.query,'Tracker scope must stay fixed to KCMI')
+            self.tracker_calls+=1;self.tracker_pending.set()
+            if self.hold_tracker: await self.tracker_gate.wait()
+            try: await route.fulfill(content_type='application/json',body=json.dumps(self.tracker()))
+            except Exception:
+                if not route.request.failure: raise
+            return
         if parsed.path=='/api/willard-flights':
             self.willard_calls+=1;self.willard_pending.set()
             if self.hold_willard: await self.willard_gate.wait()
@@ -347,7 +433,7 @@ class OfficialFeedFixtures:
                 if not route.request.failure: raise
             return
         if parsed.path == "/api/weather-preview/wms":
-            params = parse_qs(parsed.query)
+            params = parse_qs(parsed.query, keep_blank_values=True)
             product, operation = [params.get(key, [""])[0] for key in ["product", "op"]]
             require(product in self.wms_modes and operation in ["capabilities", "map", "legend"],
                     "WMS fixture received an unsupported product or operation")
@@ -366,12 +452,21 @@ class OfficialFeedFixtures:
             metadata = self.wms_metadata.get(product)
             require(metadata is not None, "WMS image requested before advertised metadata was read")
             layer = metadata["layers"][0]
-            require(params.get("layer") == [layer["name"]] and params.get("style") == [layer["styles"][0]["name"]],
+            cloud = product == 'cloudCover'
+            advertised_style = '' if cloud else layer['styles'][0]['name']
+            require(not cloud or operation == 'map', 'NDFD does not advertise a PNG legend; no legend request is permitted')
+            require(params.get("layer") == [layer["name"]] and params.get("style") == [advertised_style],
                     "WMS image did not use an actually advertised layer and style")
             if operation == "map":
                 provided_time = datetime.fromisoformat(params.get("time", [""])[0].replace("Z", "+00:00"))
-                advertised_times = [datetime.fromisoformat(value.replace("Z", "+00:00"))
-                                    for value in layer["time"]["values"].split(",")]
+                if cloud:
+                    require(params['time'][0] in layer['dimensions']['vtit']['values'].split(',')
+                            and not params['time'][0].endswith('Z') and params['time'][0] != '1970-01-01T00:00',
+                            'Cloud maps must preserve exact advertised source VTIT instead of a UTC display timestamp or source default')
+                    advertised_values = layer['dimensions']['vtit']['values']
+                else:
+                    advertised_values = layer['time']['values']
+                advertised_times = [datetime.fromisoformat(value.replace("Z", "+00:00")) for value in advertised_values.split(',')]
                 require(provided_time in advertised_times,
                         "WMS map time was not advertised by its capabilities")
                 width, height = [int(params[key][0]) for key in ["width", "height"]]
@@ -396,17 +491,18 @@ class OfficialFeedFixtures:
                     self.wms_product_pending[product].set()
                     await self.wms_product_gates[product].wait()
             else:
-                width,height={'reflectivity':(500,30),'satellite':(46,62),'lightning':(292,46)}.get(product,(180,24))
+                width,height=500,30
                 if self.wms_legend_delay:
                     await asyncio.sleep(self.wms_legend_delay)
             color = self.wms_colors[product]
             source_parameters = {
-                "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap" if operation == "map" else "GetLegendGraphic",
+                "SERVICE": "WMS", "VERSION": "1.1.1" if cloud else "1.3.0", "REQUEST": "GetMap" if operation == "map" else "GetLegendGraphic",
                 "LAYERS" if operation == "map" else "LAYER": layer["name"],
-                "STYLES" if operation == "map" else "STYLE": layer["styles"][0]["name"], "FORMAT": "image/png"}
+                "STYLES" if operation == "map" else "STYLE": advertised_style, "FORMAT": "image/png"}
             if operation == "map":
-                source_parameters.update({"CRS": "EPSG:3857", "BBOX": params["bbox"][0],
-                    "WIDTH": str(width), "HEIGHT": str(height), "TIME": params["time"][0]})
+                source_parameters.update({'SRS' if cloud else 'CRS': 'EPSG:3857', 'BBOX': params['bbox'][0],
+                    'WIDTH': str(width), 'HEIGHT': str(height), 'VTIT' if cloud else 'TIME': params['time'][0]})
+                if cloud: source_parameters['EXCEPTIONS'] = 'application/vnd.ogc.se_xml'
             source = metadata["source"].split("?")[0] + "?" + urlencode(source_parameters)
             if product == "reflectivity":
                 self.map_urls.append(source)
@@ -628,6 +724,8 @@ class OfficialFeedFixtures:
         self.basemap_inflight = len(self._basemap_active)
 
     def release(self):
+        self.hold_layout=False;self.layout_gate.set()
+        self.hold_tracker=False;self.tracker_gate.set()
         self.hold_willard=False;self.willard_gate.set()
         self.hold_astronomy = False
         self.astronomy_gate.set()
@@ -650,6 +748,24 @@ class OfficialFeedFixtures:
         for gate in self.wms_product_gates.values(): gate.set()
 
 
+async def dashboard_weather_launcher(page):
+    """Reveal Weather through the actual dashboard tab before opening its window."""
+    safety = page.locator("fieldset").filter(has=page.get_by_role("button", name="Safety & Logs", exact=True))
+    title = safety.get_by_role("button", name="Safety & Logs", exact=True)
+    await title.wait_for(state="visible", timeout=60000)
+    if await title.get_attribute("aria-expanded") != "true" or await safety.get_attribute("data-active") != "true":
+        await title.click()
+    launcher = safety.get_by_role("button", name="Weather", exact=True)
+    await launcher.wait_for(state="visible", timeout=60000)
+    return launcher
+
+
+def unexpected_application_mutation(path, method):
+    # Tab selection saves fixture layout independently of the Weather window.
+    return (path.startswith("/api/") and method not in ("GET", "HEAD")
+            and (path, method) != ("/api/profile/header-layout", "PUT"))
+
+
 async def weather_frame(page):
     locator = page.locator('iframe[src*="' + PREVIEW + '"]')
     await locator.wait_for(state="visible", timeout=30000)
@@ -663,18 +779,16 @@ async def weather_frame(page):
 async def airport_checks(page, frame, requests, output, width, feed):
     airport=frame.locator('#willardAirport')
     initial=await frame.evaluate('weatherPreview.getState().airport')
-    require(not initial['expanded'] and not initial['iframeMounted'] and not initial['clockRunning']
+    require(not initial['expanded'] and not initial['trackerMounted'] and not initial['clockRunning']
             and initial['flightRequests']==0 and not requests, 'Collapsed Willard performs network or clock work')
     await airport.locator(':scope > summary').click()
-    await wait_for(frame, "weatherPreview.getState().airport.trackerStatus==='document-loaded'")
+    await wait_for(frame, "weatherPreview.getState().airport.trackerActive && weatherPreview.getState().airport.trackerStatus==='live'")
     await wait_for(frame,"weatherPreview.getState().airport.boardStatus==='live' && !weatherPreview.getState().airport.flightPending")
-    require(len(requests)==1 and requests[0]['method']=='GET','Expanding Willard did not make exactly one provider document read')
+    require(len(requests)==1 and requests[0]['method']=='GET','Expanding Willard did not make exactly one native aircraft-source read')
     require(feed.willard_calls==1,'Expanding Willard did not make exactly one shared native-board read')
-    provider=airport.locator('[data-willard-tracker] > iframe')
-    attrs=await provider.evaluate("el=>Object.fromEntries(['src','width','height','title','loading','referrerpolicy'].map(key=>[key,el.getAttribute(key)]))")
-    require(attrs=={'src':'https://avioadsb.org/embed/map?lat=40.03&lon=-88.28&zoom=9&compact=1','width':'100%','height':'450',
-        'title':'Live flight tracker map by AvioADSB','loading':'lazy','referrerpolicy':'strict-origin-when-cross-origin'},
-        'Provider embed template was changed: '+str(attrs))
+    tracker=airport.locator('[data-willard-tracker]')
+    require(await tracker.locator('canvas').count()==1 and await airport.locator('iframe').count()==0,
+            'Airport did not render a native canvas without external frames')
     board=airport.locator('[data-willard-board]')
     require(await board.get_attribute('data-style')=='london' and await board.get_attribute('data-time-format')=='24h',
             'Fixed London board or Chief Central clock is incorrect')
@@ -688,35 +802,36 @@ async def airport_checks(page, frame, requests, output, width, feed):
     require(not re.search(r'SAMPLE|DEMO|API key|no.key|token',await airport.inner_text(),re.I),
             'Airport product UI includes sample data or implementation/key instructions')
     status=await frame.evaluate('weatherPreview.getState().airport')
-    require(status['arrivals']['status']=='live' and status['departures']['status']=='live' and status['aircraftCoverageVerified'] is False
+    require(status['arrivals']['status']=='live' and status['departures']['status']=='live' and status['trackerActive']
             and status['backgroundPolling'] is False and status['flightRequests']==1 and status['clockRunning'],
-            'Willard native board state or tracker-coverage claim is wrong')
+            'Willard native board or tracker lifecycle state is wrong')
     await page.clock.fast_forward(120010)
-    require(len(requests)==1 and feed.willard_calls==1,'Airport clock performs repeated provider or flight polling')
+    require(feed.willard_calls==1,'Airport clock performs repeated flight-board polling')
     await board.evaluate("el=>el.scrollIntoView({block:'start'})")
     await page.screenshot(path=str(output/f'weather-willard-open-{width}.png'),full_page=True)
-    await provider.evaluate("el=>el.scrollIntoView({block:'start'})")
+    await tracker.evaluate("el=>el.scrollIntoView({block:'start'})")
     await page.screenshot(path=str(output/f'weather-willard-tracker-{width}.png'),full_page=True)
     await airport.locator(':scope > summary').click()
-    await wait_for(frame, '!weatherPreview.getState().airport.iframeMounted && !weatherPreview.getState().airport.clockRunning')
-    require(await airport.locator('iframe').count()==0 and len(requests)==1,'Collapsed airport retained provider browsing context or reloaded it')
+    await wait_for(frame, '!weatherPreview.getState().airport.trackerActive && !weatherPreview.getState().airport.clockRunning')
+    require(await airport.locator('iframe').count()==0
+            and (await frame.evaluate('weatherPreview.getState().airport'))['trackerMounted'],
+            'Collapsed airport discarded its native tracker or created an external frame')
     await airport.locator(':scope > summary').click()
-    await wait_for(frame,"weatherPreview.getState().airport.trackerStatus==='document-loaded'")
+    await wait_for(frame,"weatherPreview.getState().airport.trackerActive")
     await wait_for(frame,"weatherPreview.getState().airport.flightRequests===2 && !weatherPreview.getState().airport.flightPending")
     require(feed.willard_calls==2,'Re-expanding an expired native-board cache did not perform one read')
     await frame.evaluate("() => {Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'});document.dispatchEvent(new Event('visibilitychange'));}")
-    await wait_for(frame,'!weatherPreview.getState().airport.iframeMounted && !weatherPreview.getState().airport.clockRunning')
+    await wait_for(frame,'!weatherPreview.getState().airport.trackerActive && !weatherPreview.getState().airport.clockRunning')
     inactive=await frame.evaluate('weatherPreview.getState().airport')
-    require(inactive['iframeUnloads']==2 and len(requests)==2,'Hidden airport failed to unload its provider')
+    require(inactive['trackerMounted'] and not inactive['trackerState']['active'],'Hidden airport failed to deactivate its retained native tracker')
     await frame.evaluate("() => {Object.defineProperty(document,'hidden',{configurable:true,get:()=>false});Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'visible'});document.dispatchEvent(new Event('visibilitychange'));}")
-    await wait_for(frame,"weatherPreview.getState().airport.trackerStatus==='document-loaded'")
+    await wait_for(frame,"weatherPreview.getState().airport.trackerActive")
     await airport.locator(':scope > summary').click()
-    await wait_for(frame,'!weatherPreview.getState().airport.iframeMounted')
-    require(len(requests)==3,'Restoring an expanded airport did not create exactly one fresh provider context')
+    await wait_for(frame,'!weatherPreview.getState().airport.trackerActive')
     require(feed.willard_calls==2,'Returning to visible reloaded the fresh native-board cache')
-    return {'collapsedNoProviderRequests':True,'expandOnlyDocumentAndNativeBoardReads':True,'nativeLondonRowsFromPayload':True,
-        'codesharesRetained':True,'noInventedRowsOrSelectors':True,'providerTemplateIntact':True,'collapseAndHiddenUnload':True,
-        'noFlightPolling':True,'providerRequestsIntercepted':requests,'actualAircraftCoverageVerified':False}
+    return {'collapsedNoTrackerRequests':True,'nativeAircraftMapAndBoardReads':True,'nativeLondonRowsFromPayload':True,
+        'codesharesRetained':True,'noInventedRowsOrSelectors':True,'noExternalFrames':True,'collapseAndHiddenDeactivate':True,
+        'noFlightBoardPolling':True,'trackerRequestsIntercepted':requests,'liveAircraftAvailabilityVerified':False}
 
 
 async def run_viewport(browser, base, output, width, height):
@@ -730,19 +845,19 @@ async def run_viewport(browser, base, output, width, height):
     await install(context, "chief_engineer", counts=counts, posts=posts)
     await context.route("**/api/weather-preview**", feed.route)
     await context.route('**/api/willard-flights**',feed.route)
+    await context.route('**/api/willard-tracker**',feed.route)
+    await context.route('**/api/willard-airport-layout**',feed.route)
 
     async def protect(route):
         request = route.request
         parsed = urlparse(request.url)
-        if request.url == 'https://avioadsb.org/embed/map?lat=40.03&lon=-88.28&zoom=9&compact=1':
+        if parsed.path == '/api/willard-tracker':
             airport_requests.append({'url':request.url,'method':request.method})
-            await route.fulfill(status=200,content_type='text/html',body='<!doctype html><html><body><p>Provider iframe lifecycle test fixture. Aircraft coverage is not verified.</p></body></html>')
-            return
         if parsed.hostname not in ["127.0.0.1", "localhost"]:
             external.append({"url": request.url, "method": request.method})
             await route.abort("blockedbyclient")
             return
-        if parsed.path.startswith("/api/") and request.method not in ["GET", "HEAD"]:
+        if unexpected_application_mutation(parsed.path, request.method):
             mutations.append({"path": parsed.path, "method": request.method})
         # Existing fixture route fulfills every application API; no API reaches
         # the running server, and no browser request can reach a database host.
@@ -756,12 +871,10 @@ async def run_viewport(browser, base, output, width, height):
     evidence = {"viewport": [width, height], "fixtureOnly": True}
     try:
         await page.goto(base + "/engineering", wait_until="domcontentloaded")
-        launcher = page.get_by_role("button", name="Weather", exact=True)
-        await launcher.wait_for(state="visible", timeout=60000)
+        launcher = await dashboard_weather_launcher(page)
         require(feed.forecast_calls == 0 and feed.astronomy_calls == 0 and not feed.map_urls and not feed.basemap_requests,
                 "Weather or ground-map feeds requested before opening Weather")
-        operations = page.locator("fieldset").filter(has=page.locator("legend", has_text="Operations"))
-        require(await operations.get_by_role("button", name="Weather", exact=True).count() == 1, "Weather launcher is outside existing Operations")
+        require(await launcher.count() == 1, "Weather launcher is outside Safety & Logs")
         before_mutations = len(mutations)
         await launcher.click()
         frame = await weather_frame(page)
@@ -890,7 +1003,7 @@ async def run_viewport(browser, base, output, width, height):
         await asyncio.wait_for(feed.map_pending.wait(), timeout=5)
         await wait_for(frame, "window.cmpriWeatherMap.getState().pendingRequests > 0 && window.nwsLiveView.getState().pendingRequests > 0")
         await frame.locator('#willardAirport > summary').click()
-        await wait_for(frame,"weatherPreview.getState().airport.trackerStatus==='document-loaded'")
+        await wait_for(frame,"weatherPreview.getState().airport.trackerActive")
         calls_before_close = feed.forecast_calls
         nws_before_close = [feed.observation_calls, feed.history_calls, feed.forecast_calls, feed.alert_calls]
         astronomy_before_close = feed.astronomy_calls
@@ -899,9 +1012,9 @@ async def run_viewport(browser, base, output, width, height):
         await page.locator('iframe[src*="' + PREVIEW + '"]').wait_for(state="hidden")
         require(await native.is_hidden(), "Native Weather window remained visible after its X")
         airport_closed=await frame.evaluate('weatherPreview.getState().airport')
-        require(not airport_closed['iframeMounted'] and not airport_closed['clockRunning']
+        require(not airport_closed['trackerActive'] and not airport_closed['clockRunning']
                 and await frame.locator('#willardAirport iframe').count()==0,
-                'Native close retained the airport browsing context or display clock')
+                'Native close retained active airport requests or the display clock')
         require(await page.locator('iframe[src*="' + PREVIEW + '"]').count() == 1,
                 "Closing Weather discarded its cached iframe")
         feed.release()
@@ -912,6 +1025,7 @@ async def run_viewport(browser, base, output, width, height):
         require(closed["aborts"] >= 2, "Pending map and NWS fetches were not aborted")
         await asyncio.sleep(.25)
         require(feed.forecast_calls == calls_before_close, "A check ran after Weather closed")
+        launcher = await dashboard_weather_launcher(page)
         await launcher.click()
         reopened = await weather_frame(page)
         await wait_for(reopened, "document.querySelector('#liveTemperature .wv-temperature-value')?.textContent === '64°'")

@@ -9,6 +9,16 @@ CAPS=json.loads(Path(__file__).with_name('role-capabilities.json').read_text())
 orders=[{'id':WID,'display_id':'4218','revision':1,'room':'204','location_id':'loc-1','issue':'Fixture drain needs repair','status':'Open','priority':'High','technician_name':'Alex Morgan','created_at':'2026-11-06T12:00:00Z','guest_name':'Current Guest','loyalty_tier':'Silver','guest_group_badge':'big-ten','incoming_reserved':True,'incoming_loyalty_tier':'Ambassador','incoming_group_badge':'flyover-studios','room_status':'Occupied','notes':'','creator_name':'Reporter','created_by':UID}]
 
 GIF=__import__('base64').b64decode('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7')
+async def reveal_dashboard_launcher(launcher):
+ await launcher.wait_for(state='attached',timeout=60000)
+ group=launcher.locator('xpath=ancestor::fieldset[1]')
+ title=group.locator('legend')
+ needs_wake=await group.evaluate("group=>Boolean(group.closest('.anchored-menu')&&!group.hasAttribute('data-active'))")
+ if await title.get_attribute('aria-expanded')!='true' or needs_wake:
+  await title.click()
+ await launcher.wait_for(state='visible',timeout=60000)
+ return launcher
+
 async def install(context,role,layouts=None,notes=None,counts=None,posts=None,connected=True,user_id=UID,hotel_id=HOTEL,revisions=None):
  layouts=layouts if layouts is not None else {}; notes=notes if notes is not None else []; counts=counts if counts is not None else {}; posts=posts if posts is not None else []
  display_names=[]

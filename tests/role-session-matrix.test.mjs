@@ -27,6 +27,8 @@ const capabilities = [
   "submit",
   "view_dashboard",
   "view_engineering_operations",
+  "view_locations",
+  "edit_locations",
   "view_pool_log",
   "operate_pool_log",
   "receive_pool_closed_notifications",
@@ -71,8 +73,8 @@ const roleCases = [
   { role: "Assistant General Manager", landing: "/engineering", membership: "technician" },
   { role: "Front Desk", landing: "/front-desk", membership: "technician" },
   { role: "Front Desk Manager", landing: "/engineering", membership: "technician" },
-  { role: "Housekeeping", landing: "/work-orders", membership: "technician" },
-  { role: "Lead Housekeeper", landing: "/work-orders", membership: "technician" },
+  { role: "Housekeeping", landing: "/engineering", membership: "technician" },
+  { role: "Lead Housekeeper", landing: "/engineering", membership: "technician" },
   { role: "Senior Management", landing: "/engineering", membership: "viewer" },
   { role: "System Administrator", landing: "/engineering", membership: "admin" },
 ];
@@ -139,6 +141,38 @@ test("the three work-order-only manager roles cannot access engineering operatio
   }
 });
 
+test("location and pool policy is narrow and requires the active property membership", () => {
+  const editors = new Set(["Engineer", "Chief Engineer", "Engineering Manager", "Regional Maintenance", "Senior Management", "System Administrator"]);
+  for (const { role } of roleCases) {
+    const principal = makePrincipal(role);
+    const permitted = !["Front Desk", "Housekeeping", "Lead Housekeeper"].includes(role);
+    assert.equal(accessModule.allows(principal, "view_locations"), permitted, role);
+    assert.equal(accessModule.allows(principal, "edit_locations"), editors.has(role), role);
+    assert.equal(accessModule.allows(principal, "view_pool_log"), permitted, role);
+    assert.equal(accessModule.allows(principal, "operate_pool_log"), permitted, role);
+    for (const membership of [{ ...principal.membership, active: false },
+      { ...principal.membership, hotel_id: "other-property" }, { ...principal.membership, user_id: "other-user" }]) {
+      const invalid = { ...principal, membership };
+      for (const capability of ["view_locations", "edit_locations", "view_pool_log", "operate_pool_log"]) {
+        assert.equal(accessModule.allows(invalid, capability), false, `${role} ${capability}`);
+      }
+    }
+  }
+  const senior = makePrincipal("Senior Management");
+  for (const capability of ["manage_rooms", "manage_assets", "manage_users", "edit_tickets", "reopen"]) {
+    assert.equal(accessModule.allows(senior, capability), false, capability);
+  }
+  for (const role of ["General Manager", "Assistant General Manager", "Front Desk Manager", "Maintenance Technician", "Front Desk", "Lead Housekeeper"]) {
+    const principal = makePrincipal(role);
+    principal.profile.secondary_roles = ["engineer"];
+    const permitted = !["Front Desk", "Lead Housekeeper"].includes(role);
+    assert.equal(accessModule.allows(principal, "view_locations"), permitted, role);
+    assert.equal(accessModule.allows(principal, "edit_locations"), false, role);
+    assert.equal(accessModule.allows(principal, "view_pool_log"), permitted, role);
+    assert.equal(accessModule.allows(principal, "operate_pool_log"), permitted, role);
+  }
+});
+
 test("Maintenance Technician receives workflow permissions but not engineering administration", () => {
   const principal = makePrincipal("Maintenance Technician");
   for (const capability of ["edit_tickets", "close_tickets", "view_pm", "operate_pool_log", "receive_pool_closed_notifications"]) {
@@ -173,6 +207,8 @@ test("CMPRI go-live roles receive only their approved operational capabilities",
     ["System Administrator", ["submit", "add_work_order_notes", "view_dashboard", "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "edit_tickets", "review_tickets", "close_tickets", "reopen", "manage_assets", "manage_rooms", "manage_users", "operate_integrations", "submit_feedback", "review_feedback", "view_profiles"]],
   ]);
   for (const [role, approved] of expected) {
+    if (!["Housekeeping", "Front Desk"].includes(role)) approved.push("view_locations");
+    if (["Chief Engineer", "System Administrator"].includes(role)) approved.push("edit_locations");
     const actual = capabilities.filter((capability) => accessModule.allows(makePrincipal(role), capability)).sort();
     assert.deepEqual(actual, [...new Set([...approved,"receive_pool_closed_notifications"])].sort(), `${role} CMPRI permission set`);
   }

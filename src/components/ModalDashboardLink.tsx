@@ -1,5 +1,7 @@
 "use client";
 
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+
 import type { MouseEvent, ReactNode } from "react";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 
@@ -12,6 +14,7 @@ export default function ModalDashboardLink({
   className?: string;
   children?: ReactNode;
 }) {
+  const { t } = useUiLanguage();
   const embedded = useEmbeddedModal();
   if (embedded) return null;
 
@@ -31,5 +34,5 @@ export default function ModalDashboardLink({
     window.location.assign(href);
   }
 
-  return <button type="button" data-cmpri-modal-dashboard="true" data-cmpri-modal-dashboard-href={href} onClick={returnToDashboard} className={className}>{label}</button>;
+  return <button type="button" data-cmpri-modal-dashboard="true" data-cmpri-modal-dashboard-href={href} onClick={returnToDashboard} className={className}>{typeof label === "string" ? t(label) : label}</button>;
 }

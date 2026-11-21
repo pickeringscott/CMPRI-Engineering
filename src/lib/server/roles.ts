@@ -5,7 +5,7 @@
  * - Manager: open-work-order notes, read-only PM oversight, and operational pool logging.
  * - Technician: technical work-order/equipment access, but no user management.
  * - Front Desk / Housekeeping: submit-only; manager variants can read active work orders, add notes, and log pools.
- * - Senior Management: read-only oversight.
+ * - Senior Management: oversight, location editing, and operational pool logging.
  * - system_admin: bootstrap/full-control role.
  *
  * Historical/retired titles remain in aliases so existing records continue to
@@ -27,6 +27,8 @@ export type Capability =
   | "submit"
   | "view_dashboard"
   | "view_engineering_operations"
+  | "view_locations"
+  | "edit_locations"
   | "view_pool_log"
   | "operate_pool_log"
   | "receive_pool_closed_notifications"
@@ -140,6 +142,9 @@ export function profileIsEstablishedHoursChief(profile: HoursProfile): boolean {
 export function profileCanUseHoursTracker(profile: HoursProfile): boolean {
   return profileIsChiefEngineer(profile)
     || profileIsEstablishedHoursChief(profile)
+    || profileHasRole(profile, "engineer")
+    || profileHasRole(profile, "senior_management")
+    || profileHasRole(profile, "system_admin")
     || profileHasRole(profile, "assistant_manager")
     || profileHasRole(profile, "front_desk_manager")
     || profileHasRole(profile, "technician");
@@ -177,11 +182,16 @@ const CAPABILITIES: Readonly<Record<CmpriRole, readonly Capability[]>> = {
   technician: [...TECHNICIAN, "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback"],
   engineer: [...TECHNICAL, "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
   manager: ["submit", "view_dashboard", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "view_work_orders", "add_work_order_notes", "view_pm", "view_profiles"],
-  senior_management: ["submit_feedback", "view_dashboard", "view_engineering_operations", "view_work_orders", "add_work_order_notes", "view_pm", "view_profiles"],
+  senior_management: ["submit_feedback", "view_dashboard", "view_engineering_operations", "view_pool_log", "operate_pool_log", "view_work_orders", "add_work_order_notes", "view_pm", "view_profiles"],
   system_admin: [...TECHNICAL, "view_engineering_operations", "view_work_orders", "view_pm", "view_pool_log", "operate_pool_log", "receive_pool_closed_notifications", "submit_feedback", "review_feedback", "review_tickets", "reopen", "manage_users", "view_profiles"],
 };
 
+const LOCATION_EDITORS: readonly CmpriRole[] = ["engineer", "system_admin", "senior_management"];
+const LOCATION_VIEWERS: readonly CmpriRole[] = [...LOCATION_EDITORS, "manager", "assistant_manager", "front_desk_manager", "technician"];
+
 export function roleAllows(role: unknown, capability: Capability): boolean {
+  if (capability === "view_locations") return LOCATION_VIEWERS.includes(roleKey(role));
+  if (capability === "edit_locations") return LOCATION_EDITORS.includes(roleKey(role));
   if (capability === "receive_pool_closed_notifications") return roleKey(role) !== "unknown";
   if (capability === "review_feedback") {
     if (typeof role !== "string") return false;
@@ -342,5 +352,5 @@ export function landingPath(role: unknown): "/work-orders" | "/technician" | "/e
   if (key === "unknown") return null;
   if (key === "technician") return "/technician";
   if (key === "front_desk") return "/front-desk";
-  return key === "housekeeping" ? "/work-orders" : "/engineering";
+  return "/engineering";
 }

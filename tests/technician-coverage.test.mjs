@@ -1,3 +1,4 @@
+import * as workOrderSearch from '../src/lib/work-order-search.ts';
 import * as workOrderSort from '../src/lib/work-order-sort.ts';
 import * as commonAreas from "../src/lib/cmpri-location-groups.ts";
 import { ticketReadDependency, partsStatusDependency } from "./helpers/load-ts.mjs";
@@ -61,6 +62,7 @@ function fixture(config = {}) {
     exports,
     process: { env: {} },
     require(name) { if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;
+      if(name==='@/lib/work-order-search')return workOrderSearch;
       if(name==='@/lib/work-order-sort')return workOrderSort;if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name, () => true);
       if (name === 'next/server') return { NextResponse: { json: (body, init = {}) => ({ body, status: init.status ?? 200 }) } };
@@ -182,7 +184,7 @@ test('mobile technician refresh retains the current work list and keeps its page
   const source = readFileSync(new URL('../src/app/technician/page.tsx', import.meta.url), 'utf8');
   assert.match(source, /const hasLoadedWorkRef = useRef\(false\)/);
   assert.match(source, /if \(!hasLoadedWorkRef\.current\) setLoading\(false\)/);
-  assert.match(source, /sticky top-0 z-20/);
+  assert.match(source, /cmpri-dashboard-titlebar sticky top-0/);
   assert.match(source, /min-h-\[100svh\]/);
 });
 

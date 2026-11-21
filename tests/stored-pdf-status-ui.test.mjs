@@ -1,3 +1,4 @@
+import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -10,7 +11,7 @@ globalThis.window=dom.window;globalThis.document=dom.window.document;globalThis.
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 Object.defineProperty(globalThis,'navigator',{value:dom.window.navigator,configurable:true});
 const React=await import('react'),{createRoot}=await import('react-dom/client'),require=createRequire(import.meta.url);
-function compile(path,deps={},globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require:name=>name in deps?deps[name]:require(name),console,...globals});return exports;}
+function compile(path,deps={},globals={}){const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL(path,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require:name=>name==='@/components/UiLanguageProvider'?uiLanguageDependency:name in deps?deps[name]:require(name),console,...globals});return exports;}
 const applicability=compile('../src/lib/manual-applicability.ts');
 const validation=compile('../src/lib/stored-pdf-link.ts',{'./manual-applicability':applicability});
 const asset_identity={asset_id:'one-asset',manufacturer:'UniMac',model_number:'UWN',model_family:'',serial_number:'1305000216'};

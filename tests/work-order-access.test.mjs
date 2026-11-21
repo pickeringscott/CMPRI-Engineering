@@ -39,7 +39,7 @@ test('work-order reviewers can stage notes only while a request is pending revie
   assert.equal(canSubmitWorkOrderNote({canEdit:false,canReview:false,status:'Pending Verification'}),false);
   assert.match(detailPage,/canSubmitWorkOrderNote\(\{[\s\S]*role: chief \? "Chief Engineer" : cmpriSession\?\.user\.role,[\s\S]*canEdit: canEditTicket,[\s\S]*canReview: canReviewCurrentTicket,[\s\S]*status: order\.status/);
   assert.match(detailPage,/disabled=\{saving \|\| !canSubmitTicketNote\}/);
-  assert.match(detailPage,/<WorkOrderMediaComposer[^>]*hasNote=\{!!noteDraft\.trim\(\)\}/);
+  assert.match(detailPage,/<WorkOrderMediaComposer[^\n]*hasNote=\{!!noteDraft\.trim\(\)\}/);
 });
 
 test('technicians can stage notes only when their work-order edit policy permits notes',()=>{
@@ -390,7 +390,7 @@ test('current revision permits a save without writing client revision into the r
 
 test('work-order labor and parts inputs use field-level permissions',()=>{
   const source=readFileSync(new URL('../src/app/work-orders/[id]/page.tsx',import.meta.url),'utf8');
-  const heading=source.match(/<h2\b[^>]*>(?:<WorkOrderSectionIcon\b[^>]*\/>\s*)?Labor & Parts<\/h2>/);
+  const heading=source.match(/<h2\b[^>]*>(?:<WorkOrderSectionIcon\b[^>]*\/>\s*)?\{t\("Labor & Parts"\)\}<\/h2>/);
   assert.ok(heading, 'Labor & Parts heading must exist independently of its styling');
   const sectionEnd=source.indexOf('</section>',heading.index);
   assert.ok(sectionEnd>heading.index, 'Labor & Parts must have a containing section');

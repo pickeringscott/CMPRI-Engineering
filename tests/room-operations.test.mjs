@@ -1,6 +1,7 @@
 import "./helpers/resolve-ts.mjs";
 const { projectGuestRoom } = await import("../src/lib/room-guest-reports.ts");
 import test from "node:test";
+import { makeUiTranslator, uiTitleCase } from "../src/lib/i18n/ui.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -435,9 +436,9 @@ test("room-operations uploads validate printed reports, retain history, and reco
   assert.match(snapshot, /\.lte\("report_date", requestedDate\)/);
   assert.match(snapshot, /order\("report_date", \{ ascending: false \}\)/);
   assert.match(availability, /loadEffectiveRoomOperationsSnapshot\(admin, date\)/);
-  assert.match(page, /Showing \{snapshotInfo\.sourceType === "legacy" \? "legacy room data"/);
+  assert.match(page, /snapshotInfo\.sourceType === "legacy" \? t\("legacy room data"\)/);
   assert.match(page, /selected date/);
-  assert.match(page, /displayDate\(snapshotInfo\.requestedDate\)/);
+  assert.match(page, /displayDate\(snapshotInfo\.requestedDate, locale\)/);
 });
 
 test("effective room snapshot carries forward complete history without future leakage and protects newer room state", async () => {
@@ -797,16 +798,14 @@ test("room availability bubbles normalize room identifiers and mark only vacant-
   assert.match(roomAvailability, /loadEffectiveRoomOperationsSnapshot\(admin, date\)/);
 });
 
-test("technician room data is scoped to assigned and unassigned active work", () => {
+test("technicians can view room tickets without gaining location editing", () => {
   const api = readFileSync(new URL("../src/app/api/rooms/route.ts", import.meta.url), "utf8");
   const dashboard = readFileSync(new URL("../src/app/technician/page.tsx", import.meta.url), "utf8");
-  assert.match(api, /roleKey\(principal\.profile\.role\) === "technician"/);
-  assert.match(api, /!allows\(principal, "view_engineering_operations"\) && !\(isTechnician && allows\(principal, "view_pm"\)\)/);
-  assert.match(api, /can_edit: allows\(principal, "manage_rooms"\)/);
-  assert.match(api, /\.in\("status", \["Open", "In Progress"\]\)/);
-  assert.match(api, /\.or\("technician_name\.is\.null,technician_name\.eq\."\)/);
-  assert.match(api, /\.eq\("technician_name", technicianName\)/);
-  assert.match(dashboard, /key:"\/engineering\/preventive-maintenance",label:"Preventive Maintenance"/);
+  assert.match(api, /!allows\(principal, "view_locations"\)/);
+  assert.match(api, /can_edit: allows\(principal, "edit_locations"\)/);
+  assert.match(api, /fetchAllPages\(\(from, to\) => admin\.from\("work_orders"\)[\s\S]+\.eq\("hotel_id", principal\.hotelId\)/);
+  assert.doesNotMatch(api, /technician_name/);
+  assert.match(dashboard, /key:\s*"\/engineering\/preventive-maintenance",\s*label:\s*"Preventive Maintenance"/);
 });
 
 test("room operations do not show move or out-of-order event bubbles", () => {
@@ -883,7 +882,7 @@ test("room cards and summary modal put Bonvoy after the guest and before arrival
     `${functions.join("\n")}\nexports.RoomDetails = RoomDetails;`,
     { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React } },
   ).outputText, {
-    exports: components, React, LoyaltyBadge:({tier})=>tier?React.createElement('span',{'data-test-loyalty':tier},tier):null, GuestGroupBadge: badgeModule.exports.default, Image: props => React.createElement("img", props),
+    exports: components, React, useUiLanguage: () => ({ t: makeUiTranslator("en"), tt: (text, values) => uiTitleCase(makeUiTranslator("en")(text, values)), locale: "en-US" }), LoyaltyBadge:({tier})=>tier?React.createElement('span',{'data-test-loyalty':tier},tier):null, GuestGroupBadge: badgeModule.exports.default, Image: props => React.createElement("img", props),
     currentRoomGroupBadges, isRailwayCnGuestName, isBigTenGroup, hotelDate: () => "2026-10-05", displayDate: value => value,
   });
   const html = renderToStaticMarkup(React.createElement(components.RoomDetails, { row: {

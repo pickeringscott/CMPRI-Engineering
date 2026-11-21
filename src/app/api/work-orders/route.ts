@@ -1,5 +1,6 @@
 import { attachPartsStatuses } from "@/lib/server/work-order-parts-status";
 import {sortWorkOrders, type WorkOrderSort} from "@/lib/work-order-sort";
+import { workOrderSearchExpression } from "@/lib/work-order-search";
 import { frontDeskCommonArea } from "@/lib/cmpri-location-groups";
 import { workOrderReadFilter } from "@/lib/work-order-read-policy";
 import { workOrderReader } from "@/lib/server/work-order-reader";
@@ -217,17 +218,9 @@ export async function GET(request: NextRequest) {
     }
     return query;
   };
-  let query = queryFor(search ? "all" : filter);
+  let query = queryFor(filter);
   if (search) {
-    // Quote PostgREST values and escape LIKE wildcards; search cannot alter access predicates.
-    const value = JSON.stringify("%" + search.replace(/[%_\\]/g, "\\$&") + "%");
-    const expressions = ["display_id", "room", "issue", "asset_name", "category", "technician_name", "priority", "notes"].map(field => `${field}.ilike.${value}`);
-    const number = search.match(/^@?(?:(?:workorder_|WO\s*[#-]?\s*|work\s+order\s*#?\s*|#))?(\d+)$/i)?.[1];
-    if (number) expressions.push(`display_id.ilike.${JSON.stringify("%" + number + "%")}`);
-    // status is a PostgreSQL enum; ILIKE is only valid on the text fields above.
-    const statuses = ["Open", "In Progress", "Completed", "Done", "Pending Verification", "Closed", "Will Not Do"].filter(status => status.toLowerCase().includes(search.toLowerCase()));
-    if (statuses.length) expressions.push(`status.in.(${statuses.map(status => JSON.stringify(status)).join(",")})`);
-    query = query.or(expressions.join(","));
+    query = query.or(workOrderSearchExpression(search));
   }
   // Tier order depends on the dynamically projected room snapshot; until that
   // projection is available in SQL, retain the complete in-memory tier sort.

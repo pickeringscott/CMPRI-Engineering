@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 sys.dont_write_bytecode = True
 from weather_dashboard_preview import (
     PREVIEW, PROBE, OfficialFeedFixtures, block_websocket, frame_forbidden, install, install_weather_audit,
-    require, wait_for, weather_frame,
+    dashboard_weather_launcher, require, unexpected_application_mutation, wait_for, weather_frame,
 )
 from playwright.async_api import async_playwright
 
@@ -70,6 +70,58 @@ async def set_range(frame, identity, value):
       element.value=String(value); element.dispatchEvent(new Event('input',{bubbles:true}));
       element.dispatchEvent(new Event('change',{bubbles:true}));
     }""", value)
+
+
+async def compact_map_actions(page, frame):
+    canvas=frame.locator('#radarCanvas')
+    await canvas.scroll_into_view_if_needed()
+    geometry=await frame.locator('#mapShell').evaluate("""shell=>{
+      const r=shell.getBoundingClientRect(),host=shell.querySelector('.map-actions'),h=host.getBoundingClientRect();
+      return {top:h.top-r.top,right:r.right-h.right,width:h.width,
+        buttons:Array.from(host.querySelectorAll('button')).map(el=>{const b=el.getBoundingClientRect();
+          return {id:el.id,width:b.width,height:b.height,top:b.top-h.top,right:h.right-b.right};})};
+    }""")
+    require(abs(geometry['top'])<=1.5 and abs(geometry['right'])<=1.5
+            and abs(geometry['width']-24)<.2 and len(geometry['buttons'])==4,
+            'Map actions are not flush at the top-right edge: '+str(geometry))
+    require(all(abs(row['width']-24)<.2 and abs(row['height']-24)<.2
+                and abs(row['top']-index*24)<.2 and abs(row['right'])<.2
+                for index,row in enumerate(geometry['buttons'])),
+            'Map actions are not a gapless stack of24px buttons: '+str(geometry))
+    before=await frame.evaluate('cmpriWeatherMap.getState()')
+    await frame.locator('#zoomIn').click()
+    await wait_for(frame,'value=>cmpriWeatherMap.getState().zoom>value',before['zoom'])
+    zoomed=await frame.evaluate('cmpriWeatherMap.getState().zoom')
+    await frame.locator('#zoomOut').click()
+    await wait_for(frame,'value=>cmpriWeatherMap.getState().zoom<value',zoomed)
+    await canvas.focus();await page.keyboard.press('ArrowRight')
+    await wait_for(frame,'value=>cmpriWeatherMap.getState().center.lon!==value',before['center']['lon'])
+    await frame.locator('#recenter').click()
+    await wait_for(frame,"() => {const s=cmpriWeatherMap.getState();return Math.abs(s.center.lat-40.138080)<.000001&&Math.abs(s.center.lon+88.251416)<.000001;}")
+    await frame.locator('#fullscreen').click()
+    await wait_for(frame,"Boolean(document.fullscreenElement)||document.getElementById('mapShell').classList.contains('expanded')")
+    expanded=await frame.locator('#mapShell').bounding_box()
+    require(expanded['width']>250 and expanded['height']>300,'Fullscreen map did not expand')
+    native_fullscreen=await frame.evaluate('Boolean(document.fullscreenElement)')
+    await page.keyboard.press('Escape')
+    await asyncio.sleep(.1)
+    native_escape=await frame.evaluate("!document.fullscreenElement&&!document.getElementById('mapShell').classList.contains('expanded')")
+    # Headless Chromium does not consistently perform the browser-chrome
+    # Escape action. The actual fullscreen button must still exit, and the
+    # component's own CSS fallback must handle Escape without closing Weather.
+    if not native_escape:
+        await frame.locator('#fullscreen').click()
+    await wait_for(frame,"!document.fullscreenElement&&!document.getElementById('mapShell').classList.contains('expanded')")
+    require(await canvas.is_visible(),'Exiting fullscreen closed the Weather view')
+    await frame.evaluate("Object.defineProperty(document.getElementById('mapShell'),'requestFullscreen',{configurable:true,value:()=>Promise.reject(new Error('TEST FIXTURE: native fullscreen unavailable'))})")
+    await frame.locator('#fullscreen').click()
+    await wait_for(frame,"document.getElementById('mapShell').classList.contains('expanded')")
+    await page.keyboard.press('Escape')
+    await wait_for(frame,"!document.getElementById('mapShell').classList.contains('expanded')")
+    require(await canvas.is_visible(),'Fallback Escape closed the Weather view')
+    await frame.evaluate("delete document.getElementById('mapShell').requestFullscreen")
+    return {**geometry,'zoomButtons':True,'recenter':True,'fullscreenButtonToggles':True,
+        'nativeFullscreenAccepted':native_fullscreen,'nativeEscapeObserved':native_escape,'fallbackEscape':True}
 
 
 async def legend_layout(frame, row_selector, content_selector):
@@ -195,7 +247,7 @@ async def run_viewport(browser, base, output, width, height):
             externals.append(route.request.url)
             await route.abort("blockedbyclient")
             return
-        if parsed.path.startswith("/api/") and route.request.method not in ["GET", "HEAD"]:
+        if unexpected_application_mutation(parsed.path, route.request.method):
             mutations.append({"path": parsed.path, "method": route.request.method})
         await route.fallback()
 
@@ -218,8 +270,7 @@ async def run_viewport(browser, base, output, width, height):
     evidence = {"viewport": [width, height], "fixtureOnly": True}
     try:
         await page.goto(base + "/engineering", wait_until="domcontentloaded")
-        launcher = page.get_by_role("button", name="Weather", exact=True)
-        await launcher.wait_for(state="visible", timeout=60000)
+        launcher = await dashboard_weather_launcher(page)
         require(not fixture.basemap_requests and not fixture.map_urls and fixture.forecast_calls == 0,
                 "Ground or weather data loaded before Weather opened")
         mutation_start = len(mutations)
@@ -296,12 +347,13 @@ async def run_viewport(browser, base, output, width, height):
                 and all((row['longitude']>-88.251416) is (row['side']=='east') for row in i74),
                 'Fixture-returned I57 north/south or I74 east/west geometry lost its contextual shield: '+str(routes))
         shield_draws = await frame.evaluate('window.__weatherShieldDraws')
-        expected_shield_size = 26 if (await frame.locator('#radarCanvas').bounding_box())['width'] < 420 else 30
+        expected_shield_size = 20 if (await frame.locator('#radarCanvas').bounding_box())['width'] < 420 else 24
         require(shield_draws and all(row['height']==expected_shield_size for row in shield_draws),
                 'Official route artwork did not use the smaller responsive shield size: '+str(shield_draws))
         evidence['smallerOfficialShieldSize'] = expected_shield_size
         evidence["declutteredOfficialRoutes"] = routes
         evidence["officialShieldArtworkLoaded"] = ground['shields']
+        evidence['compactMapActions']=await compact_map_actions(page,frame)
         await frame.locator('.map-panel').scroll_into_view_if_needed()
         await page.screenshot(path=str(output / f'weather-contextual-shields-{width}.png'),full_page=True)
         for removed in ["tryLiveFeeds", "mapLayerTimes", "mapGrid", "mapStatus", "observedRadarNote", "mapHelp"]:

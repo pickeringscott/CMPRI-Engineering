@@ -1,4 +1,5 @@
 "use client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
 import type {NoteEditorHandle} from './GeneralNotesText';
 import {useEffect,useId,useState,type KeyboardEvent,type RefObject} from 'react';
 import {authorizationHeaders} from '@/lib/auth/client-session';
@@ -9,6 +10,7 @@ import {plainTextParts} from '@/lib/plain-text-links';
 export type NoteToken={start:number;end:number;href?:string;external?:boolean;kind?:string};
 type Ticket={id:string;display_id:string;room?:string;issue?:string};
 export function useGeneralNotesMentions({text,caret,selected,active,field,onEdit}:{text:string;caret:number;selected:StaffMentionRange[];active:boolean;field:RefObject<NoteEditorHandle|null>;onEdit:(text:string,mentions:StaffMentionRange[],caret:number)=>void}){
+ const {t: ui}=useUiLanguage();
  const id=useId(),[directory,setDirectory]=useState<StaffMention[]|null>(null),[tickets,setTickets]=useState<Ticket[]>([]),[index,setIndex]=useState(0),[dismissed,setDismissed]=useState(''),[error,setError]=useState('');
  const raw=active?staffMentionQuery(text,caret):null;
  const query=raw&&!selected.some(m=>m.start===raw.start&&caret>=m.end)?raw:null;
@@ -29,6 +31,6 @@ export function useGeneralNotesMentions({text,caret,selected,active,field,onEdit
  const tokens:NoteToken[]=[...urls.map(p=>({...p,external:true})),...mentions.filter(m=>!urls.some(p=>p.start<m.end&&p.end>m.start)).map(m=>({start:m.start,end:m.end,kind:m.kind,...(m.kind==='work_order'&&tickets.some(t=>t.id===m.id)?{href:'/work-orders/'+encodeURIComponent(m.id)}:{})}))];
  for(const ref of references){if(tokens.some(t=>t.start<ref.end&&t.end>ref.start))continue;const matches=tickets.filter(t=>workOrderNumber(t.display_id)===ref.number);tokens.push({...ref,kind:'work_order',...(matches.length===1?{href:'/work-orders/'+encodeURIComponent(matches[0].id)}:{})})}
  tokens.sort((a,b)=>a.start-b.start);
- const popup=<>{options.length>0&&<div id={id} className="general-notes-mention-options" role="listbox" aria-label="Mention targets">{options.map((target,i)=><button key={staffTargetKey(target)} id={id+'-'+i} type="button" role="option" aria-selected={i===current} tabIndex={-1} onPointerDown={event=>event.preventDefault()} onClick={()=>accept(target)}><span>{target.label}{target.description?' · '+target.description:''}</span><small>{staffTargetType(target.kind)}</small></button>)}</div>}{error&&active&&raw&&<p className="general-notes-mention-error" role="status">{error}</p>}</>;
+ const popup=<>{options.length>0&&<div id={id} className="general-notes-mention-options" role="listbox" aria-label={ui("Mention targets")}>{options.map((target,i)=><button key={staffTargetKey(target)} id={id+'-'+i} type="button" role="option" aria-selected={i===current} tabIndex={-1} onPointerDown={event=>event.preventDefault()} onClick={()=>accept(target)}><span>{target.kind === "role" ? ui(target.label) : target.label}{target.description?' · '+target.description:''}</span><small>{ui(staffTargetType(target.kind))}</small></button>)}</div>}{error&&active&&raw&&<p className="general-notes-mention-error" role="status">{ui(error)}</p>}</>;
  return{keyDown,tokens,popup,controls:options.length?id:undefined,activeDescendant:options.length?id+'-'+current:undefined};
 }

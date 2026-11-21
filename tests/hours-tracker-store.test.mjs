@@ -17,10 +17,10 @@ const owner = '00000000-0000-0000-0000-000000000001';
 const other = '00000000-0000-0000-0000-000000000002';
 const principal = (id=owner, role='Chief Engineer') => ({ identity:{id}, profile:{id,role,active:true}, membership:{user_id:id,hotel_id:'hotel',active:true},hotelId:'hotel' });
 const period = start => ({start,days:core.emptyPeriod(start),rateCents:2229,deductionPercent:22});
-test('four approved roles, active matching identity and no MCP', () => {
-  for(const role of ['Chief Engineer','Assistant General Manager','Front Desk Manager','Maintenance Technician','assistant_manager','front_desk_manager','technician']) assert.equal(store.hoursOwner(principal(owner,role)),owner);
+test('approved roles require active matching identity and no MCP for Hours Tracker', () => {
+  for(const role of ['Chief Engineer','Engineer','Senior Management','System Administrator','Assistant General Manager','Front Desk Manager','Maintenance Technician','assistant_manager','front_desk_manager','technician']) assert.equal(store.hoursOwner(principal(owner,role)),owner);
   assert.equal(store.hoursOwner({...principal(owner,'Front Desk'),profile:{...principal().profile,role:'Front Desk',secondary_roles:['Maintenance Technician']}}),owner);
-  for(const role of ['Engineer','Regional Maintenance','Engineering Manager','system_admin','General Manager','Front Desk Lead','Front Desk','Sales Manager','Lead Housekeeper']) assert.throws(()=>store.hoursOwner(principal(owner,role)));
+  for(const role of ['General Manager','Front Desk Lead','Front Desk','Sales Manager','Lead Housekeeper']) assert.throws(()=>store.hoursOwner(principal(owner,role)));
   assert.throws(()=>store.hoursOwner(principal(),true));
   assert.throws(()=>store.hoursOwner({...principal(),profile:{id:other,role:'Chief Engineer',active:true}}));
   assert.throws(()=>store.hoursOwner({...principal(),membership:{user_id:owner,hotel_id:'hotel',active:false}}));
@@ -83,7 +83,7 @@ test('local PostgreSQL saves, owner isolation, stale revisions, calendar and rat
     assert.equal(core.leaveConfigurationAt(updated.document.leaveConfigurations,'illinois-sick','2026-10-05'),null);
     await assert.rejects(()=>store.saveHours(client,principal(),{configuration:{...config,earnedMinutesPerWorkedHour:2},revision:5}),e=>e.status===400);
     // Each additional eligible role starts empty and stores only its own pay, days and leave setup.
-    for(const [index,role] of ['Assistant General Manager','Front Desk Manager','Maintenance Technician'].entries()) {
+    for(const [index,role] of ['Assistant General Manager','Front Desk Manager','Maintenance Technician','Engineer','Senior Management','System Administrator'].entries()) {
       const id=`00000000-0000-0000-0000-${String(index+3).padStart(12,'0')}`;
       await db.query('insert into auth.users values ($1)',[id]);
       const person=principal(id,role);
@@ -103,7 +103,7 @@ test('local PostgreSQL saves, owner isolation, stale revisions, calendar and rat
       await assert.rejects(()=>store.saveHours(client,person,{period:ownPeriod,revision:2,owner_id:owner}),e=>e.status===400);
       assert.equal(JSON.stringify(await store.readHours(client,principal())),JSON.stringify(updated));
     }
-    for(const role of ['system_admin','General Manager','Front Desk Lead','Front Desk']) {
+    for(const role of ['General Manager','Front Desk Lead','Front Desk']) {
       await assert.rejects(()=>store.readHours(client,principal(owner,role)),e=>e.status===403);
       await assert.rejects(()=>store.saveHours(client,principal(owner,role),{period:first,revision:5}),e=>e.status===403);
     }
@@ -116,7 +116,7 @@ test('local PostgreSQL saves, owner isolation, stale revisions, calendar and rat
   } finally {await db.close();}
 });
 
-test('verified legacy dual-role chief keeps own access without granting generic engineers or other admins', () => {
+test('legacy chief remains identity-bound and other eligible roles get their own tracker', () => {
  const id='750f77bf-7d5d-4ca6-8421-e025edea87ba',email='maint.cmpri@hawkeyehotels.com',hotelId='c81ad01a-7a9f-4880-ac1c-5e849f30bad6';
  const p={identity:{id,email},profile:{id,email,role:'system_admin',secondary_roles:['engineer'],active:true},hotelId,membership:{user_id:id,hotel_id:hotelId,role:'admin',active:true}};
  assert.equal(roles.profileIsChiefEngineer(p.profile),false);
@@ -124,10 +124,9 @@ test('verified legacy dual-role chief keeps own access without granting generic 
  assert.equal(store.hoursOwner(p),id);
  assert.throws(()=>store.hoursOwner(p,true));
  for(const patch of [{id:other},{email:'other@example.invalid'},{role:'engineer'},{secondary_roles:[]},{secondary_roles:['Engineering Manager']}]) {
-  assert.equal(roles.profileCanUseHoursTracker({...p.profile,...patch}),false);
-  assert.throws(()=>store.hoursOwner({...p,profile:{...p.profile,...patch}}));
+  assert.equal(roles.profileIsEstablishedHoursChief({...p.profile,...patch}),false);
  }
  for(const patch of [{identity:{id:other,email}},{identity:{id,email:'other@example.invalid'}},{membership:{...p.membership,user_id:other}},{membership:{...p.membership,active:false}},{membership:{...p.membership,role:'viewer'}},{hotelId:'other',membership:{...p.membership,hotel_id:'other'}},{profile:{...p.profile,active:false}}]) assert.throws(()=>store.hoursOwner({...p,...patch}));
  const foreign={...p,identity:{id:other,email},profile:{...p.profile,id:other},membership:{...p.membership,user_id:other}};
- assert.throws(()=>store.hoursOwner(foreign));
+ assert.equal(store.hoursOwner(foreign),other);
 });

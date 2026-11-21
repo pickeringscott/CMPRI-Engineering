@@ -60,6 +60,7 @@ function accountFixture(body, allowAssignment = true) {
     'next/server': {NextResponse: {json: (body, init = {}) => ({body, status: init.status ?? 200})}},
     '@/lib/constants': {HOTEL_ID: 'hotel'},
     '@/lib/server/auth': {requireCapability: async () => ({principal: {identity: {id: 'caller'}, profile: {id: 'caller', role: 'Chief Engineer'}}, admin})},
+    '@/lib/server/chief-module-read': {requireChiefModuleRead: async () => null},
     '@/lib/server/roles': {...roles, canManageTargetProfile: () => allowAssignment},
   });
   return {saved, calls, handlers, request: {json: async () => body}};

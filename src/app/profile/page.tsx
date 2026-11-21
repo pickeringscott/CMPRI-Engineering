@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { getValidSession } from "@/lib/supabase/client";
+import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createClient, getValidSession } from "@/lib/supabase/client";
 import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
 import { signOutDevice } from "@/lib/supabase/client";
 import ModalDashboardLink from "@/components/ModalDashboardLink";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
 import useEmbeddedModal from "@/components/use-embedded-modal";
-import { isSubmitOnlyRole } from "@/lib/server/roles";
-import { isNotificationScheduleEligibleProfile, isWebPushEligibleProfile, isStaffNotesPushEligibleProfile } from "@/lib/notifications/schedule";
+import { isSubmitOnlyRole, landingPath } from "@/lib/server/roles";
+import { isNotificationScheduleEligibleProfile, isWebPushEligibleProfile, isStaffNotesPushEligibleProfile, normalizeNotificationSettings } from "@/lib/notifications/schedule";
 import PhoneNotificationRow from "@/components/PhoneNotificationRow";
+import { loadCmpriSession } from "@/lib/auth/client-session";
+import { clearPhoneScheduleRecovery, phoneScheduleKey, readPhoneScheduleRecovery, savePhoneScheduleRecovery, type PhoneScheduleRecovery, canRestoreProfileRecovery, clearProfileRecovery, profileFieldsKey, readProfileRecovery, saveProfileRecovery, type ProfileRecovery, type ProfileScope, type ProfileSettingsDraft } from "@/lib/profile-recovery";
 
 type Profile = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[] };
 type Preferences = {
@@ -33,9 +36,7 @@ type ChatGptConnection = { connected: boolean; status: "active" | "disconnected"
 type Payload = { profile: Profile; preferences: Preferences; profile_settings_available: boolean; can_manage_users: boolean; chatgpt_connection: ChatGptConnection; warning?: string };
 
 function applyPreferences(preferences: Preferences) {
-  window.localStorage.setItem("cmpri:work-order-language", preferences.language);
   window.localStorage.setItem("cmpri:appearance", preferences.appearance);
-  document.documentElement.lang = preferences.language;
   document.documentElement.dataset.theme = preferences.appearance;
   const message = { type: "cmpri-profile-preferences-updated", preferences };
   window.parent.postMessage(message, window.location.origin);
@@ -89,17 +90,64 @@ export default function ProfilePage() {
   const [phoneSubscribed, setPhoneSubscribed] = useState(false);
   const [phonePublicKey, setPhonePublicKey] = useState("");
   const [phoneBusy, setPhoneBusy] = useState(false);
+  const phoneOperation = useRef<{ scope: ProfileScope } | null>(null);
   const [phoneMessage, setPhoneMessage] = useState("");
   const [phoneSupported, setPhoneSupported] = useState(false);
+  const [recoveryConflict, setRecoveryConflict] = useState<{ saved: ProfileRecovery; remote: ProfileSettingsDraft } | null>(null);
+  const draft = useRef<{ scope: ProfileScope; fields: ProfileSettingsDraft; baseline: ProfileSettingsDraft; stopped: boolean; retained: boolean } | null>(null);
+  const phoneDraft = useRef<PhoneScheduleRecovery | null>(null);
+  const phoneHadRecovery = useRef(false);
+  const [phoneRecoveryConflict, setPhoneRecoveryConflict] = useState<PhoneScheduleRecovery | null>(null);
+  const [phoneRecoveryRemote, setPhoneRecoveryRemote] = useState<PhoneNotificationSettings | null>(null);
+  const loadGeneration = useRef(0);
+  const persistProfileRef = useRef<() => void>(() => {});
+  function persistProfile() {
+    const current = draft.current;
+    const phone = phoneDraft.current;
+    if (current && !current.stopped && phone && !phoneRecoveryConflict && (phoneHadRecovery.current || phoneScheduleKey(phone.fields) !== phoneScheduleKey(phone.baseline))) {
+      phoneHadRecovery.current = true;
+      try { if (!savePhoneScheduleRecovery(localStorage, phone)) setPhoneMessage("This device could not preserve notification settings. Keep this window open until they are saved."); }
+      catch { setPhoneMessage("This device could not preserve notification settings. Keep this window open until they are saved."); }
+    }
+    if (!current || current.stopped || recoveryConflict || (!current.retained && profileFieldsKey(current.fields) === profileFieldsKey(current.baseline))) return;
+    current.retained = true;
+    try {
+      if (!saveProfileRecovery(localStorage, current.scope, current.fields, current.baseline)) setMessage("This device could not preserve profile changes. Keep this window open until they are saved.");
+    } catch { setMessage("This device could not preserve profile changes. Keep this window open until they are saved."); }
+  }
+  useLayoutEffect(() => {
+    if (phoneDraft.current && phoneSettings && draft.current && !draft.current.stopped && !phoneRecoveryConflict) phoneDraft.current.fields = phoneSettings;
+    if (draft.current && !draft.current.stopped && preferences && data?.profile.id === draft.current.scope.userId && !recoveryConflict) draft.current.fields = { name, preferences };
+    persistProfileRef.current = persistProfile;
+  });
+  useEffect(() => { persistProfileRef.current(); }, [name, preferences, phoneSettings]);
   const isSpanish = preferences?.language === "es";
   const displayedRole = accountRoleDisplayName(data?.profile || {});
-  const isHousekeeping = roleDisplayName(data?.profile.role || "") === "Lead Housekeeper";
   const isSubmitOnlyProfile = ["Front Desk", "Front Desk Manager", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""));
   const canManageChatgptConnection = !isSubmitOnlyRole(data?.profile.role);
-  const profileDashboardHref = isSubmitOnlyProfile
-    ? "/work-orders"
-    : "/engineering";
-  const tx = (english: string, spanish: string) => isSpanish ? spanish : english;
+  const profileDashboardHref = landingPath(data?.profile.role) || "/engineering";
+  const { t: tx, tt } = useUiLanguage(preferences?.language);
+
+  function beginPhoneOperation() {
+    const editor = draft.current;
+    if (!editor || editor.stopped) return null;
+    const operation = { scope: editor.scope };
+    phoneOperation.current = operation;
+    setPhoneBusy(true); setPhoneMessage("");
+    return operation;
+  }
+
+  function currentPhoneOperation(operation: { scope: ProfileScope }) {
+    const editor = draft.current;
+    return phoneOperation.current === operation && editor && !editor.stopped
+      && editor.scope.userId === operation.scope.userId && editor.scope.hotelId === operation.scope.hotelId;
+  }
+
+  async function phoneOperationHeaders(operation: { scope: ProfileScope }) {
+    const session = await getValidSession();
+    if (!currentPhoneOperation(operation) || session?.user.id !== operation.scope.userId) return null;
+    return { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" };
+  }
 
   function closeProfileModal() {
     if (embedded && window.parent !== window) {
@@ -116,7 +164,7 @@ export default function ProfilePage() {
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {!embedded && <ModalDashboardLink href={profileDashboardHref} className="rounded-lg border border-slate-700 px-4 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800">{tx("Dashboard", "Panel")}</ModalDashboardLink>}
-        {embedded && <button type="button" onClick={closeProfileModal} aria-label={tx("Close Manage Profile", "Cerrar Administrar perfil")} title={tx("Close", "Cerrar")} className="grid size-10 place-items-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white">
+        {embedded && <button type="button" onClick={closeProfileModal} aria-label={tx("Close Manage Profile", "Cerrar Administrar perfil")} title={tt("Close")} className="grid size-10 place-items-center rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white">
           <svg aria-hidden="true" viewBox="0 0 10 10" className="size-3"><path d="M1 1l8 8M9 1L1 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
         </button>}
       </div>
@@ -125,6 +173,8 @@ export default function ProfilePage() {
 
   async function signOut() {
     try {
+      persistProfileRef.current();
+      window.dispatchEvent(new Event("cmpri-workspace-sign-out"));
       await signOutDevice();
       if (embedded && window.parent !== window) {
         const modalToken = new URLSearchParams(window.location.search).get("modalToken") || "";
@@ -144,16 +194,37 @@ export default function ProfilePage() {
   }
 
   async function load() {
+    persistProfileRef.current();
+    const generation = ++loadGeneration.current;
     setLoading(true);
     setMessage("");
-    setData(null);
+    setData(null); setName(""); setPreferences(null); setPhoneSettings(null); setRecoveryConflict(null); setPhoneRecoveryConflict(null);
+    const verified = await loadCmpriSession();
+    const valid = await getValidSession();
+    if (!valid || valid.user.id !== verified.user.id || generation !== loadGeneration.current) throw new Error("Sign in again to manage your profile.");
+    const scope = { hotelId: verified.hotelId, userId: verified.user.id };
     const response = await fetch("/api/profile", { headers: await headers(), cache: "no-store" });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || "Profile could not be loaded.");
     const result = payload as Payload;
+    const currentSession = await getValidSession();
+    if (generation !== loadGeneration.current || !currentSession || currentSession.user.id !== scope.userId || result.profile.id !== scope.userId) return;
+    const remote = { name: result.profile.full_name || "", preferences: result.preferences };
+    const saved = readProfileRecovery(localStorage, scope);
+    if (phoneOperation.current && (phoneOperation.current.scope.userId !== scope.userId || phoneOperation.current.scope.hotelId !== scope.hotelId)) {
+      phoneOperation.current = null;
+      setPhoneBusy(false);
+    }
+    draft.current = { scope, fields: remote, baseline: remote, stopped: false, retained: !!saved };
     setData(result);
-    setName(result.profile.full_name || "");
-    setPreferences(result.preferences);
+    if (saved && !canRestoreProfileRecovery(saved, remote)) {
+      setRecoveryConflict({ saved, remote });
+      setName(remote.name); setPreferences(remote.preferences);
+    } else {
+      const recovered = saved?.fields || remote;
+      draft.current.fields = recovered;
+      setName(recovered.name); setPreferences(recovered.preferences);
+    }
     if (isNotificationScheduleEligibleProfile(result.profile)) {
       const registration = "serviceWorker" in navigator ? await navigator.serviceWorker.getRegistration("/") : undefined;
       const currentSubscription = await registration?.pushManager.getSubscription();
@@ -163,15 +234,23 @@ export default function ProfilePage() {
         : "/api/profile/phone-notifications";
       const phoneResponse = await fetch(phoneUrl, { headers: await headers(), cache: "no-store" });
       const phonePayload = await phoneResponse.json().catch(() => ({})) as Partial<PhoneNotificationPayload> & { error?: string };
+      if (generation !== loadGeneration.current || draft.current?.stopped) return;
       if (!phoneResponse.ok) {
         setPhoneMessage(phonePayload.error || "Phone notification settings could not be loaded.");
       } else if (phonePayload.settings && typeof phonePayload.public_key === "string") {
         const settings = phonePayload.settings;
-        setPhoneSettings(phonePayload.configured ? settings : { ...settings, timezone: localTimezone() });
+        const displayed = phonePayload.configured ? settings : { ...settings, timezone: localTimezone() };
+        const recoveredPhone = readPhoneScheduleRecovery(localStorage, scope);
+        phoneHadRecovery.current = !!recoveredPhone;
+        const phoneMatches = !recoveredPhone || (recoveredPhone.configured === phonePayload.configured && phoneScheduleKey(recoveredPhone.baseline) === phoneScheduleKey(displayed));
+        phoneDraft.current = { version: 1, ...scope, fields: phoneMatches && recoveredPhone ? recoveredPhone.fields : displayed, baseline: displayed, configured: phonePayload.configured === true };
+        setPhoneSettings(phoneDraft.current.fields as PhoneNotificationSettings);
+        setPhoneRecoveryConflict(phoneMatches ? null : recoveredPhone);
+        setPhoneRecoveryRemote(displayed);
         setPhoneSubscribed(phonePayload.subscribed_on_this_device === true);
         setPhonePublicKey(phonePayload.public_key);
         setPhoneSupported("serviceWorker" in navigator && "PushManager" in window && "Notification" in window);
-        setPhoneMessage("");
+        setPhoneMessage(recoveredPhone ? (phoneMatches ? "Recovered unsaved notification settings from this device." : "Saved notification settings changed. Compare your recovered schedule before saving.") : "");
       } else {
         setPhoneMessage("Phone notification settings returned an invalid response.");
       }
@@ -180,12 +259,39 @@ export default function ProfilePage() {
       setPhoneSubscribed(false);
       setPhonePublicKey("");
     }
+    if (generation !== loadGeneration.current || draft.current?.stopped) return;
     if (result.profile_settings_available !== false) applyPreferences(result.preferences);
-    setMessage(result.warning || (result.profile_settings_available === false
+    setMessage(saved ? (canRestoreProfileRecovery(saved, remote) ? "Recovered unsaved profile changes from this device." : "The saved profile changed. Your recovered changes are kept for comparison.") : result.warning || (result.profile_settings_available === false
       ? "Saved personal preferences are unavailable until the profile-preferences migration is applied."
       : ""));
   }
 
+  useEffect(() => {
+    const persist = () => persistProfileRef.current();
+    const signOut = () => {
+      persist();
+      if (draft.current) draft.current.stopped = true;
+      phoneOperation.current = null; setPhoneBusy(false);
+      loadGeneration.current++;
+      setData(null); setName(""); setPreferences(null); setPhoneSettings(null); setRecoveryConflict(null); setPhoneRecoveryConflict(null);
+    };
+    const hidden = () => { if (document.hidden) persist(); };
+    window.addEventListener("pagehide", persist);
+    window.addEventListener("cmpri-workspace-sign-out", signOut);
+    document.addEventListener("visibilitychange", hidden);
+    const subscription = createClient().auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT" || (draft.current && session && session.user.id !== draft.current.scope.userId)) signOut();
+    });
+    const refresh = () => {
+      // Returning from the browser permission dialog must not replace the
+      // editor whose notification change is still being acknowledged.
+      if (!phoneOperation.current) void load().catch(error => setMessage(error instanceof Error ? error.message : "Profile could not be refreshed."));
+    };
+    window.addEventListener("focus", refresh);
+    return () => { subscription.data.subscription.unsubscribe(); window.removeEventListener("focus", refresh); persist(); window.removeEventListener("pagehide", persist); window.removeEventListener("cmpri-workspace-sign-out", signOut); document.removeEventListener("visibilitychange", hidden); };
+  // The event subscription owns its initial reader; all editor values are read through the current refs.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     void Promise.resolve().then(load).catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")).finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -202,24 +308,42 @@ export default function ProfilePage() {
   }, []);
 
   async function save() {
-    if (!preferences) return;
+    if (!preferences || !draft.current || draft.current.stopped || recoveryConflict) return;
     if (!name.trim()) {
-      setMessage(tx("Enter a display name before saving.", "Ingrese un nombre para mostrar antes de guardar."));
+      setMessage("Enter a display name before saving.");
       return;
     }
     setBusy(true);
     setMessage("");
+    const editor = draft.current;
+    const submitted = { name, preferences };
+    persistProfileRef.current();
     try {
+      const verified = await loadCmpriSession();
+      if (editor.stopped || draft.current !== editor || verified.hotelId !== editor.scope.hotelId || verified.user.id !== editor.scope.userId) throw new Error("The account changed. Your previous changes were kept on this device.");
       const response = await fetch("/api/profile", {
         method: "PATCH",
         headers: await headers(),
-        body: JSON.stringify({ full_name: name, preferences }),
+        body: JSON.stringify({ full_name: submitted.name, preferences: submitted.preferences, baseline: editor.baseline }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Profile could not be saved.");
+      if (editor.stopped || draft.current !== editor) return;
+      if (!response.ok) {
+        if (response.status === 409) await load();
+        throw new Error(payload.error || "Profile could not be saved.");
+      }
+      const acknowledged = { name: payload.profile.full_name || "", preferences: payload.preferences };
+      const unchanged = profileFieldsKey(editor.fields) === profileFieldsKey(submitted);
+      editor.baseline = acknowledged;
+      if (unchanged) {
+        editor.fields = acknowledged;
+        editor.retained = !clearProfileRecovery(localStorage, editor.scope);
+        setName(acknowledged.name); setPreferences(acknowledged.preferences);
+      } else if (!saveProfileRecovery(localStorage, editor.scope, editor.fields, acknowledged)) {
+        throw new Error("Profile was saved, but newer edits could not be preserved on this device. Keep this window open.");
+      }
       if (payload.profile_settings_available !== false) applyPreferences(payload.preferences);
-      setMessage(payload.warning || tx("Profile and preferences saved.", "Perfil y preferencias guardados."));
-      setPreferences(payload.preferences);
+      setMessage(payload.warning || "Profile and preferences saved.");
       setData((current) => current ? { ...current, profile: payload.profile, preferences: payload.preferences, profile_settings_available: payload.profile_settings_available !== false, warning: payload.warning } : current);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Profile could not be saved.");
@@ -228,31 +352,49 @@ export default function ProfilePage() {
     }
   }
 
-  async function savePhoneSchedule() {
-    if (!phoneSettings) return;
-    setPhoneBusy(true);
-    setPhoneMessage("");
-    try {
-      const response = await fetch("/api/profile/phone-notifications", {
-        method: "POST",
-        headers: await headers(),
-        body: JSON.stringify({ action: "schedule", ...phoneSettings }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "Phone notification schedule could not be saved.");
-      setPhoneSettings(payload.settings as PhoneNotificationSettings);
-      setPhoneMessage("Notification schedule saved.");
-    } catch (error) {
-      setPhoneMessage(error instanceof Error ? error.message : "Phone notification schedule could not be saved.");
-    } finally {
-      setPhoneBusy(false);
+  async function submitPhoneSchedule() {
+    const editor = draft.current, phone = phoneDraft.current;
+    if (!phoneSettings || !editor || editor.stopped || !phone || phoneRecoveryConflict) throw new Error("Review notification settings before saving.");
+    const submitted = phoneSettings;
+    persistProfileRef.current();
+    const verified = await loadCmpriSession();
+    if (editor.stopped || draft.current !== editor || verified.user.id !== editor.scope.userId || verified.hotelId !== editor.scope.hotelId) throw new Error("The account changed. Your settings were kept on this device.");
+    const response = await fetch("/api/profile/phone-notifications", {
+      method: "POST", headers: await headers(),
+      body: JSON.stringify({ action: "schedule", ...submitted, baseline: { settings: phone.baseline, configured: phone.configured } }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (editor.stopped || draft.current !== editor) throw new Error("The account changed. Reopen your profile to continue.");
+    if (!response.ok) {
+      if (response.status === 409) await load();
+      throw new Error(payload.error || "Phone notification schedule could not be saved.");
     }
+    const acknowledged = normalizeNotificationSettings(payload.settings);
+    const expected = normalizeNotificationSettings(submitted);
+    if (payload.ok !== true || !acknowledged || !expected || phoneScheduleKey(acknowledged) !== phoneScheduleKey(expected)) {
+      throw new Error("Notification schedule was not confirmed. Your settings were kept.");
+    }
+    const unchanged = phoneScheduleKey(phone.fields) === phoneScheduleKey(submitted);
+    phone.baseline = acknowledged; phone.configured = true;
+    if (unchanged) {
+      phone.fields = acknowledged;
+      phoneHadRecovery.current = !clearPhoneScheduleRecovery(localStorage, editor.scope); setPhoneSettings(acknowledged);
+    } else if (!savePhoneScheduleRecovery(localStorage, phone)) throw new Error("Schedule saved, but newer edits could not be preserved. Keep this window open.");
+    return editor;
+  }
+
+  async function savePhoneSchedule() {
+    const operation = beginPhoneOperation();
+    if (!operation) return;
+    try { await submitPhoneSchedule(); if (currentPhoneOperation(operation)) setPhoneMessage("Notification schedule saved."); }
+    catch (error) { if (currentPhoneOperation(operation)) setPhoneMessage(error instanceof Error ? error.message : "Phone notification schedule could not be saved."); }
+    finally { if (currentPhoneOperation(operation)) { phoneOperation.current = null; setPhoneBusy(false); } }
   }
 
   async function enablePhoneNotifications() {
     if (!phoneSettings) return;
-    setPhoneBusy(true);
-    setPhoneMessage("");
+    const operation = beginPhoneOperation();
+    if (!operation) return;
     try {
       if (!phoneSupported || !phonePublicKey || !window.isSecureContext) {
         throw new Error("Web Push is unavailable in this browser or server configuration.");
@@ -261,86 +403,114 @@ export default function ProfilePage() {
         ? "granted"
         : await Notification.requestPermission();
       if (permission !== "granted") throw new Error("Browser notification permission was not granted.");
-      const scheduleResponse = await fetch("/api/profile/phone-notifications", {
-        method: "POST",
-        headers: await headers(),
-        body: JSON.stringify({ action: "schedule", ...phoneSettings }),
-      });
-      const schedulePayload = await scheduleResponse.json().catch(() => ({}));
-      if (!scheduleResponse.ok) throw new Error(schedulePayload.error || "Notification schedule could not be saved.");
+      const editor = await submitPhoneSchedule();
+      if (!currentPhoneOperation(operation)) return;
       const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
       const ready = await navigator.serviceWorker.ready;
       const subscription = await ready.pushManager.getSubscription() || await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: base64KeyToBytes(phonePublicKey),
       });
+      const operationHeaders = await phoneOperationHeaders(operation);
+      if (!operationHeaders) return;
       const response = await fetch("/api/profile/phone-notifications", {
         method: "POST",
-        headers: await headers(),
+        headers: operationHeaders,
         body: JSON.stringify({ action: "subscribe", subscription: subscription.toJSON() }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "This device could not be registered for phone notifications.");
+      if (!currentPhoneOperation(operation) || editor.stopped) return;
+      if (!response.ok || payload.ok !== true) throw new Error(payload.error || "This device could not be registered for phone notifications.");
+      if (!await phoneOperationHeaders(operation)) return;
       setPhoneSubscribed(true);
       setPhoneMessage("Phone notifications are enabled on this device.");
     } catch (error) {
-      setPhoneMessage(error instanceof Error ? error.message : "Phone notifications could not be enabled.");
+      if (currentPhoneOperation(operation)) setPhoneMessage(error instanceof Error ? error.message : "Phone notifications could not be enabled.");
     } finally {
-      setPhoneBusy(false);
+      if (currentPhoneOperation(operation)) { phoneOperation.current = null; setPhoneBusy(false); }
     }
   }
 
   async function disablePhoneNotifications() {
-    setPhoneBusy(true);
-    setPhoneMessage("");
+    const operation = beginPhoneOperation();
+    if (!operation) return;
     try {
       const registration = await navigator.serviceWorker.getRegistration("/");
       const subscription = await registration?.pushManager.getSubscription();
+      const operationHeaders = await phoneOperationHeaders(operation);
+      if (!operationHeaders) return;
+      let browserRemoved = true;
       if (subscription) {
         const response = await fetch("/api/profile/phone-notifications", {
           method: "POST",
-          headers: await headers(),
+          headers: operationHeaders,
           body: JSON.stringify({ action: "unsubscribe", endpoint: subscription.endpoint }),
         });
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || "This device could not be removed from phone notifications.");
-        await subscription.unsubscribe();
+        if (!await phoneOperationHeaders(operation)) return;
+        if (!response.ok || payload.ok !== true) throw new Error(payload.error || "This device could not be removed from phone notifications.");
+        browserRemoved = await subscription.unsubscribe();
       }
+      if (!await phoneOperationHeaders(operation)) return;
       setPhoneSubscribed(false);
-      setPhoneMessage("Phone notifications are disabled on this device.");
+      setPhoneMessage(browserRemoved ? "Phone notifications are disabled on this device." : "Phone notifications are disabled for this account, but the browser could not remove its registration.");
     } catch (error) {
-      setPhoneMessage(error instanceof Error ? error.message : "Phone notifications could not be disabled.");
+      if (currentPhoneOperation(operation)) setPhoneMessage(error instanceof Error ? error.message : "Phone notifications could not be disabled.");
     } finally {
-      setPhoneBusy(false);
+      if (currentPhoneOperation(operation)) { phoneOperation.current = null; setPhoneBusy(false); }
     }
   }
 
   if (!data || !preferences) return (
-    <main className="min-h-screen bg-slate-950 p-6 text-white">
+    <main lang={preferences?.language} className="min-h-screen bg-slate-950 p-6 text-white">
       <div className="mx-auto max-w-xl">
         {profileHeader}
         <div className="rounded-xl border border-slate-700 bg-slate-900 p-5" role={message ? "alert" : undefined}>
           <button type="button" onClick={() => void signOut()} className="mb-4 rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/40">{tx("Sign Out", "Cerrar sesión")}</button>
-          {!message && <h2 className="text-xl font-bold">Loading profile…</h2>}
-          {message && <p className="text-sm text-slate-300">{message}</p>}
-          {message && <button type="button" onClick={() => void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")).finally(() => setLoading(false))} disabled={loading} className="mt-4 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading ? "Retrying…" : "Retry"}</button>}
+          {!message && <h2 className="text-xl font-bold">{tx("Loading profile…")}</h2>}
+          {message && <p className="text-sm text-slate-300">{tx(message)}</p>}
+          {message && <button type="button" onClick={() => void load().catch((error) => setMessage(error instanceof Error ? error.message : "Profile could not be loaded.")).finally(() => setLoading(false))} disabled={loading} className="mt-4 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{loading ? tx("Retrying…") : tx("Retry")}</button>}
         </div>
       </div>
     </main>
   );
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main lang={preferences?.language} className="min-h-screen bg-slate-950 text-white">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
         {profileHeader}
 
-        {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{message}</div>}
+        {message && <div role="status" className="mt-5 rounded-xl border border-slate-700 bg-slate-900 p-4 text-sm">{tx(message)}</div>}
+        {recoveryConflict && <section role="alert" className="mt-4 rounded-xl border border-amber-500 p-4 text-sm">
+          <h2 className="font-bold">{tx("Recovered Profile Needs Review")}</h2>
+          <p className="mt-2">{tx("Saved name:")}{" "}{recoveryConflict.remote.name}{tx(". Recovered name:")}{" "}{recoveryConflict.saved.fields.name}.</p>
+          <details className="mt-2"><summary>{tx("Compare preferences")}</summary><p className="whitespace-pre-wrap">{tx("Saved:")}{" "}{JSON.stringify(recoveryConflict.remote.preferences, null, 2)}</p><p className="whitespace-pre-wrap">{tx("Recovered:")}{" "}{JSON.stringify(recoveryConflict.saved.fields.preferences, null, 2)}</p></details>
+          <div className="mt-3 flex gap-4">
+            <button type="button" className="underline" onClick={() => {
+              const current = draft.current;
+              if (!current || current.stopped) return;
+              current.fields = recoveryConflict.saved.fields; current.baseline = recoveryConflict.remote;
+              setName(current.fields.name); setPreferences(current.fields.preferences);
+              current.retained = true;
+              if (!saveProfileRecovery(localStorage, current.scope, current.fields, current.baseline)) setMessage("Recovered changes could not be preserved. Keep this window open until they are saved.");
+              setRecoveryConflict(null); setMessage("Recovered changes are ready for review. Save Profile to submit them.");
+            }}>{tx("Use Recovered Changes")}</button>
+            <button type="button" className="underline" onClick={() => {
+              const current = draft.current;
+              if (!current || current.stopped) return;
+              if (!clearProfileRecovery(localStorage, current.scope)) { setMessage("This device could not discard the recovered copy."); return; }
+              current.retained = false;
+              current.fields = recoveryConflict.remote; current.baseline = recoveryConflict.remote;
+              setName(current.fields.name); setPreferences(current.fields.preferences); setRecoveryConflict(null);
+            }}>{tx("Discard Recovered Copy")}</button>
+          </div>
+        </section>}
 
         {canManageChatgptConnection && <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold">{tx("ChatGPT Connection", "Conexión de ChatGPT")}</h2>
-              <p className="mt-1 text-sm text-slate-300">Status: <span className={data.chatgpt_connection?.connected ? "text-emerald-300" : "text-slate-300"}>{data.chatgpt_connection?.oauth_connected ? data.chatgpt_connection.oauth_access === "read_write" ? "OAuth connected · Read and write" : "OAuth connected · Read only" : data.chatgpt_connection?.personal_link_active ? "Legacy private link active" : "Not connected"}</span></p>
+              <p className="mt-1 text-sm text-slate-300">{tx("Status:")}{" "}<span className={data.chatgpt_connection?.connected ? "text-emerald-300" : "text-slate-300"}>{data.chatgpt_connection?.oauth_connected ? data.chatgpt_connection.oauth_access === "read_write" ? tx("OAuth connected · Read and write") : tx("OAuth connected · Read only") : data.chatgpt_connection?.personal_link_active ? tx("Legacy private link active") : tx("Not connected")}</span></p>
               <p className="mt-1 text-sm text-slate-400">{tx("Connect ChatGPT with secure per-user OAuth. CMPRI checks your current role and permissions on every tool call.", "Conecta ChatGPT con OAuth seguro por usuario. CMPRI verifica tu rol y permisos actuales en cada solicitud.")}</p>
             </div>
             <ModalNavigationButton href="/profile/ai-connection" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">{tx("Connect ChatGPT", "Conectar ChatGPT")}</ModalNavigationButton>
@@ -349,6 +519,22 @@ export default function ProfilePage() {
 
         {phoneSettings && <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">{tx("Notifications", "Notificaciones")}</h2>
+          {phoneRecoveryConflict && <div role="alert" className="mt-3 rounded-lg border border-amber-500 p-3 text-sm">
+            <p className="font-bold">{tx("Recovered Notification Schedule Needs Review")}</p>
+            <details className="mt-2"><summary>{tx("Compare schedules")}</summary><p className="whitespace-pre-wrap">{tx("Saved:")}{" "}{JSON.stringify(phoneRecoveryRemote, null, 2)}</p><p className="whitespace-pre-wrap">{tx("Recovered:")}{" "}{JSON.stringify(phoneRecoveryConflict.fields, null, 2)}</p></details>
+            <div className="mt-2 flex gap-4"><button type="button" className="underline" onClick={() => {
+              if (!phoneDraft.current || draft.current?.stopped) return;
+              phoneDraft.current.fields = phoneRecoveryConflict.fields;
+              setPhoneSettings(phoneRecoveryConflict.fields as PhoneNotificationSettings); setPhoneRecoveryConflict(null);
+              phoneHadRecovery.current = true;
+              if (!savePhoneScheduleRecovery(localStorage, phoneDraft.current)) setPhoneMessage("Recovered settings could not be preserved. Keep this window open until they are saved.");
+            }}>{tx("Use Recovered Schedule")}</button><button type="button" className="underline" onClick={() => {
+              if (!phoneDraft.current || !draft.current || draft.current.stopped) return;
+              if (!clearPhoneScheduleRecovery(localStorage, draft.current.scope)) { setPhoneMessage("This device could not discard the recovered schedule."); return; }
+              phoneHadRecovery.current = false;
+              phoneDraft.current.fields = phoneDraft.current.baseline; setPhoneSettings(phoneDraft.current.baseline as PhoneNotificationSettings); setPhoneRecoveryConflict(null);
+            }}>{tx("Discard Recovered Schedule")}</button></div>
+          </div>}
           {!phoneSupported && <p role="status" className="mt-3 text-sm text-amber-200">{tx("This browser does not support Web Push notifications.", "Este navegador no admite notificaciones Web Push.")}</p>}
           {phoneSupported && !phonePublicKey && <p role="status" className="mt-3 text-sm text-amber-200">{tx("Phone notifications are not configured on this server.", "Las notificaciones del teléfono no están configuradas en este servidor.")}</p>}
           <PhoneNotificationRow subscribed={phoneSubscribed} busy={phoneBusy} supported={phoneSupported}
@@ -363,7 +549,7 @@ export default function ProfilePage() {
                   <input value={phoneSettings.timezone} onChange={(event) => setPhoneSettings({ ...phoneSettings, timezone: event.target.value })} className="min-h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white" />
                 </label>
               </div>
-              <button type="button" disabled={phoneBusy} onClick={() => void savePhoneSchedule()} className="min-h-10 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 disabled:opacity-50">{tx("Save Schedule", "Guardar horario")}</button>
+              <button type="button" disabled={phoneBusy || !!phoneRecoveryConflict} onClick={() => void savePhoneSchedule()} className="min-h-10 rounded-lg border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-100 disabled:opacity-50">{tx("Save Schedule", "Guardar horario")}</button>
             </div>
             <div className="mt-3 grid gap-2">
               {NOTIFICATION_DAYS.map(([day, label]) => (
@@ -385,7 +571,7 @@ export default function ProfilePage() {
                         ...phoneSettings,
                         schedule: { ...phoneSettings.schedule, [day]: { ...phoneSettings.schedule[day], [field]: event.target.value } },
                       })} className="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white shadow-sm transition-colors focus-visible:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30">
-                        {customTime && <option value={value}>{notificationTimeLabel(value)} (current)</option>}
+                        {customTime && <option value={value}>{notificationTimeLabel(value)} {tx("(current)")}</option>}
                         {NOTIFICATION_TIMES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </label>;
@@ -394,18 +580,18 @@ export default function ProfilePage() {
               ))}
             </div>
           </div>
-          {phoneMessage && <p role="status" className="mt-4 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-slate-200">{phoneMessage}</p>}
+          {phoneMessage && <p role="status" className="mt-4 rounded-lg border border-slate-700 bg-slate-950 p-3 text-sm text-slate-200">{tx(phoneMessage)}</p>}
         </section>}
         {!phoneSettings && phoneMessage && data && isNotificationScheduleEligibleProfile(data.profile) && <section className="mt-4 rounded-2xl border border-amber-500/40 bg-amber-950/20 p-5">
           <h2 className="text-xl font-bold">{tx("Notifications", "Notificaciones")}</h2>
-          <p role="alert" className="mt-3 text-sm text-amber-100">{phoneMessage}</p>
+          <p role="alert" className="mt-3 text-sm text-amber-100">{tx(phoneMessage)}</p>
           <button type="button" onClick={() => void load().catch((error) => setPhoneMessage(error instanceof Error ? error.message : "Phone notification settings could not be loaded."))} className="mt-3 rounded-lg border border-amber-400/50 px-3 py-2 text-sm font-semibold text-amber-100">{tx("Retry", "Reintentar")}</button>
         </section>}
 
         <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">{tx("Personal Preferences", "Preferencias personales")}</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-1 text-sm text-slate-300">{tx("Language", "Idioma")}<select value={preferences.language} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, language: event.target.value as Preferences["language"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="en">English</option><option value="es">Español</option></select></label>
+            <label className="grid gap-1 text-sm text-slate-300">{tx("Language", "Idioma")}<select value={preferences.language} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, language: event.target.value as Preferences["language"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="en">{tx("English")}</option><option value="es">{tx("Español")}</option></select></label>
             <label className="grid gap-1 text-sm text-slate-300">{tx("Appearance", "Apariencia")}<select value={preferences.appearance} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, appearance: event.target.value as Preferences["appearance"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="dark">{tx("Dark", "Oscuro")}</option><option value="light">{tx("Light", "Claro")}</option></select></label>
           </div>
           {!isSubmitOnlyProfile && <div className="mt-4 grid gap-1 text-sm text-slate-300">
@@ -437,12 +623,12 @@ export default function ProfilePage() {
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm text-slate-300">{tx("Display name", "Nombre para mostrar")}<input value={name} onChange={(event) => setName(event.target.value)} disabled={busy} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white" /></label>
             {!isSubmitOnlyProfile && <label className="grid gap-1 text-sm text-slate-300">{tx("Sign-in email", "Correo de inicio de sesión")}<input value={data.profile.email || ""} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>}
-            <label className="grid gap-1 text-sm text-slate-300 sm:col-span-2">{tx("Job Title / Role", "Puesto / Rol")}<input value={isHousekeeping ? "Housekeeping" : displayedRole || "Unknown"} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>
+            <label className="grid gap-1 text-sm text-slate-300 sm:col-span-2">{tx("Job Title / Role", "Puesto / Rol")}<input value={(displayedRole || "Unknown").split(" + ").map(label => tx(label)).join(" + ")} readOnly className="min-h-11 rounded-lg border border-slate-700 bg-slate-900 px-3 text-slate-400" /></label>
           </div>
         </section>
 
         <div className="mt-5 flex flex-wrap justify-end gap-3">
-          <ModalNavigationButton href="/feedback?route=%2Fprofile" className="rounded-lg border border-amber-500/50 bg-amber-950/20 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-900/30">Report a Problem / Suggestion</ModalNavigationButton>
+          <ModalNavigationButton href="/feedback?route=%2Fprofile" className="rounded-lg border border-amber-500/50 bg-amber-950/20 px-4 py-2 text-sm font-semibold text-amber-100 hover:bg-amber-900/30">{tx("Report a Problem / Suggestion")}</ModalNavigationButton>
           {data.can_manage_users && <ModalNavigationButton href="/management/users" className="rounded-lg border border-sky-500/50 bg-sky-950/30 px-4 py-2 text-sm font-bold text-sky-100 hover:bg-sky-900/40">{tx("User Management", "Administración de usuarios")}</ModalNavigationButton>}
           {isSubmitOnlyProfile && <button type="button" onClick={() => void signOut()} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-400/50 bg-red-950/30 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/40">
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4 shrink-0">
@@ -450,7 +636,7 @@ export default function ProfilePage() {
             </svg>
             {tx("Sign Out", "Cerrar sesión")}
           </button>}
-          <button type="button" disabled={busy} onClick={() => void save()} className="rounded-lg bg-blue-700 px-5 py-2 font-bold text-white hover:bg-blue-600 disabled:opacity-50">{busy ? tx("Saving…", "Guardando…") : tx("Save Profile", "Guardar perfil")}</button>
+          <button type="button" disabled={busy || !!recoveryConflict} onClick={() => void save()} className="rounded-lg bg-blue-700 px-5 py-2 font-bold text-white hover:bg-blue-600 disabled:opacity-50">{busy ? tx("Saving…", "Guardando…") : tx("Save Profile", "Guardar perfil")}</button>
         </div>
       </div>
     </main>

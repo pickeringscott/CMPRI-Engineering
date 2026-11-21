@@ -30,6 +30,12 @@
     if (className) result.className = className;
     return result;
   }
+  // Preserve the original published NWS bulletin and detailed forecast wording.
+  function officialText(value) {
+    const result = node('p', value, 'small');
+    result.setAttribute('translate', 'no');
+    return result;
+  }
   function text(id, value) { if (byId(id)) byId(id).textContent = value; }
   function date(value) {
     if (value === null || value === undefined || value === '') return null;
@@ -301,7 +307,11 @@
     host.classList.add('current-temperature-dial');
     const today = visuals.dayKey(Date.now());
     const timeline = forecastTimelinePeriods();
-    const day = visuals.forecastDays(timeline, resource('forecast').data?.properties?.periods || []).find((item) => item.key === today);
+    const forecastDay = visuals.forecastDays(timeline, resource('forecast').data?.properties?.periods || []).find((item) => item.key === today);
+    // Preserve every supplied forecast value/mark. A cold opening can use real
+    // KCMI history for uncovered past color intervals, with observed provenance;
+    // it never invents an earlier forecast or fills unknown/future observations.
+    const day = fillTodayHistory(forecastDay || { ...observedDay, label: 'Today', segments: [], high: null, low: null, hourly: [], extended: [] });
     const wind = available ? quantity(p.windSpeed, 'wind') : null, gust = available ? quantity(p.windGust, 'wind') : null;
     const visibility = available ? quantity(p.visibility, 'visibility') : null;
     const feels = available ? quantity(p.windChill, 'temperature') ?? quantity(p.heatIndex, 'temperature') : null;
@@ -348,7 +358,7 @@
         }
         if (period.detailedForecast) {
           const detail = node('details'); detail.append(node('summary', 'NWS forecast text'));
-          detail.append(node('p', period.detailedForecast, 'small')); card.append(detail);
+          detail.append(officialText(period.detailedForecast)); card.append(detail);
         }
         if (envelope.status === 'stale') card.prepend(node('span', 'STALE FORECAST', 'badge warning'));
         host.append(card);
@@ -383,7 +393,9 @@
       const periods = day.extended.filter((period, index, all) => all.indexOf(period) === index);
       for (const period of periods) {
         detail.append(node('strong', period.name || 'NWS forecast period'));
-        detail.append(node('p', period.detailedForecast || period.shortForecast || 'Description unavailable', 'small'));
+        detail.append(period.detailedForecast || period.shortForecast
+          ? officialText(period.detailedForecast || period.shortForecast)
+          : node('p', 'Description unavailable', 'small'));
         const chance = period.probabilityOfPrecipitation?.value;
         detail.append(node('p', finite(chance) ? 'Precipitation chance ' + round(chance) + '%' : 'Precipitation chance unavailable', 'forecast-chance'));
         detail.append(visuals.wind(periodWindSpeed(period), period.windDirection, { forecast: true }));
@@ -453,15 +465,15 @@
       const p = feature.properties || {}, article = node('article', undefined, 'alert-example');
       article.append(node('span', (envelope.status === 'stale' ? 'STALE · ' : '') + 'OFFICIAL NWS ALERT', 'badge warning'));
       article.append(node('h3', p.event || 'NWS alert'));
-      if (p.headline) article.append(node('p', p.headline, 'small'));
+      if (p.headline) article.append(officialText(p.headline));
       article.append(node('p', 'Residence Inn Champaign · applicable NWS property alert' + (!feature.geometry ? ' · no polygon supplied; county/zone alert retained' : ''), 'small muted'));
       article.append(node('p', 'Effective: ' + stamp(p.effective) + ' · Expires: ' + stamp(p.expires), 'small'));
       const bulletin = sourceUrl(p['@id']) || sourceUrl(feature.id) || sourceUrl(p.web);
       article.append(bulletin ? sourceLink(bulletin, 'Read official bulletin') : node('p', 'Official bulletin link unavailable', 'small muted'));
       if (p.description || p.instruction) {
         const details = node('details'); details.append(node('summary', 'NWS bulletin text'));
-        if (p.description) details.append(node('p', p.description, 'small'));
-        if (p.instruction) details.append(node('p', p.instruction, 'small'));
+        if (p.description) details.append(officialText(p.description));
+        if (p.instruction) details.append(officialText(p.instruction));
         article.append(details);
       }
       host.append(article);

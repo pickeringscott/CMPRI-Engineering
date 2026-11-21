@@ -6,17 +6,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
-import { roleAllows } from '../src/lib/server/roles.ts';
+import { canEditEquipment, canReadEquipment, roleAllows, roleKey } from '../src/lib/server/roles.ts';
+import { canReadChiefModuleData } from '../src/lib/dashboard/chief-module-access.ts';
 import { maximumAssetInstallYear, parseAssetInstallYear } from '../src/lib/asset-install-year.ts';
 import { EQUIPMENT_SELECTION_COLUMNS } from '../src/lib/equipment-selection.ts';
 function canEditEngineeringData(role) { return roleAllows(role, "edit_tickets"); }
-function fixtureRoleKey(value) {
-  const key=String(value||'').toLowerCase().replace(/[\s_-]+/g,'');
-  if(key==='systemadmin')return 'system_admin';
-  if(key==='technician'||key==='maintenancetechnician')return 'technician';
-  if(key==='frontdesk')return 'front_desk';
-  return 'engineer';
-}
 function buildPrincipal(config, data, profile) {
   if (config.noUser) return null;
   if (config.authError) return null;
@@ -26,7 +20,7 @@ function buildPrincipal(config, data, profile) {
     identity: { id: 'test-user', email: 'test@test.invalid' },
     profile: { id: 'test-user', role: profile.role, active: profile.active, full_name: profile.full_name || 'Test' },
     hotelId: 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',
-    membership: { user_id: 'test-user', hotel_id: 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6', active: true, role: profile.role },
+    membership: { user_id: 'test-user', hotel_id: config.membershipHotel ?? 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6', active: true, role: profile.role },
     permissions: config.permission ? [{ role: profile.role, permission: 'manage_assets', allowed: true }] : [],
   };
 }
@@ -80,6 +74,15 @@ function fixture(route, config={}) {
     })},
   };
   const exports={};
+  const requireUser = async (req) => {
+    if (!req.headers.get('authorization')) return null;
+    const userData = await data.auth.getUser();
+    if (userData.error || !userData.data?.user) return null;
+    const profileRes = await data.from('profiles').select('id,full_name,role,active,property_scope').eq('id',userData.data.user.id).maybeSingle();
+    if (profileRes.error || !profileRes.data) return null;
+    const principal = buildPrincipal(config, data, profileRes.data);
+    return principal ? { principal, admin: data } : null;
+  };
   const source=config.legacy ? `../src/lib/server/pre-consolidation/${route === 'route.ts' ? 'assets-route.ts' : route}` : `../src/app/api/assets/${route}`;
   const compiled=ts.transpileModule(readFileSync(new URL(source,import.meta.url),'utf8'),{
     compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
@@ -105,29 +108,18 @@ function fixture(route, config={}) {
       if(name==='@/lib/constants')return {HOTEL_ID:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'};
       if(name==='@/lib/asset-install-year')return {maximumAssetInstallYear,parseAssetInstallYear};
       if(name==='@/lib/equipment-selection')return {EQUIPMENT_SELECTION_COLUMNS};
+      if(name==='@/lib/dashboard/chief-module-access')return {canReadChiefModuleData};
       if(name==='@/lib/manual-pdf-knowledge')return {extractManualPdfText:async()=>''};
       if(name==='@/lib/manual-document-catalog')return {catalogManualMatchesEquipment:()=>false};
       if(name==='@/lib/server/verified-manual-catalog')return {loadVerifiedCatalogManuals:async()=>({documents:[],warnings:[]})};
       if(name==='@/lib/server/auth')return {
-        requireUser: async (req) => {
-          if (!req.headers.get('authorization')) return null;
-          const userData = await data.auth.getUser();
-          if (userData.error || !userData.data?.user) return null;
-          const profileRes = await data.from('profiles').select('id,full_name,role,active,property_scope').eq('id',userData.data.user.id).maybeSingle();
-          if (profileRes.error || !profileRes.data) return null;
-          const p = buildPrincipal(config, data, profileRes.data);
-          return p ? { principal: p, admin: data } : null;
+        requireUser,
+        requireUserAttempt: async (req) => {
+          const auth = await requireUser(req);
+          return auth ? {ok: true, ...auth, mcp: config.mcp === true} : {ok: false};
         },
         requireCapability: async (req, cap) => {
-          if (!req.headers.get('authorization')) return null;
-          const auth = await (async () => {
-            const userData = await data.auth.getUser();
-            if (userData.error || !userData.data?.user) return null;
-            const profileRes = await data.from('profiles').select('id,full_name,role,active,property_scope').eq('id',userData.data.user.id).maybeSingle();
-            if (profileRes.error || !profileRes.data) return null;
-            const p = buildPrincipal(config, data, profileRes.data);
-            return p ? { principal: p, admin: data } : null;
-          })();
+          const auth = await requireUser(req);
           if (!auth) return null;
           if (cap === 'manage_assets') return canEditEngineeringData(auth.principal.profile.role) ? auth : null;
           return auth;
@@ -144,9 +136,9 @@ function fixture(route, config={}) {
         hasAnyGrant: () => false,
       };
       if(name==='@/lib/server/roles')return {
-        roleKey:fixtureRoleKey,
-        canReadEquipment:(role)=>['engineer','technician','system_admin'].includes(fixtureRoleKey(role)),
-        canEditEquipment:(role)=>['engineer','system_admin'].includes(fixtureRoleKey(role)),
+        roleKey,
+        canReadEquipment,
+        canEditEquipment,
       };
       if(name==='./access')return {allows:()=>false,authenticate:async()=>null,resolvePrincipal:()=>null,hasAnyGrant:()=>false};
       if(name==='./roles')return {roleAllows,roleKey:()=>'unknown'};
@@ -252,6 +244,29 @@ test('GET includes assets assigned to another hotel id in the single-property as
   assert.equal(result.status,200);
   assert.deepEqual(Array.from(result.body.assets,asset=>asset.id),['asset-current-property','asset-legacy-property']);
 });
+for (const legacy of [false, true]) {
+  test(`Senior Management reads only its property's assets without edit controls (${legacy ? 'legacy' : 'current'})`, async () => {
+    const f = fixture('route.ts', {
+      legacy,
+      profile: {active: true, role: 'senior_management'},
+      assetRows: [
+        {id: 'asset-current-property', hotel_id: 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'},
+        {id: 'asset-other-property', hotel_id: 'other-property-id'},
+      ],
+    });
+    const result = await f.handlers.GET(f.request);
+    assert.equal(result.status, 200);
+    assert.deepEqual(Array.from(result.body.assets, asset => asset.id), ['asset-current-property']);
+    assert.equal(result.body.can_manage, false);
+  });
+}
+test('Senior Management equipment reads require the matching property and a signed-in session', async () => {
+  for (const config of [{membershipHotel: 'other-property-id'}, {mcp: true}]) {
+    const f = fixture('route.ts', {profile: {active: true, role: 'senior_management'}, ...config});
+    assert.equal((await f.handlers.GET(f.request)).status, 403);
+    assert.equal(f.calls.includes('assets'), false);
+  }
+});
 test('work-order creation asset mode excludes other-property and inactive assets',async()=>{
   const f=fixture('route.ts',{permission:true,assetRows:[
     {id:'asset-current-property',hotel_id:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6',active:true},
@@ -287,6 +302,22 @@ test('documentation GET lists canonical PDFs for a CMPRI asset',async()=>{
 test('documentation GET rejects a non-CMPRI legacy property id',async()=>{
   const f=fixture('documentation/route.ts',{profile:{active:true,role:'Maintenance Technician'},assetRow:{id:'test',hotel_id:'legacy-property-id'}});
   assert.equal((await f.handlers.GET(f.request)).status,404);
+});
+test('Senior Management reads linked asset PDFs without access to the stored-PDF importer', async () => {
+  const config = {
+    profile: {active: true, role: 'senior_management'},
+    assetRow: {id: 'test', hotel_id: 'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'},
+    storageFiles: [{id: 'document-1', name: 'manual.pdf'}],
+  };
+  const viewer = fixture('documentation/route.ts', config);
+  const result = await viewer.handlers.GET(viewer.request);
+  assert.equal(result.status, 200);
+  assert.deepEqual(Array.from(result.body.documents, document => document.name), ['manual.pdf']);
+
+  const importer = fixture('documentation/route.ts', config);
+  importer.request.nextUrl.searchParams.set('mode', 'stored');
+  assert.equal((await importer.handlers.GET(importer.request)).status, 403);
+  assert.equal(importer.calls.includes('assets'), false);
 });
 test('PATCH fails closed when verification storage cannot be read',async()=>{
   const f=fixture('route.ts',{permission:true,asset:true,storageError:true});

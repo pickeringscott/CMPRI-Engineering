@@ -78,6 +78,20 @@ opening receiver, and clock-stopped two-minute warnings appear in quarters two
 and four. The scorebug displays the simulated score and completed-play ticker.
 Iowa is AP No. 15; Illinois has no rank label.
 
+The compact win/loss strip follows the dashboard title bar at every viewport
+size, with a four-pixel gap and eight-pixel right margin. Its second row shows
+the real published Iowa/Illinois betting point spread from ESPN. The animated
+game's broadcast scoreboard keeps its original position in the stadium.
+Sign-in and standalone previews use their own tally placement and do not
+request betting data.
+
+Betting reads occur only while the anchored dashboard strip is visible, at
+most once per minute. Hiding the document or leaving the dashboard
+aborts reads and stops refreshes. Quotes are kept only in memory. Missing
+markets remain unavailable, and a failed refresh labels a retained quote as a
+last-known line. This adds no database activity, background scheduler, betting
+action, paid feed or API key.
+
 Low CPU mode is the default at up to 15 fps; Smooth mode uses up to 24 fps.
 The static crowd and stationary sideline figures are baked into the scene.
 Motion uses cached sprites, display-sized canvases, changed-area redraws, and
@@ -138,8 +152,9 @@ regressions exercise real game controls and the shared sign-in/desktop host at
 desktop and phone sizes, using only loopback files and synthetic API responses.
 
 In a browser, verify standalone and embedded layouts at desktop and mobile
-sizes; full stadium coverage; the smaller bottom-center scorebug and play
-ticker; local tally after a completed game; Pause/Resume and keyboard controls;
+sizes; full stadium coverage; the W-L/betting strip anchored below the
+dashboard title bar, original broadcast scoreboard placement, and play ticker;
+local tally after a completed game; Pause/Resume and keyboard controls;
 reduced motion; route/tab/offscreen suspension; and an offline revisit after
 the hosted service worker has cached the entry. Inspect `window.cmpriTheme`
 for current attendance, sideline roles, game state, cache status, and rendering

@@ -3,4 +3,6 @@
    open native dialog. Guest Safety controls live inside its header and main;
    suppress only that injected shortcut inside this preview-specific dialog. */
 .dialog > :global(button.fixed){display:none!important}
+/* Above the anchored header's overflow, with menu action rows reserved below. */
+:global([data-weather-desktop-bulletin-host]):has(.ticker){position:relative;z-index:202}
 .dialog[data-level=warning] .dialogHeader{border-bottom-color:#a52c39}.dialog[data-level=warning] .dialogContent h2{color:#ffb6ad}.dialog[data-level=watch] .dialogContent h2{color:#ffe36c}.dialog[data-level=history] .label,.dialog[data-level=history] .dialogContent h2{color:#c4bcad}.soundStatus{display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:#c4bcad;font-size:13px}.soundStatus button{min-block-size:40px;border:1px solid #72551b;border-radius:6px;background:#211b0d;color:#ffdf63;padding:6px 12px;font:inherit;cursor:pointer}

@@ -44,7 +44,9 @@ test('metadata controls are directly usable and all permitted Chief statuses are
  assert.match(detail,/if \(chief && canEditField\("status"\)\) return \["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"\]/);
  assert.match(detail,/Edit reported issue/);assert.doesNotMatch(detail,/>Done<\/button>/);
  assert.doesNotMatch(detail,/noteHeading\(entry.authorRole/);
- assert.match(detail,/entry.actor.trim\(\).split/);
+ assert.match(detail,/actor.trim\(\).split/);
+ assert.match(detail,/const actor = createdFallback \? t\("System"\)/);
+ assert.match(detail,/: entry.actor;/);
  assert.match(detail,/<WorkOrderTitleGuest guest=\{order/);
  assert.doesNotMatch(detail,/<WorkOrderGuestIndicators guest=\{order/);
 });
@@ -71,17 +73,18 @@ test('local draft persistence retains text, isolates accounts, and reports stora
  ctx.localStorage=storage;assert.equal(exports.run(),true);assert.equal(changes.at(-1),false);
 });
 
-test('close and keep draft retries the current write and never closes after a failure or with pending attachments',()=>{
- const exports={};let closed=0,writes=0,success=false,saved='',failed=false;
+test('close and keep draft waits for durable attachments and retains text after either storage failure',async()=>{
+ const exports={};let closed=0,writes=0,success=false,saved='',failed=false,fileFlush=false;const messages=[];
  const ctx={exports,saving:false,hasPendingNoteMedia:false,cmpriSession:{hotelId:'hotel',user:{id:'actor'}},order:{id:'ticket',revision:3},initialFingerprint:'{}',currentFingerprint:JSON.stringify({issue:'Latest edit'}),recoveredDraft:{current:true},noteDraft:'New note',stagedNoteIds:[],hasUnsavedChanges:true,
+  mediaRecoveryActions:{current:{flush:async()=>fileFlush}},setMessage:value=>messages.push(value),
   localStorage:{setItem(_key,value){writes++;if(!success)throw Error('storage full');saved=value}},setLocalDraftFailed:value=>{failed=value},closeEmbeddedTicket:()=>closed++};
  vm.runInNewContext(extract('persistLocalDraft'),ctx);ctx.persistLocalDraft=exports.run;
  vm.runInNewContext(extract('closeAndKeepDraft'),ctx);
- exports.run();assert.equal(writes,1);assert.equal(closed,0,'failed write keeps the editor open');assert.equal(failed,true);
- success=true;ctx.hasPendingNoteMedia=true;exports.run();assert.equal(writes,1);assert.equal(closed,0,'unuploaded files are not silently lost');
- ctx.hasPendingNoteMedia=false;exports.run();assert.equal(writes,2);assert.equal(closed,1);assert.equal(failed,false);assert.equal(JSON.parse(saved).fields.issue,'Latest edit');
+ await exports.run();assert.equal(writes,1);assert.equal(closed,0,'failed text write keeps the editor open');assert.equal(failed,true);
+ success=true;ctx.hasPendingNoteMedia=true;await exports.run();assert.equal(writes,1);assert.equal(closed,0,'failed File commit keeps the editor and text open');assert.match(messages.at(-1),/attachments could not be retained/);
+ fileFlush=true;await exports.run();assert.equal(writes,2);assert.equal(closed,1);assert.equal(failed,false);assert.equal(JSON.parse(saved).fields.issue,'Latest edit');
  assert.match(detail,/The draft could not be saved on this device/);
- assert.match(detail,/Selected attachments are not saved in a device draft/);
+ assert.match(detail,/Selected attachments can be kept on this device with your draft after browser storage confirms the file bytes/);
 });
 
 test('actual recovery restores unsaved text and keeps stale revision instead of overwriting concurrent work',()=>{
@@ -95,11 +98,22 @@ test('actual recovery restores unsaved text and keeps stale revision instead of 
  assert.equal(changes.NoteDraft,'Closed door.');assert.equal(changes.Notes,'Original\nStaged');assert.equal(changes.Order.revision,7);assert.match(changes.Message,/changed/);assert.equal(ctx.assetSelectionChanged.current,true);
 });
 
-test('discard affects only the selected local draft and never closes after a storage failure',async()=>{
+test('discard awaits File deletion and retains both drafts and the editor if IndexedDB deletion fails',async()=>{
  const exports={},removed=[],messages=[];let closed=0;const recovered={current:true};
- const ctx={exports,saving:false,cmpriSession:{hotelId:'hotel',user:{id:'actor'}},order:{id:'ticket'},recoveredDraft:recovered,localStorage:{removeItem:key=>removed.push(key)},closeEmbeddedTicket:async beforeClose=>{try{beforeClose?.();closed++;}catch(error){messages.push(error.message);}},setMessage:text=>messages.push(text)};
- vm.runInNewContext(extract('discardLocalDraftAndClose'),ctx);exports.run();await Promise.resolve();assert.deepEqual(removed,['cmpri:ticket-draft:hotel:actor:ticket']);assert.equal(recovered.current,false);assert.equal(closed,1);
- ctx.localStorage={removeItem(){throw Error('blocked')}};recovered.current=true;exports.run();await Promise.resolve();assert.equal(closed,1);assert.equal(recovered.current,true);assert.match(messages.at(-1),/still here/);
+ const retainedFiles={current:[{url:'blob:private-local',file:new File(['pending bytes'],'pending.png',{type:'image/png'})}]};
+ const mediaSource=readFileSync(new URL('../src/components/WorkOrderMediaComposer.tsx',import.meta.url),'utf8');
+ const mediaAst=ts.createSourceFile('composer.tsx',mediaSource,99,true,4);let discardSource;
+ function visit(node){if(ts.isCallExpression(node)&&node.expression.getText(mediaAst).endsWith('onRecoveryActions')){const actions=node.arguments[0];if(actions&&ts.isObjectLiteralExpression(actions))for(const property of actions.properties)if(ts.isPropertyAssignment(property)&&property.name.getText(mediaAst)==='discard')discardSource=property.initializer.getText(mediaAst);}ts.forEachChild(node,visit)}visit(mediaAst);assert.ok(discardSource);
+ const {clearAttachmentDraft}=await import('../src/lib/work-orders/attachment-draft.ts');
+ let deleteFails=true;
+ const media={exports:{},owner:{current:{hotelId:'00000000-0000-4000-8000-000000000002',userId:'00000000-0000-4000-8000-000000000001',editorId:'00000000-0000-4000-8000-000000000003'}},pending:retainedFiles,recoveryConflict:{current:null},setConflict(){},URL:{revokeObjectURL(){}},replace:next=>{retainedFiles.current=next},reportFailure:error=>messages.push(error.message),
+  clearAttachmentDraft:scope=>deleteFails?clearAttachmentDraft(scope,{open(){throw new DOMException('Fixture IndexedDB blocked','SecurityError')}}):Promise.resolve()};
+ vm.runInNewContext(ts.transpileModule(`exports.discard=${discardSource}`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,media);
+ const ctx={exports,saving:false,hasPendingNoteMedia:true,mediaRecoveryActions:{current:{discard:()=>media.exports.discard()}},cmpriSession:{hotelId:'hotel',user:{id:'actor'}},order:{id:'ticket'},recoveredDraft:recovered,localStorage:{removeItem:key=>removed.push(key)},closeEmbeddedTicket:async beforeClose=>{beforeClose?.();closed++;},setMessage:text=>messages.push(text)};
+ vm.runInNewContext(extract('discardLocalDraftAndClose'),ctx);
+ await exports.run();assert.deepEqual(removed,[],'text draft stays until File cleanup succeeds');assert.equal(retainedFiles.current.length,1);assert.equal(recovered.current,true);assert.equal(closed,0);
+ deleteFails=false;await exports.run();assert.deepEqual(removed,['cmpri:ticket-draft:hotel:actor:ticket']);assert.equal(retainedFiles.current.length,0);assert.equal(recovered.current,false);assert.equal(closed,1);
+ ctx.hasPendingNoteMedia=false;ctx.localStorage={removeItem(){throw Error('blocked')}};recovered.current=true;await exports.run();assert.equal(closed,1);assert.equal(recovered.current,true);assert.match(messages.at(-1),/still here/);
 });
 
 test('Chief Engineer pending markers track saved values, revert and save outcomes only', async () => {
