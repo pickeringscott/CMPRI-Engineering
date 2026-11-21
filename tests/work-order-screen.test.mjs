@@ -44,7 +44,9 @@ test('metadata controls are directly usable and all permitted Chief statuses are
  assert.match(detail,/if \(chief && canEditField\("status"\)\) return \["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"\]/);
  assert.match(detail,/Edit reported issue/);assert.doesNotMatch(detail,/>Done<\/button>/);
  assert.doesNotMatch(detail,/noteHeading\(entry.authorRole/);
- assert.match(detail,/entry.actor.trim\(\).split/);
+ assert.match(detail,/actor.trim\(\).split/);
+ assert.match(detail,/const actor = createdFallback \? t\("System"\)/);
+ assert.match(detail,/: entry.actor;/);
  assert.match(detail,/<WorkOrderTitleGuest guest=\{order/);
  assert.doesNotMatch(detail,/<WorkOrderGuestIndicators guest=\{order/);
 });
