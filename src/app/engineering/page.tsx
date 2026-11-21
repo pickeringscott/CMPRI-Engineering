@@ -1,4 +1,5 @@
 "use client";
+import BeginnerGuide from "@/components/beginners-guide/BeginnerGuide";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 import { SITE_SEASONAL_THEME } from "@/lib/ui/site-seasonal-theme";
@@ -798,6 +799,14 @@ export default function EngineeringDashboardPage() {
 
   return (
     <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || threeTabLayout) ? "true" : undefined} data-chief-engineer-mobile={chiefHeaderPresentation ? "true" : undefined}>
+      {typeof window !== "undefined" && window.parent === window
+        && new URLSearchParams(window.location.search).get("embedded") !== "1" && (
+          <BeginnerGuide key={session.user.id + ":" + session.user.role} user={{
+            id: session.user.id,
+            name: session.user.name?.trim() || "",
+            role: session.user.role,
+          }} />
+        )}
       <DesktopWorkspaceResume session={session}
         allowedHrefs={availableLaunchers.flatMap(item => item.href ? [item.href] : [])}
         views={windows.filter(entry => !entry.weatherCached).map(entry => ({ key: entry.key, kind: entry.kind, ...(entry.src ? { href: entry.src } : {}) }))}

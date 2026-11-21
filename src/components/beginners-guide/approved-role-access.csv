@@ -1,0 +1,11 @@
+Role,Create a Work Order,Work Order Approval,Work Order List,Review a Work Order,Preventive Maintenance,Pool Status,Pool Log,GSS Reports,Room Ranker,Daily Room Ops,Manage Locations,Staff Notes,Notes,Assets,PO,Inventory,Enseo Assignments,Weather,Winter Preparedness,Candidate Questionnaire,Manage Users,Hours Tracker,Manage Profile,English / Spanish,Feedback,Connect ChatGPT,Sign Out
+Front Desk,Yes,Walkthrough only,Yes,Yes,No,Yes,No,No,Yes,No,No,Yes,Yes,No,No,No,No,Yes,No,No,No,Yes,Yes,Yes,Submit feedback,No,Yes
+General Manager,Yes,Walkthrough only,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,yes,No,yes,No,Yes,Yes,Public form and private review,No,Yes,Yes,Yes,Submit feedback,Yes,Yes
+Assistant General Manager,Yes,Walkthrough only,Yes,Yes,No,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,No,No,No,No,Yes,Yes,Public form and private review,No,Yes,Yes,Yes,Submit feedback,Yes,Yes
+Front Desk Manager,Yes,Walkthrough only,Yes,Yes,No,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,No,No,No,No,Yes,Yes,Public form and private review,No,Yes,Yes,Yes,Submit feedback,Yes,Yes
+Lead Housekeeper,Yes,Walkthrough only,Yes,Yes,No,Yes,No,No,Yes,No,No,Yes,Yes,No,No,No,No,Yes,No,Public form,No,Yes,Yes,Yes,Submit feedback,No,Yes
+Maintenance Technician,Yes,Walkthrough only,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,No,Yes,No,Yes,Yes,No,No,Yes,Yes,Yes,Submit feedback,Yes,Yes
+Chief Engineer,Yes,Walkthrough and approval,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Public form,Yes,Yes,Yes,Yes,Submit feedback,Yes,Yes
+Engineer,Yes,Walkthrough and approval,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Public form,no,Yes,Yes,Yes,Submit feedback,Yes,Yes
+Senior Management,Yes,Walkthrough only,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,No,Yes,Yes,Public form,no,Yes,Yes,Yes,Submit feedback,Yes,Yes
+System Administrator,Yes,Walkthrough and approval,Yes,Yes,yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,Yes,No,Yes,Yes,Public form,Yes,Yes,Yes,Yes,Submit feedback,Yes,Yes

@@ -1,0 +1,172 @@
+.cmpri-guide-launcher {
+  position: fixed;
+  z-index: 30;
+  bottom: max(.75rem, env(safe-area-inset-bottom));
+  left: max(.75rem, env(safe-area-inset-left));
+  border: 1px solid #967143;
+  border-radius: .55rem;
+  background: #27201a;
+  color: #ffe5bd;
+  padding: .48rem .7rem;
+  font-weight: 700;
+}
+
+.cmpri-beginners-guide {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(73rem, calc(100vw - 2rem));
+  height: min(50rem, calc(100dvh - 2rem));
+  min-width: min(20rem, calc(100vw - 2rem));
+  min-height: min(18rem, calc(100dvh - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  overflow: hidden;
+  resize: both;
+  border: 1px solid #d8bda3;
+  border-radius: .95rem;
+  background: #fffbf5;
+  color: #30241c;
+  container-type: inline-size;
+  isolation: isolate;
+}
+
+.cmpri-beginners-guide[open] { display: flex; flex-direction: column; }
+.cmpri-beginners-guide::backdrop { background: rgb(24 19 16 / 65%); }
+.cmpri-beginners-guide[data-dismissing] { pointer-events: none; }
+.cmpri-beginners-guide[data-dismissing]::backdrop { background: rgb(24 19 16 / 12%); }
+.cmpri-beginners-guide :focus-visible,
+.cmpri-guide-launcher:focus-visible { outline: 2px solid #bd5c2e; outline-offset: 2px; }
+.cmpri-beginners-guide h1 { font-size: clamp(1.2rem, 3.5cqi, 2.8rem); font-weight: 730; line-height: 1.12; }
+.cmpri-beginners-guide h2 { font-weight: 730; }
+.cmpri-guide-chrome,
+.cmpri-guide-footer {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  color: #513a2c;
+  background: #faf1e6;
+  font-size: clamp(.72rem, .62rem + .35cqi, .95rem);
+}
+.cmpri-guide-chrome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .7rem;
+  border-bottom: 1px solid #ead5c1;
+  padding: .38rem .9rem .38rem 1rem;
+  font-weight: 720;
+}
+.cmpri-guide-close {
+  display: grid;
+  place-items: center;
+  min-width: 2.35rem;
+  min-height: 2.35rem;
+  border-radius: .45rem;
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.cmpri-guide-close:hover { background: #eedcce; }
+.cmpri-guide-welcome,
+.cmpri-guide-message {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(1rem, 3.7cqi, 2.65rem);
+  font-size: clamp(.78rem, .68rem + .36cqi, 1rem);
+}
+.cmpri-guide-welcome h1 span { display: block; }
+.cmpri-guide-welcome > p { margin-block: .85rem; max-width: 65ch; }
+.cmpri-guide-role {
+  width: min(100%, 49rem);
+  margin-top: 1rem;
+  border: 1px solid #e2c8af;
+  border-radius: .65rem;
+  background: #f8eddf;
+  padding: .9rem;
+}
+.cmpri-guide-role dl { margin: .45rem 0 0; }
+.cmpri-guide-role dt { margin-top: .55rem; font-weight: 700; }
+.cmpri-guide-role dd { margin: .18rem 0 0; }
+.cmpri-guide-reopen { color: #614938; font-size: .92em; }
+
+.cmpri-guide-chart-page,
+.cmpri-guide-lesson-page {
+  display: flex;
+  flex: 1 1 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: .45rem;
+  padding: .65rem .9rem;
+  font-size: clamp(.72rem, .62rem + .35cqi, .95rem);
+}
+.cmpri-guide-chart-page > p { color: #5d4b3d; }
+.cmpri-guide-lesson-page { padding-bottom: 0; }
+.cmpri-guide-lesson-page > h1 { font-size: clamp(1.16rem, 3.1cqi, 2rem); }
+
+.cmpri-guide-footer {
+  padding: .45rem .85rem .55rem;
+  border-top: 1px solid #ead5c1;
+  background: #fffbf5ef;
+}
+.cmpri-guide-footer-controls,
+.cmpri-guide-nav-buttons {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+.cmpri-guide-footer-controls { justify-content: space-between; gap: .7rem; }
+.cmpri-guide-footer-controls > p { flex: 1 1 auto; color: #715641; }
+.cmpri-guide-nav-buttons > button {
+  min-height: 2.45rem;
+  border: 1px solid #d7baa3;
+  border-radius: .46rem;
+  padding: .35rem .7rem;
+  font-weight: 730;
+  white-space: nowrap;
+}
+.cmpri-guide-nav-buttons .cmpri-guide-primary { background: #92401f; border-color: #92401f; color: #fff; }
+.cmpri-guide-nav-buttons .cmpri-guide-primary:disabled { opacity: .55; }
+.cmpri-guide-nav-buttons .cmpri-guide-primary:hover:not(:disabled) { background: #713014; }
+.cmpri-guide-quiet:hover { background: #f5e6d7; }
+.cmpri-guide-progress { margin-top: .15rem; }
+.cmpri-guide-progress > input { display: block; width: 100%; height: 1.2rem; accent-color: #92401f; }
+.cmpri-guide-stops {
+  display: flex;
+  gap: .3rem;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+  padding: .2rem .1rem;
+}
+.cmpri-guide-stops button {
+  flex: none;
+  min-height: 1.95rem;
+  padding: .22rem .53rem;
+  border: 1px solid #e1d0bf;
+  border-radius: .38rem;
+  background: #fff8ee;
+  color: #664c3b;
+  font-size: .9em;
+  font-weight: 700;
+}
+.cmpri-guide-stops button[aria-current="step"] { border-color: #92401f; background: #92401f; color: #fff; }
+
+@media (max-width: 639px), (hover: none) and (pointer: coarse) and (max-width: 959px) {
+  .cmpri-beginners-guide {
+    width: 100%;
+    height: 100dvh;
+    min-width: 0;
+    min-height: 0;
+    max-width: none;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    resize: none;
+  }
+  .cmpri-guide-chrome { padding-top: max(.35rem, env(safe-area-inset-top)); }
+  .cmpri-guide-footer { padding-bottom: max(.45rem, env(safe-area-inset-bottom)); }
+  .cmpri-guide-nav-buttons > button { min-height: 2.75rem; }
+  .cmpri-guide-stops { scrollbar-width: none; }
+}

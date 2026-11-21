@@ -1,0 +1,143 @@
+.flowchart {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+  color: #44342a;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  font-size: 0.9em;
+}
+
+.toolbar p { margin: 0; }
+
+.controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.controls button {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 2px 9px;
+  border: 1px solid #cdb296;
+  border-radius: 5px;
+  background: #fff8ee;
+  color: #703923;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.controls button:hover:enabled { background: #fae7d2; }
+.controls button:disabled { opacity: 0.55; cursor: default; }
+
+.frame {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 34%);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  gap: 16px;
+  isolation: isolate;
+}
+
+.viewport {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #d3bfa9;
+  border-radius: 5px;
+  background: #fffcf7;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.viewport:focus-visible { outline: 2px solid #8e3d1c; outline-offset: -2px; }
+.viewport.dragging { cursor: grabbing; }
+
+.artwork {
+  position: absolute;
+  inset: 0 auto auto 0;
+  transform-origin: 0 0;
+}
+
+.artwork > svg { display: block; width: 100%; height: 100%; }
+
+.related > :is(rect, polygon, path) {
+  fill: #ffecd2 !important;
+  stroke: #b44a22 !important;
+  stroke-width: 1px !important;
+  vector-effect: non-scaling-stroke;
+}
+
+.active > :is(rect, polygon, path) {
+  fill: #ffc58c !important;
+  stroke: #8e3d1c !important;
+  stroke-width: 1.5px !important;
+  vector-effect: non-scaling-stroke;
+}
+
+.status {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  margin: 0;
+  padding: 12px;
+  text-align: center;
+}
+
+.connector {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.connector marker path { fill: #9e421f; }
+.line { fill: none; stroke: #9e421f; stroke-width: 1.5px; stroke-linecap: round; stroke-linejoin: round; }
+
+.note {
+  position: relative;
+  z-index: 2;
+  align-self: center;
+  min-width: 0;
+  max-height: 100%;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #b44a22;
+  border-radius: 7px;
+  background: #fff1df;
+  box-shadow: 0 2px 8px #56382715;
+  overflow-wrap: break-word;
+}
+
+.note h2 { margin: 0 0 4px; font-size: 1.05em; font-weight: 700; line-height: 1.2; }
+.note p { margin: 0; font-size: 0.94em; line-height: 1.38; }
+
+@media (max-width: 640px) and (orientation: portrait) {
+  .frame {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .note { max-height: min(145px, 32dvh); padding: 7px 9px; }
+}
