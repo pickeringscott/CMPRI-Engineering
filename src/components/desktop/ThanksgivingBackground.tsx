@@ -8,7 +8,7 @@ import { ensureThanksgivingCache } from "@/lib/ui/thanksgiving-cache";
 /** Fixed viewport artwork shared by the approved desktop and mobile layouts. */
 export default function ThanksgivingBackground() {
   const pathname = usePathname();
-  const visible = pathname === "/" || pathname === "/engineering";
+  const visible = pathname === "/" || pathname === "/engineering" || pathname === "/front-desk";
   const frame = useRef<HTMLIFrameElement>(null);
   const [paused, setPaused] = useState(false);
   useEffect(() => {

@@ -1,4 +1,4 @@
-"""Verify shared team modal palettes and cleanup against a local build; all data uses fixtures."""
+"""Verify the approved modal palettes and cleanup against a local build using fixtures."""
 from cmpri_fixture import *
 PALETTE=json.loads((Path(__file__).resolve().parents[2]/'src/lib/ui/site-palette.json').read_text())
 
@@ -60,8 +60,8 @@ async def main():
      assert await frame.locator('h1:visible').count()==0
      await frame.get_by_role('button',name='1st Floor',exact=False).click()
      row=frame.locator('[data-room="101"]');await expect(row).to_be_visible()
-     color=await row.evaluate("e=>{const c=document.createElement('canvas').getContext('2d');c.fillStyle=getComputedStyle(e).backgroundColor;c.fillRect(0,0,1,1);return [...c.getImageData(0,0,1,1).data].slice(0,3)}")
-     assert color[0]>=color[1]>=color[2],color  # Team orange/gold or neutral; no unrelated native blue/green.
+     color=await row.evaluate('e=>getComputedStyle(e).backgroundColor')
+     assert color in ['rgb(20, 20, 15)','rgb(25, 25, 18)'],color
     else:
      await frame.wait_for_selector('[data-cmpri-page-heading]',state='attached')
      for heading in await frame.locator('[data-cmpri-page-heading]').all():await expect(heading).to_be_hidden()

@@ -279,7 +279,7 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
           const disabled = blocked || !allowed;
           const status = state?.status === "approved" ? "Approved" : state?.status === "needs" ? "Completed · Needs approval" : state?.workerChecked ? "Completed · Review mark cleared" : "Not checked";
           const showStatus = busy === step.id || state?.workerChecked || state?.status === "needs" || state?.status === "approved";
-          const color = visual === "needs" ? "var(--cmpri-palette-priority)" : visual === "approved" ? "var(--cmpri-palette-completed)" : "var(--cmpri-palette-closed)";
+          const color = visual === "needs" ? "#ef4444" : visual === "approved" ? "#34d399" : "#64748b";
           const semantics = sourceSemantics(step.label);
           const chart = chartParts(step.label);
           const previous = index > 0 ? display.steps[index - 1] : undefined;
@@ -292,7 +292,7 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
             </div>}
             <div className="flex items-start gap-0.5">
               <button type="button" role="checkbox" aria-checked={visual !== "empty"} aria-label={t("Step {number}: {label}", {number: index + 1, label: step.label})} aria-describedby={`troubleshooting-status-${step.id}`} data-step-id={step.id} data-preview-status={visual} data-task-status={state?.status || "empty"} title={action === "clear" ? tt("Uncheck completed step") : tt(nextAction(display, state))} disabled={disabled} onClick={() => void request(step.id, display, action)} className={`${styles.checkbox} shrink-0 outline-offset-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-sky-300 disabled:cursor-default`}>
-                <span aria-hidden="true" data-troubleshooting-box className={styles.box} style={{ borderColor: color, color, backgroundColor: visual === "empty" ? "transparent" : `color-mix(in srgb, ${color} 9.4%, transparent)` }}>{visual !== "empty" && <svg className={styles.tick} viewBox="0 0 16 16"><path d="m3 8.5 3.25 3 6.75-7" /></svg>}</span>
+                <span aria-hidden="true" data-troubleshooting-box className={styles.box} style={{ borderColor: color, color, backgroundColor: visual === "empty" ? "transparent" : `${color}18` }}>{visual !== "empty" && <svg className={styles.tick} viewBox="0 0 16 16"><path d="m3 8.5 3.25 3 6.75-7" /></svg>}</span>
               </button>
               <div className="min-w-0 flex-1">
                 <p className="text-sm leading-4 text-slate-200">{chart?.detail || step.label}{semantics && <span data-source-semantics={semantics.kind} aria-label={t("Source label: {label}", {label: semantics.label})} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}</p>

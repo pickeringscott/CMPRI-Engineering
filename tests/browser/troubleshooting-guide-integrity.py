@@ -10,12 +10,8 @@ PDF = BASE + '/guides/guest-room.pdf'
 CHIEF = '00000000-0000-4000-8000-000000000021'
 MANAGER = '00000000-0000-4000-8000-000000000031'
 OTHER_TECH = '00000000-0000-4000-8000-000000000041'
-PALETTE = json.loads((Path(__file__).resolve().parents[2] / 'src/lib/ui/site-palette.json').read_text())['semantic']
-def palette_rgb(name):
- color = PALETTE[name].lstrip('#')
- return 'rgb(' + ', '.join(str(int(color[i:i+2], 16)) for i in (0, 2, 4)) + ')'
-NEEDS_REVIEW = palette_rgb('priority')
-COMPLETED = palette_rgb('completed')
+NEEDS_REVIEW = 'rgb(239, 68, 68)'
+COMPLETED = 'rgb(52, 211, 153)'
 
 KNOWLEDGE = {
  'manufacturer': 'Fixture Laundry', 'equipment': 'Demonstrator', 'model_family': 'Demonstrator',

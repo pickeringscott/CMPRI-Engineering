@@ -1,17 +1,17 @@
-"""Exercise real sign-in-to-desktop routing with delayed, synthetic authorization.
+"""Check the Thanksgiving sign-in-to-desktop transition with local fixtures.
 
 Run against the local app with CMPRI_UI_BASE=http://localhost:3116.
-The development hostname must be allowed by Next's HMR origin check. All APIs
-use local fixtures; no provider calls, production identities or writes are used.
+The development hostname must be allowed by Next's HMR origin check.
 """
 from cmpri_fixture import *
 
-FRAME = 'iframe[title="Illinois versus Iowa football background"]'
-NAVY = {'rgb(2, 6, 23)', 'rgb(11, 20, 35)', 'rgb(8, 19, 33)', 'rgb(9, 17, 30)'}
+FRAME = 'iframe[title^="Thanksgiving"]'
+ARTWORK = json.loads((Path(__file__).resolve().parents[2] / 'src/lib/ui/thanksgiving-assets.json').read_text())['entry']
+TRANSPARENT = 'rgba(0, 0, 0, 0)'
 
 
 async def verify_first_paint():
-    """CSS and native controls must have the team palette before app JavaScript."""
+    """The artwork and approved sign-in colors appear before app JavaScript runs."""
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox'])
         context = await browser.new_context(viewport={'width': 390, 'height': 844}, java_script_enabled=False, service_workers='block')
@@ -21,60 +21,38 @@ async def verify_first_paint():
         try:
             await page.goto(BASE + '/', wait_until='domcontentloaded')
             await page.locator('.cmpri-sign-in-card').wait_for(state='visible')
-            result = await page.evaluate('''() => {
-              const root=document.documentElement,style=getComputedStyle(root);
-              const token=name=>style.getPropertyValue(name).trim();
-              const rgb=value=>{
-                const canvas=document.createElement('canvas');canvas.width=canvas.height=1;
-                const context=canvas.getContext('2d');context.fillStyle=value;context.fillRect(0,0,1,1);
-                return Array.from(context.getImageData(0,0,1,1).data).slice(0,3);
+            result = await page.evaluate('''selector => {
+              const style = target => getComputedStyle(document.querySelector(target));
+              const control = document.querySelector('.cmpri-animation-control');
+              const controlStyle = getComputedStyle(control);
+              return {
+                theme: document.querySelector('main').dataset.cmpriSeasonalTheme,
+                animationControl: {text: control.textContent, width: controlStyle.width,
+                  height: controlStyle.height, radius: controlStyle.borderRadius},
+                artwork: document.querySelector(selector).getAttribute('src'),
+                backdrop: style('.cmpri-persistent-artwork').backgroundColor,
+                cardBackground: style('.cmpri-sign-in-card').backgroundColor,
+                cardColor: style('.cmpri-sign-in-card').color,
+                cardBorder: style('.cmpri-sign-in-card').borderColor,
+                checkbox: style('input[type=checkbox]').accentColor,
+                link: style('.cmpri-sign-in-link').color,
+                main: style('main').backgroundColor
               };
-              // These native-control probes use the production stylesheet while
-              // application scripts remain disabled. They make unresolved CSS
-              // defaults visible without mounting or running ModalTheme.
-              const select=document.createElement('select');
-              select.innerHTML='<option selected>Selected</option><option>Other</option>';
-              const listbox=document.createElement('div');listbox.setAttribute('role','listbox');listbox.textContent='Menu';
-              const modal=document.createElement('div');modal.dataset.cmpriModalTheme='true';
-              const modalCheckbox=document.createElement('input');modalCheckbox.type='checkbox';modal.append(modalCheckbox);
-              document.body.append(select,listbox,modal);
-              const selected=select.options[0],checkbox=document.querySelector('input[type=checkbox]');
-              const animationControl=document.querySelector('.cmpri-animation-control'),controlStyle=getComputedStyle(animationControl);
-              const values={
-                theme:root.dataset.cmpriSiteTheme,
-                animationControl:{text:animationControl.textContent,width:animationControl.getBoundingClientRect().width,height:animationControl.getBoundingClientRect().height,radius:controlStyle.borderRadius},
-                rootColorScheme:style.colorScheme,
-                checkboxColorScheme:getComputedStyle(checkbox).colorScheme,
-                modalCheckboxColorScheme:getComputedStyle(modalCheckbox).colorScheme,
-                root:rgb(style.backgroundColor),body:rgb(getComputedStyle(document.body).backgroundColor),
-                modalBase:token('--cmpri-modal-base'),surface:token('--cmpri-modal-surface'),
-                action:token('--cmpri-action-rgb').replaceAll(' ',''),
-                text:rgb(token('--cmpri-modal-text')),muted:rgb(token('--cmpri-modal-muted')),
-                outline:token('--cmpri-outline'),gold:rgb(token('--cmpri-palette-gold')),
-                checkbox:rgb(getComputedStyle(checkbox).accentColor),
-                link:rgb(getComputedStyle(document.querySelector('.cmpri-sign-in-link')).color),
-                select:rgb(getComputedStyle(select).backgroundColor),
-                selected:rgb(getComputedStyle(selected).backgroundColor),
-                selectedText:rgb(getComputedStyle(selected).color),
-                menu:rgb(getComputedStyle(listbox).backgroundColor),
-                framePainted:document.querySelector('iframe').dataset.painted
-              };
-              select.remove();listbox.remove();modal.remove();return values;
-            }''')
-            assert result['theme'] == 'illinois-iowa', result
-            assert result['animationControl'] == {'text':'Ⅱ','width':44,'height':44,'radius':'50%'}, ('Production animation control appearance changed',result)
-            assert result['rootColorScheme'] == result['checkboxColorScheme'] == 'normal', ('Production sign-in control appearance changed', result)
-            assert result['modalCheckboxColorScheme'] == 'dark', ('Modal control scheme changed', result)
-            assert result['root'] == result['body'] == [0, 0, 0], result
-            assert result['modalBase'] == '#101010' and result['surface'] and 'var(' not in result['surface'], result
-            assert result['action'] == '255,95,5' and result['outline'], result
-            assert result['text'] == [255, 248, 230] and result['gold'] == [255, 205, 0], result
-            assert result['checkbox'] == [255, 95, 5] and result['link'] == [255, 205, 0], result
-            assert result['selected'] == [255, 205, 0] and result['selectedText'] == [0, 0, 0], result
-            for color in [result['select'], result['menu'], result['muted']]:
-                assert color[0] >= color[1] >= color[2], ('Native blue before hydration', result)
-            assert result['framePainted'] == 'false' and not api_requests, (result, api_requests)
-            output = OUT / 'football-signin-first-paint-no-js.png'
+            }''', FRAME)
+            assert result == {
+                'theme': 'thanksgiving',
+                'animationControl': {'text': 'Ⅱ', 'width': '44px', 'height': '44px', 'radius': '50%'},
+                'artwork': ARTWORK,
+                'backdrop': 'rgb(39, 27, 20)',
+                'cardBackground': 'rgba(48, 33, 23, 0.96)',
+                'cardColor': 'rgb(255, 240, 214)',
+                'cardBorder': 'rgb(154, 112, 70)',
+                'checkbox': 'rgb(223, 172, 81)',
+                'link': 'rgb(255, 219, 145)',
+                'main': TRANSPARENT,
+            }, result
+            assert not api_requests, api_requests
+            output = OUT / 'thanksgiving-signin-first-paint-no-js.png'
             await page.screenshot(path=str(output), full_page=True)
             print(json.dumps({'firstPaintWithoutJavaScript': True, 'paletteBeforeHydration': result,
                 'apiRequests': api_requests, 'screenshot': str(output)}), flush=True)
@@ -86,7 +64,9 @@ async def verify_first_paint():
 async def verify(role, destination, width, height):
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(executable_path='/usr/bin/chromium', args=['--no-sandbox'])
-        context = await browser.new_context(viewport={'width': width, 'height': height}, service_workers='block')
+        context = await browser.new_context(viewport={'width': width, 'height': height},
+                                            is_mobile=width < 640, has_touch=width < 640,
+                                            service_workers='block')
         await install(context, role)
         signin_released, dashboard_released = asyncio.Event(), asyncio.Event()
         signin_requested, dashboard_requested = asyncio.Event(), asyncio.Event()
@@ -110,72 +90,63 @@ async def verify(role, destination, width, height):
         page = await context.new_page()
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.on('request', lambda request: artwork_requests.append(request.url)
-                if '/backgrounds/illinois-iowa/index.' in request.url else None)
+                if urlparse(request.url).path == ARTWORK else None)
         try:
             await page.goto(BASE + '/', wait_until='domcontentloaded')
             await asyncio.wait_for(signin_requested.wait(), 60)
             background = page.locator(FRAME)
             await background.wait_for(state='visible', timeout=60000)
-            # Paint readiness is independent of the complete randomized game.
-            # The iframe fades in once its stadium/crowd layer is present.
-            await expect(background).to_have_attribute('data-painted', 'true', timeout=60000)
-            await page.wait_for_function('''selector => getComputedStyle(document.querySelector(selector)).opacity === '1' ''', arg=FRAME)
+            await expect(background).to_have_attribute('src', ARTWORK)
             child = await (await background.element_handle()).content_frame()
-            await child.wait_for_function('window.cmpriTheme?.game')
-            original_game = await child.evaluate('window.cmpriTheme.game.game')
-            colors = await page.evaluate('''() => [document.documentElement,document.body,
-              document.querySelector('.cmpri-football-artwork'),document.querySelector('main')]
-              .map(element => getComputedStyle(element).backgroundColor)''')
-            assert not NAVY.intersection(colors), ('Native navy before sign-in', colors)
-            assert await child.evaluate('getComputedStyle(document.body).backgroundColor') == 'rgb(0, 0, 0)'
-            assert 'rgb(7, 14, 22)' not in await child.evaluate('getComputedStyle(document.querySelector(".stage-wrap")).backgroundImage')
-            await background.evaluate('''frame => {
+            await expect(child.locator('#scene')).to_have_attribute('data-layout', 'mobile' if width < 640 else 'desktop')
+            await child.wait_for_function('Array.from(document.images).every(img => img.complete && img.naturalWidth > 0)')
+            await page.get_by_role('button', name='Pause animation').click()
+            await expect(child.locator('#toggle')).to_have_attribute('aria-pressed', 'true')
+            await page.get_by_role('button', name='Resume animation').click()
+            await expect(child.locator('#toggle')).to_have_attribute('aria-pressed', 'false')
+            await background.evaluate('''(frame, selector) => {
               window.__pendingBackground = frame;
-              frame.contentWindow.__pendingCanvas = frame.contentDocument.getElementById('still');
+              window.__pendingScene = frame.contentDocument.getElementById('scene');
               window.__transitionFrames = [];
               window.__sampleTransition = true;
               const sample = () => {
-                const current=document.querySelector('iframe[title="Illinois versus Iowa football background"]');
-                const wrapper=current?.closest('.cmpri-football-artwork');
-                window.__transitionFrames.push({path:location.pathname,
-                  same:current===window.__pendingBackground,
-                  visible:!!wrapper && !wrapper.hidden && getComputedStyle(wrapper).display!=='none',
-                  opacity:current && getComputedStyle(current).opacity,
-                  mainColor:getComputedStyle(document.querySelector('main')).backgroundColor});
-                if(window.__sampleTransition && window.__transitionFrames.length<1200)requestAnimationFrame(sample);
+                const current = document.querySelector(selector);
+                const wrapper = current?.closest('.cmpri-persistent-artwork');
+                window.__transitionFrames.push({path: location.pathname,
+                  same: current === window.__pendingBackground,
+                  visible: !!wrapper && !wrapper.hidden && getComputedStyle(wrapper).display !== 'none',
+                  mainColor: getComputedStyle(document.querySelector('main')).backgroundColor});
+                if (window.__sampleTransition && window.__transitionFrames.length < 1200) requestAnimationFrame(sample);
               };
               requestAnimationFrame(sample);
-            }''')
+            }''', FRAME)
             signin_released.set()
             await asyncio.wait_for(dashboard_requested.wait(), 60)
             await page.wait_for_url('**' + destination, timeout=60000)
-            await page.locator('main[aria-busy="true"]').wait_for(state='visible')
-            assert await background.count() == 1
-            assert await background.is_visible()
-            await expect(background).to_have_attribute('data-painted', 'true')
+            loading = page.locator('main[aria-busy="true"]')
+            await loading.wait_for(state='visible')
+            await expect(background).to_have_count(1)
+            await expect(background).to_be_visible()
             assert await page.locator('.cmpri-desktop-topbar:visible').count() == 0, 'Desktop controls appeared before authorization'
             assert await page.locator('[data-dashboard-account]').count() == 0, 'Account details appeared before authorization'
-            color = await page.locator('main[aria-busy="true"]').evaluate('(el) => getComputedStyle(el).backgroundColor')
-            assert color not in NAVY, ('Navy dashboard flash', color)
-            assert color == 'rgba(0, 0, 0, 0)', ('Loading layer obscures stadium', color)
-            # Hold the pending dashboard long enough to catch a hidden frame,
-            # an opacity reset, or an opaque route-loading surface.
+            color = await loading.evaluate('(el) => getComputedStyle(el).backgroundColor')
+            assert color == TRANSPARENT, ('Loading layer obscures Thanksgiving artwork', color)
+            # Hold the pending dashboard long enough to catch a hidden frame or opaque loading surface.
             await page.wait_for_timeout(300)
             dashboard_released.set()
             await page.locator('.cmpri-desktop-topbar').wait_for(state='visible', timeout=60000)
             await page.wait_for_timeout(100)
-            samples = await page.evaluate('window.__sampleTransition=false;window.__transitionFrames')
-            assert samples and all(s['same'] and s['visible'] and s['opacity']=='1' and s['mainColor'] not in NAVY for s in samples), samples
-            assert await page.evaluate('window.__pendingBackground === document.querySelector("iframe[title=\\"Illinois versus Iowa football background\\"]")'), 'The background restarted after authorization'
-            assert await child.evaluate('window.__pendingCanvas===document.getElementById("still")'), 'The artwork document reloaded'
-            assert await child.evaluate('window.cmpriTheme.game.game') == original_game
+            samples = await page.evaluate('window.__sampleTransition = false; window.__transitionFrames')
+            assert samples and all(s['same'] and s['visible'] and s['mainColor'] == TRANSPARENT for s in samples), samples
+            same_scene = await background.evaluate('frame => frame.contentDocument.getElementById("scene") === window.__pendingScene')
+            assert same_scene, 'The artwork document reloaded'
             assert len(artwork_requests) == 1, artwork_requests
             assert not errors, errors
-            output = OUT / f'football-signin-transition-{role}-{width}.png'
+            output = OUT / f'thanksgiving-signin-transition-{role}-{width}.png'
             await page.screenshot(path=str(output), full_page=True)
             print(json.dumps({'role': role, 'destination': destination, 'width': width,
                 'authorizedControlsHiddenUntilVerified': True, 'backgroundRetained': True,
-                'sameGameAndCanvas': True, 'navyFlash': False, 'framesChecked': len(samples),
+                'sameArtworkScene': True, 'framesChecked': len(samples),
                 'artworkRequests': len(artwork_requests), 'errors': errors, 'screenshot': str(output)}), flush=True)
         finally:
             signin_released.set()

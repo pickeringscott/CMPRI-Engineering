@@ -1,9 +1,10 @@
 # Illinois versus Iowa football background
 
-This folder holds the editable v9 artwork and game source. The shared seasonal
-selection in `src/lib/ui/site-seasonal-theme.ts` activates `illinois-iowa` for
-public sign-in and the signed-in desktop, including its `/front-desk` alias. `SiteSeasonalBackground.tsx`
-registers the renderer; `FootballBackground.tsx` hosts its persistent iframe.
+This folder holds the editable v9 artwork and game source. Open
+`/backgrounds/illinois-iowa/index.html` to preview it. The app currently uses
+Thanksgiving for sign-in and both dashboard routes. `SiteSeasonalBackground.tsx`
+registers the football renderer, and `FootballBackground.tsx` hosts its
+persistent iframe when the football app theme is enabled.
 
 ## Build and downloadable HTML
 
@@ -20,11 +21,10 @@ npm run build:football
 - `illinois-block-i-official.svg` and `iowa-hawkeye-official.svg`: team marks.
 - `public/GiesOverheadView.jpg`: the supplied stadium photograph.
 - `cache-worker.template.js`: the generated service worker's artwork allowlist.
-- `src/lib/ui/site-palette.json`: the same authoritative palette used by sign-in and every modal.
+- `palette.json`: the original Illinois and Iowa interface colors.
 
-The builder embeds the shared palette tokens and resolves canvas UI annotation
-colors from that JSON, so the standalone document has no separate interface
-palette. Changing the JSON and rebuilding updates both app and stadium colors.
+The builder embeds those palette tokens and resolves canvas UI annotation
+colors from the same JSON.
 Physical artwork, uniforms, and supplied team marks retain their source colors.
 The builder injects the rules, compresses the photograph to WebP at quality 82
 with Sharp, embeds all images as data URIs, and minifies the inline script with
@@ -47,9 +47,9 @@ other generated hashes only when preparing a first, unpublished change.
 
 ## Caching
 
-There are two separate local caches:
+The football artwork uses two local caches:
 
-1. The root `/sw.js` imports the generated football worker. Its cache version is
+1. The football app integration can import the generated worker in `/sw.js`. Its cache version is
    the HTML content hash. It intercepts only GET requests for allowlisted hashed
    artwork, normalizes `?theme=1` to the same cache key, reuses unchanged files
    from existing caches, and removes only obsolete football caches. API requests,
