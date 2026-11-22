@@ -122,7 +122,7 @@ function PreviewDocument({ file, sourceUrl, userId, pageNumbers, isOpen = true, 
   }, [file, sourceUrl, userId, retry, started]);
   const document = result?.file === file && result?.sourceUrl === sourceUrl ? result?.document ?? null : null;
   const pages = pageNumbers || (document ? Array.from({ length: document.pdf.numPages }, (_, index) => index + 1) : []);
-  return <div ref={surface} data-pdf-html-preview className="min-w-0 space-y-1" style={{backgroundColor:'var(--cmpri-modal-surface,var(--cmpri-palette-modal-base))',color:'var(--cmpri-modal-text,var(--cmpri-palette-modal-text))'}}>
+  return <div ref={surface} data-pdf-html-preview className="min-w-0 space-y-1" style={{backgroundColor:'var(--cmpri-modal-surface,#191b24)',color:'var(--cmpri-modal-text,#f0f1f6)'}}>
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <button type="button" disabled={zoom <= 1} onClick={() => setZoom(value => Math.max(1, value - .25))} className="underline">{t("Zoom out")}</button>
       <span>{Math.round(zoom * 100)}%</span>

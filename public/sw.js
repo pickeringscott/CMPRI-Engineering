@@ -1,6 +1,5 @@
 // Imported changes are part of the browser's worker update check.
 if (typeof importScripts === "function") importScripts("/backgrounds/thanksgiving-animated/cache-worker.js");
-if (typeof importScripts === "function") importScripts("/backgrounds/illinois-iowa/cache-worker.js");
 
 self.addEventListener("push", (event) => {
   let payload = {};

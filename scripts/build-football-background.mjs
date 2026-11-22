@@ -20,8 +20,8 @@ function svgUri(name) {
   return 'data:image/svg+xml;base64,' + readFileSync(resolve(source, name)).toString('base64');
 }
 
-// The standalone document uses the same source palette as sign-in and all modals.
-const palette = JSON.parse(readFileSync(resolve(root, 'src/lib/ui/site-palette.json'), 'utf8'));
+// Keep the standalone stadium in its original team colors.
+const palette = JSON.parse(readFileSync(resolve(source, 'palette.json'), 'utf8'));
 const tint = rgb => 'rgb(' + rgb.split(',').map(n => Math.round(Number(n) * .18 + 255 * .82)).join(',') + ')';
 const paletteTokens = { 'modal-base': palette.modalBase, maintenance: palette.maintenance, 'maintenance-text': tint(palette.maintenance), ...palette.semantic };
 for (const [name, value] of Object.entries(palette.desktop)) paletteTokens['desktop-' + name] = value;

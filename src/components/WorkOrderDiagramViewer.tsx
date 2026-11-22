@@ -6,8 +6,8 @@ import type { SourceSemantics } from "@/lib/work-orders/source-semantics";
 
 export type DiagramTouchStart = { identifier: number; clientX: number; clientY: number }[];
 type Props = { imageUrl: string; title: string; onClose: () => void; semantics?: SourceSemantics | null; initialTouches?: DiagramTouchStart };
-const surfaceStyle = { backgroundColor: "var(--cmpri-modal-surface,var(--cmpri-palette-modal-base))", color: "var(--cmpri-modal-text,var(--cmpri-palette-modal-text))", borderColor: "var(--cmpri-outline,rgba(var(--cmpri-palette-control-rgb),.42))" };
-const controlStyle = { backgroundColor: "rgba(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb)),.14)", borderColor: "var(--cmpri-outline,rgba(var(--cmpri-palette-control-rgb),.42))" };
+const surfaceStyle = { backgroundColor: "var(--cmpri-modal-surface,#191b24)", color: "var(--cmpri-modal-text,#f0f1f6)", borderColor: "var(--cmpri-outline,rgba(162,171,209,.42))" };
+const controlStyle = { backgroundColor: "rgba(var(--cmpri-action-rgb,162,171,209),.14)", borderColor: "var(--cmpri-outline,rgba(162,171,209,.42))" };
 type Point = { x: number; y: number };
 type View = { scale: number; x: number; y: number };
 type Geometry = { width: number; height: number; imageWidth: number; imageHeight: number };
@@ -154,11 +154,11 @@ export default function WorkOrderDiagramViewer({ imageUrl, title, onClose, seman
 
   return <dialog ref={dialogRef} aria-label={title} aria-modal="true" onCancel={event => { event.preventDefault(); event.stopPropagation(); onClose(); }} onKeyDown={event => {
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
-  }} data-diagram-modal="true" data-source-semantics={semantics?.kind} style={{ ...surfaceStyle, borderColor: semantics?.color || surfaceStyle.borderColor }} className="m-auto h-[min(92dvh,58rem)] w-[min(96vw,80rem)] max-w-none overflow-hidden rounded-xl border p-0 shadow-2xl backdrop:bg-black/70">
+  }} data-diagram-modal="true" style={{ ...surfaceStyle, borderColor: semantics?.color || surfaceStyle.borderColor }} className="m-auto h-[min(92dvh,58rem)] w-[min(96vw,80rem)] max-w-none overflow-hidden rounded-xl border p-0 shadow-2xl backdrop:bg-black/70">
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b p-2 sm:p-3" style={{ backgroundColor: "rgba(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb)),.12)", borderColor: "var(--cmpri-outline,rgba(var(--cmpri-palette-control-rgb),.42))" }}>
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b p-2 sm:p-3" style={{ backgroundColor: "rgba(var(--cmpri-action-rgb,162,171,209),.12)", borderColor: "var(--cmpri-outline,rgba(162,171,209,.42))" }}>
         <h2 className="min-w-0 flex-1 break-words text-sm font-semibold">{title}</h2>
-        {semantics && <span data-source-semantics={semantics.kind} style={{ color: semantics.color }} className="text-xs font-semibold">{semantics.label}</span>}
+        {semantics && <span style={{ color: semantics.color }} className="text-xs font-semibold">{semantics.label}</span>}
         <button ref={closeRef} type="button" aria-label={t("Close diagram")} onClick={onClose} style={controlStyle} className="min-h-11 rounded-lg border px-3 text-sm">{t("Close")}</button>
         <div className="flex w-full items-center justify-center gap-2 sm:w-auto" role="group" aria-label={t("Diagram zoom controls")}>
           <button type="button" aria-label={t("Zoom out")} disabled={phase !== "ready" || view.scale <= 1} onClick={() => zoom(1 / 1.5)} style={controlStyle} className="min-h-11 min-w-11 rounded-lg border px-3 disabled:opacity-40">−</button>
@@ -167,10 +167,10 @@ export default function WorkOrderDiagramViewer({ imageUrl, title, onClose, seman
           <button type="button" aria-label={t("Reset zoom")} disabled={phase !== "ready"} onClick={reset} style={controlStyle} className="min-h-11 rounded-lg border px-3 text-sm disabled:opacity-40">{t("Reset")}</button>
         </div>
       </div>
-      <p className="shrink-0 px-3 py-1.5 text-center text-xs" style={{ color: "var(--cmpri-modal-muted,var(--cmpri-palette-desktop-tone-8))" }}>{t("Pinch to zoom or use the zoom controls. Drag the enlarged diagram to move it.")}</p>
+      <p className="shrink-0 px-3 py-1.5 text-center text-xs" style={{ color: "var(--cmpri-modal-muted,#a4a6af)" }}>{t("Pinch to zoom or use the zoom controls. Drag the enlarged diagram to move it.")}</p>
       {phase === "loading" && <p role="status" className="px-3 py-1 text-xs text-slate-300">{t("Loading diagram…")}</p>}
       {phase === "error" && <p role="alert" className="px-3 py-1 text-sm text-amber-200">{t("This diagram could not be opened. Close it and try the source again.")}</p>}
-      <div ref={viewportRef} data-diagram-viewport="true" data-diagram-scale={view.scale} data-diagram-x={view.x} data-diagram-y={view.y} role="region" aria-label={t("Diagram image. Pinch or use the zoom controls, then drag to move.")} tabIndex={0} className="relative min-h-0 flex-1 overflow-hidden outline-offset-[-3px] focus-visible:outline focus-visible:outline-2" style={{ ...surfaceStyle, outlineColor: "var(--cmpri-modal-text,var(--cmpri-palette-modal-text))", touchAction: "none", cursor: view.scale > 1 ? "grab" : "default" }} onPointerDown={event => {
+      <div ref={viewportRef} data-diagram-viewport="true" data-diagram-scale={view.scale} data-diagram-x={view.x} data-diagram-y={view.y} role="region" aria-label={t("Diagram image. Pinch or use the zoom controls, then drag to move.")} tabIndex={0} className="relative min-h-0 flex-1 overflow-hidden outline-offset-[-3px] focus-visible:outline focus-visible:outline-2" style={{ ...surfaceStyle, outlineColor: "var(--cmpri-modal-text,#f0f1f6)", touchAction: "none", cursor: view.scale > 1 ? "grab" : "default" }} onPointerDown={event => {
         if (phase !== "ready" || event.button !== 0 && event.pointerType === "mouse") return;
         event.preventDefault(); event.stopPropagation();
         pointers.current.set(event.pointerId, point(event));

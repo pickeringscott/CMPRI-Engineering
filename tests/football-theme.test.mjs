@@ -53,8 +53,8 @@ test('football build publishes a self-contained immutable entry and matching sta
   assert.doesNotMatch(html, /__(?:STADIUM_IMAGE|ILLINOIS_LOGO|IOWA_LOGO|ASSET_DIGEST)__/);
 });
 
-test('standalone interface and canvas annotations use the shared JSON palette', () => {
-  const palette = JSON.parse(readFileSync('src/lib/ui/site-palette.json', 'utf8'));
+test('standalone interface and canvas annotations use the Illinois/Iowa JSON palette', () => {
+  const palette = JSON.parse(readFileSync('src/components/desktop/football/palette.json', 'utf8'));
   const html = readFileSync('public' + manifest.entry, 'utf8');
   const css = html.match(/<style>([\s\S]*?)<\/style>/)[1];
   for (const [name, value] of Object.entries(palette.semantic)) assert.ok(css.includes('--cmpri-palette-' + name + ':' + value + ';'), name);

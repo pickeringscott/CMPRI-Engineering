@@ -1,5 +1,5 @@
 .viewport { max-width: 100%; overflow-x: auto; }
-.page { position: relative; width: 100%; background: var(--cmpri-modal-surface,var(--cmpri-palette-modal-base)); color: var(--cmpri-modal-text,var(--cmpri-palette-modal-text)); }
+.page { position: relative; width: 100%; background: var(--cmpri-modal-surface, #191b24); color: var(--cmpri-modal-text, #f0f1f6); }
 .page > picture > img { display: block; width: 100%; height: auto; max-height: none; object-fit: contain; }
 .textLayer {
   position: absolute; inset: 0; text-align: initial; line-height: 1;
@@ -25,4 +25,4 @@
 .textLayer[data-main-rotation="90"] { transform: rotate(90deg) translateY(-100%); }
 .textLayer[data-main-rotation="180"] { transform: rotate(180deg) translate(-100%, -100%); }
 .textLayer[data-main-rotation="270"] { transform: rotate(270deg) translateX(-100%); }
-.textLayer ::selection { background: rgba(var(--cmpri-action-rgb,var(--cmpri-palette-control-rgb)),.35); }
+.textLayer ::selection { background: rgb(56 139 253 / 35%); }

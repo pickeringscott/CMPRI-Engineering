@@ -6,10 +6,16 @@ The public sign-in page and signed-in desktop share the active selection in
 `src/lib/ui/site-palette.json`. Sign-in surfaces use those palette variables in
 `src/app/sign-in-theme.css`; they do not have a separate seasonal color set.
 
-Illinois versus Iowa (`illinois-iowa`) is active. The shared registry retains the
-Thanksgiving renderer. Christmas remains in scope for a later release.
+Thanksgiving is active on sign-in and both dashboard routes, `/engineering`
+and `/front-desk`. It uses the artwork bundle and Coral Glow palette from
+before PR #51. The root service worker caches the Thanksgiving artwork.
+Christmas remains in scope for a later release.
 
-## Illinois versus Iowa
+## Illinois versus Iowa standalone preview
+
+The self-contained football artwork remains available at
+`/backgrounds/illinois-iowa/index.html` with its original team colors. The
+following details describe the football build and its previous app integration.
 
 - `FootballBackground.tsx` keeps one iframe mounted while moving between the
   public sign-in page, `/engineering`, and its `/front-desk` desktop alias. Other
