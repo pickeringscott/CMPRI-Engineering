@@ -46,7 +46,7 @@ type Call = { id: string; active: boolean; origin: "launcher" | "modal"; disclos
 type Submission = { turn: AskTurn; voice: boolean; call?: Call; scope?: string; draft: File[] };
 const noFileStatus: AskCmpriFilesStatus = { pending: 0, error: null };
 const emptyAnswer: AskResponse = { title: "", summary: "" };
-const desktop = () => matchMedia("(min-width: 701px) and (hover: hover)").matches;
+const desktop = () => matchMedia("(min-width: 701px)").matches;
 const minSize = { width: 430, height: 278 };
 
 function focusAfterLayout(element: HTMLElement | null | undefined) {

@@ -144,7 +144,7 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
   const fields = row ? [...row.querySelectorAll(':scope > fieldset.group')] : [];
   if (!fields.length || !rail || !shelf) return;
   const scroller = root;
-  const desktop = matchMedia('(min-width: 701px) and (hover: hover)');
+  const desktop = matchMedia('(min-width: 701px)');
   let modalOpen = initial?.modalOpen ?? false;
   let voiceActive = initial?.voiceActive ?? false;
   let voiceStatus = initial?.voiceStatus ?? '';

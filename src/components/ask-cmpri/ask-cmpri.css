@@ -212,7 +212,7 @@
 .ask-recap { max-height: 58px; overflow: auto; }
 .ask-resize-boundaries { display: none; }
 
-@media (max-width: 700px), (pointer: coarse) {
+@media (max-width: 700px) {
   .cmpri-ask {
     --ask-mobile-increase: 2pt;
     --ask-usable-top: max(var(--ask-top, 0px), var(--ask-visible-top, 0px));
@@ -230,7 +230,7 @@
   .cmpri-ask .ask-tabs button { padding-inline: 3px; letter-spacing: .55px; }
 }
 @media (max-width: 340px) { .cmpri-ask .ask-tabs button { padding-inline: 1px; letter-spacing: .2px; } }
-@media (min-width: 701px) and (hover: hover) {
+@media (min-width: 701px) {
   .cmpri-ask[open] { grid-template-rows: auto minmax(0,1fr); }
   .cmpri-ask .ask-titlebar { cursor: move; touch-action: none; }
   .cmpri-ask .ask-titlebar button { cursor: pointer; }
