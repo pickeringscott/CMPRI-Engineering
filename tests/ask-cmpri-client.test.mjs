@@ -144,7 +144,7 @@ async function fixture({ actualUploads = false } = {}) {
       },
     },
     "./ask-attachment-recovery": { readAskAttachmentRecoveries: async () => [] },
-    "./useAskCmpriVoice": { useAskCmpriVoice: options => { voiceOptions = options; return voice; } }, "./ask-cmpri.css": {},
+    "./useAskCmpriLiveVoice": { useAskCmpriLiveVoice: options => { voiceOptions = options; return voice; } }, "./ask-cmpri.css": {},
   }, globals).default;
   await act(async () => { root.render(React.createElement(component)); await flush(); });
   await act(async () => {
@@ -223,19 +223,19 @@ test("ordinary reopen selects Search even with history and explicit History rema
   } finally { await h.close(); }
 });
 
-test("Gemini picker stays attached and hides for any text until the composer is cleared", async () => {
+test("OpenAI picker stays attached and hides for any text until the composer is cleared", async () => {
   const h = await fixture();
   try {
     const picker = h.container.querySelector('.ask-search-pill .ask-voice-picker');
     const selector = picker.querySelector('select');
     assert.equal(picker.hidden, false);
-    assert.equal(selector.options.length, 30);
+    assert.equal(selector.options.length, 10);
     await act(async () => {
-      selector.value = "Puck";
+      selector.value = "cedar";
       selector.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
       await flush();
     });
-    assert.equal(selector.value, "Puck");
+    assert.equal(selector.value, "cedar");
     await h.type("A question");
     assert.equal(picker.hidden, true);
     await h.type(" ");
@@ -243,7 +243,7 @@ test("Gemini picker stays attached and hides for any text until the composer is 
     await h.type("");
     assert.equal(picker.hidden, false);
     await h.reopen();
-    assert.equal(h.container.querySelector('.ask-voice-picker select').value, "Puck");
+    assert.equal(h.container.querySelector('.ask-voice-picker select').value, "cedar");
   } finally { await h.close(); }
 });
 

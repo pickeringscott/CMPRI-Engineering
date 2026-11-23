@@ -18,9 +18,9 @@ import { ASK_MAX_ATTACHMENT_BYTES, ASK_MAX_FILES, AskCmpriFiles, isAskCmpriTicke
 import { AskCmpriAttachments, AskCmpriAttachmentDrafts, AskCmpriAttachmentDropIndicator, AskCmpriDownloadList, AskCmpriFileList, useAskCmpriAttachmentDrop } from "./AskCmpriAttachments";
 import { askHistoryStorageChanged, deleteAskHistoryEntry, readAskHistory, savedAskTurn, toggleAskHistoryKept, updateAskHistoryEntry, type AskHistoryEntry, type AskTurn } from "./ask-history";
 import { makeAskAttachmentRecovery, readAskAttachmentRecoveries, removeAskAttachmentRecovery, saveAskAttachmentRecovery, type AskAttachmentRecovery } from "./ask-attachment-recovery";
-import { useAskCmpriVoice } from "./useAskCmpriVoice";
+import { useAskCmpriLiveVoice as useAskCmpriVoice } from "./useAskCmpriLiveVoice";
 import { createAskOriginalFileStore } from "./original-file-upload";
-import { ASK_GEMINI_VOICES, DEFAULT_ASK_GEMINI_VOICE, askGeminiVoice, type AskGeminiVoice } from "../../lib/ask-cmpri/voices";
+import { ASK_OPENAI_VOICES, DEFAULT_ASK_OPENAI_VOICE, askOpenAIVoice, type AskOpenAIVoice } from "../../lib/ask-cmpri/voices";
 import "./ask-cmpri.css";
 
 const examples = [
@@ -46,7 +46,7 @@ type OpenDetail = { query?: string; voice?: boolean; opener?: HTMLElement; tab?:
 type Authorized = { headers: Record<string, string>; scope: string };
 type Attachments = NonNullable<AskTurn["attachments"]>;
 type Call = { id: string; active: boolean; origin: "launcher" | "modal"; disclose: boolean; scope?: string; ready?: Promise<Authorized> };
-type Submission = { turn: AskTurn; voice: boolean; call?: Call; scope?: string; draft: File[] };
+type Submission = { turn: AskTurn; voice: boolean; delegationId?: string; call?: Call; scope?: string; draft: File[] };
 const noFileStatus: AskCmpriFilesStatus = { pending: 0, error: null };
 const emptyAnswer: AskResponse = { title: "", summary: "" };
 const desktop = () => matchMedia("(min-width: 701px)").matches;
@@ -102,7 +102,7 @@ export default function AskCmpri() {
   const [scope, setScope] = useState("");
   const [verified, setVerified] = useState(false);
   const [query, setQuery] = useState("");
-  const [voiceName, setVoiceName] = useState<AskGeminiVoice>(DEFAULT_ASK_GEMINI_VOICE);
+  const [voiceName, setVoiceName] = useState<AskOpenAIVoice>(DEFAULT_ASK_OPENAI_VOICE);
   const [sample, setSample] = useState(examples[0]);
   const [turns, setTurns] = useState<AskTurn[]>([]);
   const [history, setHistory] = useState<AskHistoryEntry[]>([]);
@@ -136,7 +136,7 @@ export default function AskCmpri() {
   const practiceRef = useRef(false);
   const viewRef = useRef<View>("search");
   const textRef = useRef("");
-  const voiceNameRef = useRef<AskGeminiVoice>(DEFAULT_ASK_GEMINI_VOICE);
+  const voiceNameRef = useRef<AskOpenAIVoice>(DEFAULT_ASK_OPENAI_VOICE);
   const voiceOwner = useRef("");
   const draftFilesRef = useRef<File[]>([]);
   const submittedQuery = useRef("");
@@ -175,11 +175,11 @@ export default function AskCmpri() {
   }
 
   function chooseVoice(value: string) {
-    const selected = askGeminiVoice(value);
+    const selected = askOpenAIVoice(value);
     voiceNameRef.current = selected;
     setVoiceName(selected);
     if (voiceOwner.current) {
-      try { window.localStorage.setItem(`cmpri:ask-voice:v1:${voiceOwner.current}`, selected); } catch { /* Voice choice still works for this session. */ }
+      try { window.localStorage.setItem(`cmpri:ask-live-voice:v1:${voiceOwner.current}`, selected); } catch { /* Voice choice still works for this session. */ }
     }
   }
 
@@ -275,8 +275,8 @@ export default function AskCmpri() {
     setVerified(false);
     setScope("");
     voiceOwner.current = "";
-    voiceNameRef.current = DEFAULT_ASK_GEMINI_VOICE;
-    setVoiceName(DEFAULT_ASK_GEMINI_VOICE);
+    voiceNameRef.current = DEFAULT_ASK_OPENAI_VOICE;
+    setVoiceName(DEFAULT_ASK_OPENAI_VOICE);
     setStaffScope("");
     setStaffNoteId(undefined);
     setCallEngaged(false);
@@ -307,8 +307,8 @@ export default function AskCmpri() {
     const authorized = { scope: owner, headers };
     authRef.current = authorized;
     if (voiceOwner.current !== identity) {
-      let selected = DEFAULT_ASK_GEMINI_VOICE;
-      try { selected = askGeminiVoice(window.localStorage.getItem(`cmpri:ask-voice:v1:${identity}`)); } catch { /* Device storage may be unavailable. */ }
+      let selected = DEFAULT_ASK_OPENAI_VOICE;
+      try { selected = askOpenAIVoice(window.localStorage.getItem(`cmpri:ask-live-voice:v1:${identity}`)); } catch { /* Device storage may be unavailable. */ }
       voiceOwner.current = identity;
       voiceNameRef.current = selected;
       setVoiceName(selected);
@@ -390,12 +390,12 @@ export default function AskCmpri() {
     if (openRef.current && viewRef.current === "search") scrollForTurn.current = submission.turn.id;
   }
 
-  function captureWords(words: string, interrupted = false) {
+  function captureWords(words: string, interrupted = false, delegationId?: string) {
     const call = callRef.current;
     if (!call?.active || practiceRef.current) return;
     const turn = { id: crypto.randomUUID(), question: words, result: emptyAnswer, waiting: !interrupted,
       ...(interrupted ? { outcome: t("This question was not sent.") } : {}) };
-    const submission = { turn, voice: true, call, scope: call.scope, draft: [] };
+    const submission = { turn, voice: true, delegationId, call, scope: call.scope, draft: [] };
     const accept = (owner: string) => {
       if (callRef.current !== call || authRef.current?.scope !== owner) return;
       submission.scope = owner;
@@ -426,25 +426,32 @@ export default function AskCmpri() {
   }
 
   const voice = useAskCmpriVoice({
-    onTranscript: (words) => captureWords(words),
+    onTranscript: (words, id) => captureWords(words, false, id),
     onInterruptedTranscript: (words) => captureWords(words, true),
     onEnd: callEnded,
     locale: language === "es" ? "es-US" : "en-US",
-    synthesizeSpeech: async (text, signal) => {
+    connect: async (sdp, signal) => {
       const call = callRef.current;
-      if (!call?.active || !call.scope) throw new DOMException("Call ended", "AbortError");
+      if (!call?.active) throw new DOMException("Call ended", "AbortError");
+      await call.ready;
+      if (signal.aborted || callRef.current !== call || !call.active) throw new DOMException("Call ended", "AbortError");
       const auth = await authorize(signal, call.scope);
       if (signal.aborted || callRef.current !== call || !call.active) throw new DOMException("Call ended", "AbortError");
-      const response = await fetch("/api/ask-cmpri/speech", {
+      const history = turnsRef.current.filter(turn => !turn.waiting).slice(-6).flatMap(turn => [
+        { role: "user" as const, text: turn.question.slice(0, 2000) },
+        { role: "assistant" as const, text: (turn.result.summary || turn.outcome || "").slice(0, 2000) },
+      ]).filter(item => item.text);
+      const response = await fetch("/api/ask-cmpri/voice", {
         method: "POST", cache: "no-store", signal,
         headers: { ...auth.headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ text, voice: voiceNameRef.current, language }),
+        body: JSON.stringify({ sdp, voice: voiceNameRef.current, language, history }),
       });
-      if (!response.ok) {
+      const result = await response.json().catch(() => null) as { sdp?: string; sessionId?: string; error?: string } | null;
+      if (!response.ok || !result?.sdp) {
         if (response.status === 401 && authRef.current?.scope === auth.scope) clearAccount();
-        throw new Error("Gemini voice unavailable");
+        throw new Error(result?.error || t("Live voice could not connect. Type your question to continue."));
       }
-      return response.arrayBuffer();
+      return { sdp: result.sdp, sessionId: result.sessionId, history };
     },
   });
 
@@ -481,7 +488,7 @@ export default function AskCmpri() {
       captureTurn(submission, auth.scope);
       if (cancellingProposal) {
         updateTurn(turn.id, { waiting: false, outcome: t("Change cancelled.") }, auth.scope, call?.id);
-        if (fromVoice && call?.active) voice.speak(t("Change cancelled."));
+        if (fromVoice && call?.active) voice.speak(t("Change cancelled."), submission.delegationId);
         return;
       }
       const chosen = localFiles.current.scope === auth.scope ? localFiles.current : undefined;
@@ -533,8 +540,10 @@ export default function AskCmpri() {
       if (fromVoice && call?.active) {
         const summary = result.summary || result.title;
         const detail = result.items?.find(item => item.text && item.text !== summary)?.text;
-        voice.speak((result.proposal && call.origin === "launcher" ? summary + " " + t("Open Ask CMPRI to review the proposed change.")
-          : [summary, detail].filter(Boolean).join(" ")).slice(0, 500));
+        const review = result.proposal ? (language === "es"
+          ? "Es una propuesta; no se ha aplicado. Revisa la confirmación en Ask CMPRI. "
+          : "This is a proposal; it has not been applied. Review the confirmation in Ask CMPRI. ") : "";
+        voice.speak(review + [summary, detail].filter(Boolean).join(" ").slice(0, 500), submission.delegationId);
       }
       if (fromVoice && openRef.current && viewRef.current === "search" && (!textRef.current || textRef.current === submittedQuery.current)) {
         submittedQuery.current = turn.question;
@@ -546,7 +555,7 @@ export default function AskCmpri() {
         if (!auth) sessionProblem(error);
         else if (authRef.current?.scope === auth.scope) {
           updateTurn(turn.id, { waiting: false, outcome: description }, auth.scope, call?.id);
-          if (fromVoice && call?.active) voice.speak(description);
+          if (fromVoice && call?.active) voice.speak(description, submission.delegationId);
         }
         setAlert(description);
       }
@@ -1230,10 +1239,11 @@ export default function AskCmpri() {
       </div>
     </div>
     {view === "search" && <footer ref={footer} className="ask-footer">
-      {verified && (voice.active || reviewDraft) && <div className="ask-voice-panel">
-        {voice.active && <div className="ask-voice-meta"><strong>{t("Voice call")}</strong><span role="status">{voice.status}</span></div>}
+      {verified && (voice.active || voice.typingFallback || reviewDraft) && <div className="ask-voice-panel">
+        {(voice.active || voice.typingFallback) && <div className="ask-voice-meta"><strong>{t("Voice call")}</strong><span role="status">{voice.status}</span></div>}
         {voice.typingFallback && <button type="button" className="ask-text-action" onClick={() => focusAfterLayout(field.current)}>{t("Type a question")}</button>}
         {voice.draft && <p>{voice.draft}</p>}
+        {voice.reply && <p aria-label={language === "es" ? "Respuesta hablada" : "Spoken reply"}>{voice.reply}</p>}
         <div className="ask-voice-columns">
           <section><h3>{t("Running summary")}</h3><div className="ask-recap" aria-live="polite">{recap.length ? recap.map(line => <p key={line}>{line}</p>) : <p>{t("Topics and findings appear as you talk.")}</p>}</div></section>
           <section><label htmlFor="ask-cmpri-draft-note">{t("Draft note")}</label>
@@ -1261,10 +1271,10 @@ export default function AskCmpri() {
             }} />
         </div>
         <label className="ask-voice-picker" hidden={query.length > 0}>
-          <span className="sr-only">{language === "es" ? "Voz de Gemini" : "Gemini voice"}</span>
-          <select value={voiceName} disabled={!verified || practice || saving} onChange={event => chooseVoice(event.target.value)}
-            aria-label={language === "es" ? "Voz de Gemini" : "Gemini voice"}>
-            {ASK_GEMINI_VOICES.map(name => <option key={name} value={name}>{name}</option>)}
+          <span className="sr-only">{language === "es" ? "Voz de OpenAI" : "OpenAI voice"}</span>
+          <select value={voiceName} disabled={!verified || practice || saving || voice.active} onChange={event => chooseVoice(event.target.value)}
+            aria-label={language === "es" ? "Voz de OpenAI" : "OpenAI voice"}>
+            {ASK_OPENAI_VOICES.map(name => <option key={name} value={name}>{name}</option>)}
           </select>
         </label>
         {voice.active ? <button className="ask-stop" type="button" onClick={voice.stop}><span aria-hidden="true" />{t("Stop")}</button> : engaged && mic}

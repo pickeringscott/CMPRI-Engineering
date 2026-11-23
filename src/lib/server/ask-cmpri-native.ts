@@ -99,7 +99,9 @@ function nativeDownloadName(disposition: string) {
   return name && !/[\\/\x00-\x1f\x7f]/.test(name) ? name.slice(0, 255) : "CMPRI-export";
 }
 
-/** No service credential is forwarded. Every handler revalidates the same signed-in user. */
+/** No service credential is forwarded. Native handlers enforce their existing
+ * permissions; public Weather sources also require the Weather modal's role
+ * admission here, before Ask can read them on the signed-in user's behalf. */
 export async function runAskNativeRequest(incoming: NextRequest, input: AskNativeRequest, allowWrite = false): Promise<AskNativeRead> {
   const operation = askNativeOperation(input.operation);
   if (!operation) return { ok: false, status: 400, operation: input.operation, screen: "/engineering", source: "CMPRI", error: "Unknown CMPRI operation. Discover its native operation first." };
@@ -142,6 +144,17 @@ export async function runAskNativeRequest(incoming: NextRequest, input: AskNativ
       }
     }
     const delegated = new NextRequest(url, { method: operation.method, headers, body, signal: incoming.signal });
+    if (base.screen === "/previews/cmpri-weather-preview.html") {
+      // These public source routes deliberately remain public for the native
+      // Weather screen. Ask must check its current caller on every lookup,
+      // including map, astronomy and Airport sources from that same modal.
+      const { requireUserAttempt } = await import("@/lib/server/auth");
+      const { canOpenWeather } = await import("@/lib/dashboard/menu-access");
+      const auth = await requireUserAttempt(delegated);
+      if (!auth.ok || auth.mcp) return { ...base, ok: false, status: 401, error: "Sign in to use CMPRI Weather." };
+      if (!canOpenWeather(auth.principal.profile)) return { ...base, ok: false, status: 403,
+        error: "Your current CMPRI role does not permit access to the Weather modal." };
+    }
     const response = await operation.run(delegated, input.parameters || {});
     if (!response) throw new Error("CMPRI returned no operation result.");
     const mime = response.headers.get("content-type") || "";

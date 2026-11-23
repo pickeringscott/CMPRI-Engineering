@@ -28,7 +28,12 @@
   color-scheme: only dark;
   color: #fff;
   cursor: pointer;
+  pointer-events: auto;
 }
+
+/* The transparent button is the whole hit target, including blank interior
+   space and the outer dial. Decorative SVG/masked layers never intercept it. */
+.dial > :is(.ring, .artboard) { pointer-events: none; }
 
 @media (min-width: 701px) {
   .dial { display: block; }
@@ -66,7 +71,7 @@
 .rule { stroke: #b1b1b8; stroke-width: .55; }
 .now { fill: #e5e5ea; font-size: 6.8px; text-transform: lowercase; }
 .drops { fill: none; stroke: #a9d6ff; stroke-width: 1.05; stroke-linecap: round; stroke-linejoin: round; }
-.precipitation { fill: #a9d6ff; text-anchor: start; font-size: 7.4px; font-weight: 650; }
+.precipitation { fill: #a9d6ff; text-anchor: middle; font-size: 7.4px; font-weight: 650; }
 .wind { fill: #fff; font-size: 8.4px; font-weight: 650; }
 .windUnit { fill: #e5e5ea; font-size: 5.6px; font-weight: 550; }
 .windCircle { fill: none; stroke: #e5e5ea; stroke-width: .55; }
@@ -75,13 +80,7 @@
 .extreme { font-size: 7.2px; font-weight: 650; }
 .moonLight { fill: #ececf5; }
 
-.condition {
-  position: absolute;
-  inline-size: 26%;
-  inset: 49.5% auto auto 38.6%;
-}
-
-.condition svg { display: block; inline-size: 100%; }
+.condition svg { overflow: visible; }
 .condition :global(.wv-sun) { fill: #f4ce68; stroke: #f9df9b; stroke-width: 1.6; }
 .condition :global(.wv-sun-rays) { fill: none; stroke: #d7b85e; stroke-width: 1.8; }
 .condition :global(.wv-moon) { fill: #e9d496; stroke: #f5e4b6; stroke-width: 1.7; }

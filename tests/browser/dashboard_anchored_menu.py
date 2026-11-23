@@ -177,7 +177,7 @@ async def inspect_role(browser, role, width):
     print(f"{role} {width}px verified", flush=True)
 
 
-async def drag_between(page, context, touch, origin, destination, edge_hold_ms=0):
+async def drag_between(page, context, touch, origin, destination, edge_hold_ms=0, before_drop=None):
     x, y = origin
     to_x, to_y = destination
     if touch:
@@ -193,6 +193,8 @@ async def drag_between(page, context, touch, origin, destination, edge_hold_ms=0
             })
         if edge_hold_ms:
             await page.wait_for_timeout(edge_hold_ms)
+        if before_drop:
+            await before_drop()
         await pointer.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
         await pointer.detach()
     else:
@@ -201,6 +203,8 @@ async def drag_between(page, context, touch, origin, destination, edge_hold_ms=0
         await page.mouse.move(to_x, to_y, steps=14)
         if edge_hold_ms:
             await page.wait_for_timeout(edge_hold_ms)
+        if before_drop:
+            await before_drop()
         await page.mouse.up()
 
 
@@ -268,9 +272,27 @@ async def check_drag_and_save(browser, width):
     assert origin and destination
     x, y = origin["x"] + origin["width"] / 2, origin["y"] + origin["height"] / 2
     to_x, to_y = destination["x"] + destination["width"] / 2, destination["y"] + destination["height"] / 2
-    await drag_between(page, context, touch, (x, y), (to_x, to_y))
+    preview_order = []
+
+    async def check_before_drop():
+        await expect(target).to_have_attribute("aria-expanded", "true")
+        await expect(target).to_have_attribute("aria-current", "true")
+        await expect(target).to_be_focused()
+        row = group(page, "Rooms & Reports")
+        await expect(row.locator(".buttons")).to_have_css("filter", "none")
+        landing = row.locator(".action.landing-copy")
+        await expect(landing).to_be_visible()
+        await expect(landing).to_have_text("Work Order List")
+        await expect(landing).to_have_css("outline-style", "dashed")
+        preview_order.extend(await actions(page, "Rooms & Reports"))
+        assert preview_order[-1] == "Work Order List"
+        assert "work-order-list::Work Order List" not in layouts.get("chief_engineer", {}).get("buttons", {}).get("Rooms & Reports", []), "hover must not save the pending move"
+
+    await drag_between(page, context, touch, (x, y), (to_x, to_y), before_drop=check_before_drop)
     assert "Work Order List" not in await actions(page, "Daily Work")
     assert "Work Order List" in await actions(page, "Rooms & Reports")
+    assert await actions(page, "Rooms & Reports") == preview_order
+    await expect(page.locator(".anchored-menu .landing-copy")).to_have_count(0)
     await expect(target).to_be_focused()
     await expect(target).to_have_attribute("aria-current", "true")
     assert await page.get_by_role("dialog").count() == 0

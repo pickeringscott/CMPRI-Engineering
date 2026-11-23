@@ -11,12 +11,13 @@ const translations = { "Daily Work": "Trabajo diario", "Rooms & Reports": "Habit
 const plain = value => JSON.parse(JSON.stringify(value));
 
 /** Actual native/Ask modules with CSS-pixel geometry for their existing rail styles. */
-function fixture({ width = 996, positions = saved, ask = true, insetNoise = 0, collapsed = names, tabWidths = {} } = {}) {
+function fixture({ width = 996, positions = saved, ask = true, insetNoise = 0, collapsed = names, tabWidths = {}, canDrop } = {}) {
   const dom = new JSDOM('<!doctype html><html><body><header class="cmpri-dashboard-titlebar"><div class="cmpri-header-shelf"></div><nav class="cmpri-dashboard-menu-rail"><div class="cmpri-header-v23 anchored-menu"></div></nav></header></body></html>', { url: "https://cmpri.invalid/engineering" });
   const { window } = dom, { document } = window;
   const root = document.querySelector('.anchored-menu'), rail = document.querySelector('nav');
   const saves = [], resizeObservers = [], timers = new Map(), frames = new Map(), captures = new WeakMap(), queries = [];
-  let counter = 0, now = 100, scroll = 0, observerPasses = 0, boxReads = 0;
+  let counter = 0, now = 100, scroll = 0, observerPasses = 0, boxReads = 0, hitTarget = null;
+  document.elementFromPoint = () => hitTarget;
   const intrinsicWidths = {}, titleScales = {};
   const rect = (left = 0, top = 80, w = width, height = 16) => ({ x: left, y: top, left, top, width: w, height, right: left + w, bottom: top + height, toJSON() { return { left, top, width: w, height }; } });
   const numeric = (value, fallback = 0) => Number.isFinite(parseFloat(value)) ? parseFloat(value) : fallback;
@@ -46,7 +47,11 @@ function fixture({ width = 996, positions = saved, ask = true, insetNoise = 0, c
     if (this.classList.contains('buttons')) {
       const field = this.parentElement.getBoundingClientRect(); return rect(field.left + 3, 97, Math.max(0, field.width - 6), 21);
     }
-    if (this.classList.contains('action')) return rect(0, 97, 150, 21);
+    if (this.classList.contains('action')) {
+      const row = this.parentElement;
+      const bounds = row.getBoundingClientRect();
+      return rect(bounds.left + [...row.children].indexOf(this) * 153 - row.scrollLeft, bounds.top, 150, 21);
+    }
     if (this.classList.contains('desktop-ask-search')) return rect(numeric(this.style.left), numeric(this.style.top, 95), numeric(this.style.width, 130), 24);
     if (this.tagName === 'BUTTON') return rect(0, 0, 20, 20);
     if (this.hidden) return rect(0, 0, 0, 0);
@@ -69,6 +74,7 @@ function fixture({ width = 996, positions = saved, ask = true, insetNoise = 0, c
   window.HTMLElement.prototype.hasPointerCapture = function (id) { return captures.get(this) === id; };
   window.HTMLElement.prototype.releasePointerCapture = function () { captures.delete(this); };
   window.HTMLElement.prototype.getAnimations = () => [];
+  window.HTMLElement.prototype.animate = () => ({ cancel() {} });
   window.Range.prototype.getBoundingClientRect = function () { return this.commonAncestorContainer.getBoundingClientRect(); };
   window.setTimeout = callback => { timers.set(++counter, callback); return counter; };
   window.clearTimeout = id => timers.delete(id);
@@ -83,6 +89,7 @@ function fixture({ width = 996, positions = saved, ask = true, insetNoise = 0, c
   };
   const getComputedStyle = element => new Proxy(window.getComputedStyle(element), { get(styles, property) {
     if (property === 'getPropertyValue') return styles.getPropertyValue.bind(styles);
+    if (property === Symbol.iterator) return function* () { for (let i = 0; i < styles.length; i++) yield styles.item(i); };
     if (property === 'columnGap') return '3px';
     if (['paddingLeft', 'paddingRight', 'borderLeftWidth'].includes(property)) return styles[property] || '0px';
     return styles[property];
@@ -104,7 +111,7 @@ function fixture({ width = 996, positions = saved, ask = true, insetNoise = 0, c
   const { mountAnchoredMenus } = loadTs('src/lib/ui/anchored-dashboard-menus.js', dependency, globals);
   const { mountAskDashboardLauncher } = loadTs('src/lib/ui/ask-dashboard-launcher.js', dependency, globals);
   const groups = names.map(label => ({ label, items: [1, 2, 3].map(index => ({ key: label + index, label: 'Action ' + index })) }));
-  const unmount = mountAnchoredMenus(root, groups, () => {}, { groups: names, buttons: {}, widths: {}, tabWidths, collapsed, positions: { ...positions }, active: null }, layout => saves.push(plain(layout)));
+  const unmount = mountAnchoredMenus(root, groups, () => {}, { groups: names, buttons: {}, widths: {}, tabWidths, collapsed, positions: { ...positions }, active: null }, layout => saves.push(plain(layout)), { canDrop });
   window.localStorage.setItem('cmpri:ask-tab-offset:fixture', '664');
   let launcher = ask ? mountAskDashboardLauncher(root, 'fixture', value => value) : undefined;
   const field = name => [...root.querySelectorAll('fieldset.group')].find(node => node.dataset.layoutLabel === name);
@@ -131,12 +138,16 @@ function fixture({ width = 996, positions = saved, ask = true, insetNoise = 0, c
     target.dispatchEvent(value);
     // JSDOM does not expose native onpointer* property event handlers. Exercise
     // the installed property handler as browsers do, alongside real listeners.
-    if (Object.hasOwn(target, 'on' + type)) target['on' + type]?.call(target, value);
+    if (Object.hasOwn(target, 'on' + type)) {
+      Object.defineProperty(value, 'currentTarget', { value: target, configurable: true });
+      target['on' + type]?.call(target, value);
+    }
     return value;
   };
   const key = (node, value, altKey = false) => node.dispatchEvent(new window.KeyboardEvent('keydown', { key: value, altKey, bubbles: true, cancelable: true }));
   const flush = async () => { await new Promise(resolve => setImmediate(resolve)); assert.ok(observerPasses < 250, 'layout observers must settle'); disjoint(); };
   return { window, document, root, row, rail, saves, field, state, boxes, disjoint, event, key, flush,
+    pointAt(node) { hitTarget = node; },
     open(name) { field(name).querySelector('legend').click(); disjoint(); },
     hold() { now += 400; for (const [id, callback] of [...timers]) { timers.delete(id); callback(); } },
     observe(target) { for (const observer of resizeObservers) if (observer.active && (!target || observer.targets.has(target))) observer.callback(); disjoint(); },
@@ -238,6 +249,93 @@ test('native drag and keyboard movement never overlap Ask or peers, and cancella
     assert.equal(node.requestedX, saved['Safety & Logs'] + 180, 'keyboard intent keeps advancing through a blocked slot');
     assert.equal(h.saves.at(-1).positions['Safety & Logs'], node.requestedX);
     await h.flush();
+  } finally { h.close(); }
+});
+
+test('button hover opens and focuses its destination and previews the exact insertion before drop', async () => {
+  const h = fixture();
+  try {
+    h.open('Daily Work');
+    const origin = h.field('Daily Work'), destination = h.field('Rooms & Reports');
+    const button = origin.querySelector('.action'), title = destination.querySelector('legend');
+    const initialSaved = h.saves.length;
+    const from = button.getBoundingClientRect(), tab = title.getBoundingClientRect();
+    h.pointAt(button);
+    h.event(button, 'pointerdown', from.left + 10, from.top + 10);
+    h.pointAt(title);
+    h.event(h.document, 'pointermove', tab.left + 10, tab.top + 7);
+    assert.equal(title.getAttribute('aria-expanded'), 'true');
+    assert.equal(title.getAttribute('aria-current'), 'true');
+    assert.equal(h.document.activeElement, title);
+    assert.equal(destination.querySelector('.buttons').lastElementChild, button);
+    assert.equal(button.classList.contains('landing-copy'), true);
+    assert.equal(h.saves.length, initialSaved, 'hover must not save the provisional move');
+
+    const row = destination.querySelector('.buttons');
+    const target = row.querySelector('.action'), targetRect = target.getBoundingClientRect();
+    h.pointAt(target);
+    h.hold();
+    h.event(h.document, 'pointermove', targetRect.left + 8, targetRect.top + 8);
+    assert.equal(row.firstElementChild, button, 'the faint button moves into the slot under the pointer');
+    const previewOrder = [...row.children].map(node => node.dataset.layoutKey);
+    // A neighbor can still be interpolating when the user releases. The
+    // committed order must match the preview instead of re-hit-testing it.
+    target.getBoundingClientRect = () => ({ ...targetRect, left: targetRect.left - 300, right: targetRect.right - 300 });
+    h.event(h.document, 'pointerup', targetRect.left + 8, targetRect.top + 8);
+    assert.deepEqual([...row.children].map(node => node.dataset.layoutKey), previewOrder);
+    assert.deepEqual(h.saves.at(-1).buttons['Rooms & Reports'], previewOrder);
+    assert.equal(button.classList.contains('landing-copy'), false);
+    assert.equal(h.saves.length, initialSaved + 1);
+    assert.equal(h.root.hasAttribute('data-button-dragging'), false);
+    await h.flush();
+  } finally { h.close(); }
+});
+
+test('canceling a cross-tab preview restores the source, opened tabs and active tab without a save', async () => {
+  const h = fixture();
+  try {
+    h.open('Daily Work');
+    const origin = h.field('Daily Work'), destination = h.field('Rooms & Reports');
+    const button = origin.querySelector('.action'), title = destination.querySelector('legend');
+    const before = [...origin.querySelector('.buttons').children];
+    const savedCount = h.saves.length, from = button.getBoundingClientRect(), tab = title.getBoundingClientRect();
+    h.pointAt(button);
+    h.event(button, 'pointerdown', from.left + 10, from.top + 10, 'touch');
+    h.hold();
+    h.pointAt(title);
+    h.event(h.document, 'pointermove', tab.left + 10, tab.top + 7, 'touch');
+    assert.equal(button.closest('fieldset'), destination);
+    assert.equal(title.getAttribute('aria-current'), 'true');
+    h.key(h.document, 'Escape');
+    assert.deepEqual([...origin.querySelector('.buttons').children], before);
+    assert.equal(title.getAttribute('aria-expanded'), 'false');
+    assert.equal(origin.querySelector('legend').getAttribute('aria-current'), 'true');
+    assert.equal(h.document.querySelector('.moving-copy'), null);
+    assert.equal(h.document.querySelector('.landing-copy'), null);
+    assert.equal(h.saves.length, savedCount);
+    await h.flush();
+  } finally { h.close(); }
+});
+
+test('forbidden tabs and Ask CMPRI never become button-drop destinations', () => {
+  const h = fixture({ canDrop: (_key, group) => group !== 'Admin' });
+  try {
+    h.open('Daily Work');
+    const origin = h.field('Daily Work'), button = origin.querySelector('.action'), from = button.getBoundingClientRect();
+    const savedCount = h.saves.length;
+    h.pointAt(button);
+    h.event(button, 'pointerdown', from.left + 10, from.top + 10);
+    for (const name of ['Admin', 'Ask CMPRI']) {
+      const title = h.field(name).querySelector('legend'), tab = title.getBoundingClientRect();
+      h.pointAt(title);
+      h.event(h.document, 'pointermove', tab.left + 10, tab.top + 7);
+      assert.equal(button.closest('fieldset'), origin);
+      assert.equal(h.document.body.classList.contains('drag-invalid'), true);
+      assert.equal(title.getAttribute('aria-current'), null);
+    }
+    h.event(h.document, 'pointerup', 0, 0);
+    assert.equal(button.closest('fieldset'), origin);
+    assert.equal(h.saves.length, savedCount);
   } finally { h.close(); }
 });
 

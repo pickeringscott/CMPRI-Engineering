@@ -919,6 +919,7 @@ export function askNativeOperation(key: string): AskNativeOperation | undefined 
 export const ASK_NATIVE_NON_OPERATIONS = Object.freeze([
   { path: "/api/ask-cmpri", reason: "This orchestrator cannot recursively invoke itself." },
   { path: "/api/ask-cmpri/speech", reason: "Ask's own audio transport, not an agent data/action endpoint." },
+  { path: "/api/ask-cmpri/voice", reason: "Ask's user-started voice connection transport, not an agent data/action endpoint." },
   { path: "/api/ask-cmpri/document-download", reason: "Ask's own reviewed-original download transport; no recursive agent invocation." },
   { path: "/api/ask-cmpri/files", reason: "Ask's own private original-file prepare/finalize/cleanup transport; native operations consume signed references instead of invoking it recursively." },
   { path: "/api/session", reason: "Authentication bootstrap; the dispatcher already carries the verified current session." },

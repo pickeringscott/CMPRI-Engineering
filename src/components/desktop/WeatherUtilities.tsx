@@ -1,7 +1,7 @@
 "use client";
 
 import Script from "next/script";
-import { useEffect, useRef, useState, type MouseEventHandler, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type MouseEventHandler, type ReactNode } from "react";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import type { DashboardWeather } from "@/lib/weather/dashboard-weather";
 import styles from "./weather-utilities.module.css";
@@ -17,6 +17,10 @@ const REFRESH_INTERVAL = 10 * 60 * 1000;
 const CENTER_X = 51.6, CENTER_Y = 49, RADIUS = 42.5;
 const ARC_START = 210, ARC_SPAN = 300, HIGH_ANGLE = 321, LOW_ANGLE = 498;
 const UNKNOWN_COLOR = "#373a40";
+// The 100-unit artboard stays 225 CSS pixels wide. Two typographic points are
+// 8/3 CSS pixels; dilating the alpha adds that exact dark edge to text and lines.
+const LIGHT_INK_OUTLINE = (2 * 96 / 72) / (225 / 100);
+const WIND_INDICATOR_BOTTOM = 62.4 + 4.2 + 0.55 / 2;
 
 function onArc(angle: number, radius = RADIUS) {
   const radians = angle * Math.PI / 180;
@@ -60,7 +64,9 @@ function moonLight(angle: number | null) {
 function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: MouseEventHandler<HTMLButtonElement> }) {
   const { t } = useUiLanguage();
   const [visuals, setVisuals] = useState<WeatherVisuals | null>(null);
-  const conditionHost = useRef<HTMLSpanElement>(null);
+  const conditionHost = useRef<SVGGElement>(null);
+  const outlineId = `weather-outline-${useId().replaceAll(":", "")}`;
+  const outline = `url(#${outlineId})`;
   const condition = data?.condition ?? null;
   const icon = data?.icon ?? null;
   const isDaytime = data?.isDaytime ?? null;
@@ -71,6 +77,12 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
     if (drawing?.dataset.condition === "cloud" && drawing.childElementCount === 2 && cloud) {
       cloud.setAttribute("d", "M22 35h-4a8 8 0 1 1 6-14m-5-3a14 14 0 0 1 27-2m-5 9a8 8 0 0 0-10 5m0 0a5 5 0 1 0-2 5h20a6 6 0 1 0-5-9");
     }
+    // Keep the original icon position/size inside the common artboard so its
+    // light strokes receive the same physical outline as the other readings.
+    drawing?.setAttribute("x", "38.6");
+    drawing?.setAttribute("y", "49.5");
+    drawing?.setAttribute("width", "26");
+    drawing?.setAttribute("height", "19.5");
     conditionHost.current?.replaceChildren(...(drawing ? [drawing] : []));
   }, [condition, icon, isDaytime, visuals]);
 
@@ -105,36 +117,46 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
         aria-label={details.replaceAll("\n", ". ")} aria-haspopup="dialog" title={details} onClick={onOpen}>
         <span className={styles.ring} style={{ background: arc.background }} aria-hidden="true" />
         <svg className={styles.artboard} viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+          <defs>
+            <filter id={outlineId} x="-8" y="-8" width="116" height="116" filterUnits="userSpaceOnUse" colorInterpolationFilters="sRGB">
+              <feMorphology in="SourceAlpha" operator="dilate" radius={LIGHT_INK_OUTLINE} result="edge" />
+              <feFlood floodColor="#101016" />
+              <feComposite in2="edge" operator="in" />
+              <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+          </defs>
           <circle cx={endpoints[0].x} cy={endpoints[0].y} r="3.5" fill={arc.startColor} />
           <circle cx={endpoints[1].x} cy={endpoints[1].y} r="3.5" fill={arc.lowColor} />
           {markers.map(({ label, position, color }) => <g key={label}>
             <circle cx={position.x} cy={position.y} r="4.2" fill={color} className={styles.markerOutline} />
-            <text x={position.x} y={position.y + 2.2} fill={temperatureInk(color)} className={styles.marker}>{label}</text>
+            <text x={position.x} y={position.y + 2.2} fill={temperatureInk(color)} filter={temperatureInk(color) === "#fff" ? outline : undefined} className={styles.marker}>{label}</text>
           </g>)}
           {current !== null && high !== null && low !== null ? <circle cx={bead.x} cy={bead.y} r="3.5" className={styles.currentBead} /> : null}
+          <g filter={outline} data-cmpri-weather-light-ink="">
           <text x={CENTER_X} y="35" className={styles.temperature}>{temperature(current)}</text>
           <path d="M34 39H69" className={styles.rule} />
           <text x={CENTER_X} y="46.7" className={styles.now}>{t("Now", "Ahora")}</text>
-          <g className={styles.drops}>
+          <g className={styles.drops} transform="translate(6.8 -4.6)" data-cmpri-precipitation-icon="">
             <path d="M18.2 53.9c1.5 2 2.6 3.5 2.6 5a2.6 2.6 0 0 1-5.2 0c0-1.5 1.1-3 2.6-5Z" />
             <path d="M23.9 51.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
             <path d="M23.9 57.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
           </g>
-          <text x="27" y="61.1" className={styles.precipitation} textLength={precipitation.length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs">{precipitation}</text>
+          <text x="27.3" y={WIND_INDICATOR_BOTTOM} className={styles.precipitation} data-cmpri-precipitation-value="" textLength={precipitation.length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs">{precipitation}</text>
           <text x="75.1" y="55.8" className={styles.wind}>{wind}<tspan className={styles.windUnit}> mph</tspan></text>
-          <circle cx="75.1" cy="62.4" r="4.2" className={styles.windCircle} />
+          <circle cx="75.1" cy="62.4" r="4.2" className={styles.windCircle} data-cmpri-wind-indicator="" />
           {data?.wind === 0 ? <circle cx="75.1" cy="62.4" r="1" className={styles.calm} /> : data?.bearing != null && data?.wind != null ? (
             <path d="M75.1 60v4.8m-1.5-1.6 1.5 1.6 1.5-1.6" transform={`rotate(${data.bearing} 75.1 62.4)`} className={styles.windArrow} />
           ) : null}
+          <g className={styles.condition} ref={conditionHost} />
+          </g>
           <rect x="34" y="67.6" width="17.2" height="8.2" rx="4.1" fill={arc.lowColor} />
           <rect x="52.2" y="67.6" width="17.2" height="8.2" rx="4.1" fill={arc.highColor} />
-          <text x="42.6" y="74.1" textLength={temperature(low).length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs" fill={temperatureInk(arc.lowColor)} className={styles.extreme}>{temperature(low)}</text>
-          <text x="60.8" y="74.1" textLength={temperature(high).length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs" fill={temperatureInk(arc.highColor)} className={styles.extreme}>{temperature(high)}</text>
-          {moon ? <g transform={`translate(${CENTER_X} 89.7)`}>
+          <text x="42.6" y="74.1" textLength={temperature(low).length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs" fill={temperatureInk(arc.lowColor)} filter={temperatureInk(arc.lowColor) === "#fff" ? outline : undefined} className={styles.extreme}>{temperature(low)}</text>
+          <text x="60.8" y="74.1" textLength={temperature(high).length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs" fill={temperatureInk(arc.highColor)} filter={temperatureInk(arc.highColor) === "#fff" ? outline : undefined} className={styles.extreme}>{temperature(high)}</text>
+          {moon ? <g filter={outline}><g transform={`translate(${CENTER_X} 89.7)`}>
             <path d={moon} className={styles.moonLight} />
-          </g> : null}
+          </g></g> : null}
         </svg>
-        <span className={styles.condition} ref={conditionHost} aria-hidden="true" />
       </button>
     </>
   );

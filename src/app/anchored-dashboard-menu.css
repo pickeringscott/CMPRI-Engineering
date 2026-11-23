@@ -170,6 +170,11 @@ header.cmpri-dashboard-titlebar:has(~ [data-weather-desktop-bulletin-host] [data
   outline-offset: -1px;
 }
 
+.cmpri-header-v23.anchored-menu .buttons > .action.landing-copy {
+  outline: 1px dashed var(--cmpri-palette-gold-light);
+  outline-offset: -1px;
+}
+
 .cmpri-header-v23.anchored-menu .menu-empty {
   padding-inline: 4px;
   font-size: 12px;

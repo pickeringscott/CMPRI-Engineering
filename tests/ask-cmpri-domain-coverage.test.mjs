@@ -24,6 +24,7 @@ const guidance = loadTs("src/lib/ai/cmpri-operation-guidance.ts");
 const loyalty = loadTs("src/lib/loyalty-tier.ts");
 const query = loadTs("src/lib/ask-cmpri/native-query.ts", { "@/lib/loyalty-tier": loyalty }, { Error });
 const ranker = loadTs("src/lib/ticket-room-ranking.ts");
+const weatherAccess = loadTs("src/lib/dashboard/menu-access.ts");
 
 function loadServer(path, dependencies, globals = {}) {
   const exports = {};
@@ -38,6 +39,7 @@ function loadServer(path, dependencies, globals = {}) {
 }
 
 function fixture(handlers = {}) {
+  const state = { auth: { ok: true, mcp: false, principal }, authorizations: [] };
   const catalog = loadTs("src/lib/server/ask-cmpri-native-catalog.ts", {
     "server-only": {}, "@/lib/ai/cmpri-operation-guidance": guidance, ...handlers,
   });
@@ -45,10 +47,12 @@ function fixture(handlers = {}) {
     "server-only": {}, "next/server": next, zod,
     "@/lib/server/manual-preview": { manualPreviewReadOnly: () => false },
     "@/lib/staff-note-media": { STAFF_FILE_BUCKET: "fixture-bucket" },
+    "@/lib/server/auth": { requireUserAttempt: async request => { state.authorizations.push(request); return state.auth; } },
+    "@/lib/dashboard/menu-access": weatherAccess,
     "./ask-cmpri-native-catalog": catalog,
   }, { URL, Headers, FormData, Error, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-signing-secret" } } });
   const read = input => native.runAskNativeRequest(request(), input);
-  return { catalog, native, read };
+  return { catalog, native, read, state };
 }
 
 function helpFixture() {
@@ -117,6 +121,44 @@ test("all Weather and Airport operations execute their native handler and return
   }
   assert.equal((await f.read({ operation: "willard.flights", query: { date: "2027-01-01" } })).ok, false);
   assert.equal(calls.length, paths.length, "Unsupported date must not reach the current-only flight board");
+  assert.equal(f.state.authorizations.length, paths.length, "Every Weather-modal source lookup verifies the current account");
+});
+
+test("Weather-modal data follows the existing role admission before any public source handler runs", async () => {
+  const paths = [
+    ["weather.read", "/api/weather-preview"], ["weather.map", "/api/weather-preview/map"],
+    ["weather.basemap", "/api/weather-preview/basemap"], ["weather.wms", "/api/weather-preview/wms"],
+    ["weather.astronomy", "/api/weather-preview/astronomy"], ["willard.flights", "/api/willard-flights"],
+    ["willard.tracker", "/api/willard-tracker"], ["willard.layout", "/api/willard-airport-layout"],
+  ];
+  const calls = [];
+  const handlers = Object.fromEntries(paths.map(([operation, path]) => ["@/app" + path + "/route", {
+    GET: async () => { calls.push(operation); return Response.json({ status: "live" }); },
+  }]));
+  const f = fixture(handlers);
+  for (const [role, allowed] of [
+    ["chief_engineer", true], ["system_admin", true], ["senior_management", true],
+    ["manager", true], ["technician", true], ["front_desk", true], ["housekeeping", true],
+    ["assistant_manager", false], ["front_desk_manager", false], ["unknown", false],
+  ]) {
+    f.state.auth = { ok: true, mcp: false, principal: { ...principal, profile: { ...principal.profile, role } } };
+    for (const [operation] of paths) {
+      const before = calls.length;
+      const read = await f.read({ operation });
+      assert.equal(read.ok, allowed, `${role}: ${operation}`);
+      assert.equal(read.status, allowed ? 200 : 403, `${role}: ${operation}`);
+      assert.equal(calls.length, before + Number(allowed), "Denied roles cannot query even a public source through Ask");
+    }
+  }
+  assert.equal(f.state.authorizations.length, paths.length * 10);
+  f.state.auth = { ok: true, mcp: false, principal: { ...principal, profile: { ...principal.profile, role: "assistant_manager", secondary_roles: ["technician"] } } };
+  assert.equal((await f.read({ operation: "weather.read" })).ok, true, "Existing permitted secondary roles are retained");
+  for (const auth of [{ ok: false, reason: "profile-inactive" }, { ok: false, reason: "verify-failed" }, { ok: true, mcp: true, principal }]) {
+    f.state.auth = auth;
+    const before = calls.length;
+    assert.equal((await f.read({ operation: "weather.read" })).status, 401);
+    assert.equal(calls.length, before, "Invalid, inactive or non-app sessions cannot call a weather provider");
+  }
 });
 
 test("source-owned Weather help produces a native-valid WSSI query and preserves real source errors/images", async () => {

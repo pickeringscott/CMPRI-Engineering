@@ -82,6 +82,8 @@ const roomRanker = {
 
 const weather = {
   source: "CMPRI Weather native source selectors",
+  coverage: "Weather modal: current conditions, forecasts, alerts, history, radar/maps, astronomy and the Airport view.",
+  access: "Every Ask CMPRI Weather lookup verifies the current signed-in account and uses the same Weather role admission as the dashboard. Public-source availability does not grant an otherwise excluded CMPRI role access through Ask.",
   screen: "/previews/cmpri-weather-preview.html",
   conditions: { operation: "weather.read", query: { part: ["observation", "history", "alerts", "forecast", "dashboard"] }, default: "With part omitted, the route returns its complete fixed-location weather bundle." },
   map: {

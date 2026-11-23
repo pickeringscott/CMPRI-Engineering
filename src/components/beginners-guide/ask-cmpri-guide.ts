@@ -21,6 +21,10 @@ export const ASK_CMPRI_GUIDE: { key: string; title: string; actions: GuideAction
         [
           "Gemini star with an empty field",
           "To start inside the Ask CMPRI window, leave the dashboard field empty and click the star."
+        ],
+        [
+          "Weather modal",
+          "Ask CMPRI covers current weather, forecasts, alerts, history, radar, maps, astronomy and Airport information from the existing Weather modal. Access follows your signed-in role. Answers link back to Weather and retain source times and any unavailable or stale information."
         ]
       ],
       result: "Ask CMPRI opens. With a typed question, the answer appears above the search pill. With an empty field, you can start a search inside Ask CMPRI.",

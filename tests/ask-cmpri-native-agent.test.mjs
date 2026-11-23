@@ -51,6 +51,8 @@ function fixture({ operations, script, pmRead, originalFiles = {}, fileInspectio
     "server-only": {}, "next/server": { NextRequest: NativeRequest }, zod,
     "@/lib/server/manual-preview": { manualPreviewReadOnly: () => false },
     "@/lib/staff-note-media": { STAFF_FILE_BUCKET: "fixture-bucket" },
+    "@/lib/server/auth": { requireUserAttempt: async () => auth },
+    "@/lib/dashboard/menu-access": loadTs("src/lib/dashboard/menu-access.ts"),
     "./ask-cmpri-native-catalog": catalog,
     "./ask-cmpri-file-staging": originalFiles.staging,
   }, { URL, Headers, FormData, Error, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-signing-secret" } } });

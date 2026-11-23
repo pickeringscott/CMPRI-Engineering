@@ -142,14 +142,18 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     // after the previous drag. Keyboard activation must never be suppressed.
     suppressedClick = undefined;
     const initial = [...container.children], origin = container.closest('fieldset'), host = root;
+    const initialActive = active;
+    const initialOpen = new Set(fields().filter(isOpen));
+    const initialLayers = new Map(fields().map(field => [field, field.style.zIndex]));
+    const touchedFields = new Set([origin]);
     const start = { x: event.clientX, y: event.clientY, scroll: container.scrollLeft, hostLeft: host.scrollLeft, hostTop: host.scrollTop };
     const rect = item.getBoundingClientRect(), grab = { x: start.x - rect.left, y: start.y - rect.top };
     const position = e => event.pointerType === 'mouse' ? { x: e.clientX - grab.x, y: e.clientY - grab.y } : { x: e.clientX + 8, y: e.clientY + 8 };
-    let last = event, active = false, moved = false, swipe = false, ghost, frame, slideUntil = 0, highlight = null;
+    let last = event, dragging = false, moved = false, swipe = false, ghost, frame, slideUntil = 0, highlight = null;
     const destination = () => {
       const hit = document.elementFromPoint(last.clientX, last.clientY);
       const field = hit?.closest('fieldset.group');
-      if (!field || field.parentElement !== bar || !canDrop(item.dataset.key, label(field)))
+      if (!field || field.parentElement !== bar || field.hasAttribute('data-ask-launcher-tab') || !canDrop(item.dataset.key, label(field)))
         return null;
       const tab = hit.closest('legend') === field.querySelector('legend');
       if (!tab && !isOpen(field))
@@ -170,24 +174,40 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       if (highlight)
         highlight.dataset.buttonDrop = next.tab ? 'tab' : 'row';
     };
-    const arrange = (next = destination()) => {
+    const arrange = (next = destination(), settle = false) => {
       const valid = Boolean(next);
       document.body.classList.toggle('drag-invalid', !valid);
       ghost.style.setProperty('visibility', valid ? 'visible' : 'hidden', 'important');
       item.style.visibility = valid ? 'visible' : 'hidden';
       markDrop(next);
-      if (!moved || !valid || next.field !== origin || next.tab || performance.now() < slideUntil)
+      if (!moved || !valid)
         return;
-      const peers = [...container.children].filter(n => n !== item);
-      const target = insertion(container);
-      if (target ? item.nextElementSibling === target : container.lastElementChild === item)
+      if (active !== next.field || !isOpen(next.field)) {
+        openField(next.field);
+        next.field.querySelector('legend').focus({ preventScroll: true });
+      }
+      const previousField = item.closest('fieldset');
+      const sameRow = previousField === next.field;
+      if (!settle && sameRow && !next.tab && performance.now() < slideUntil)
         return;
-      slide(peers, () => target ? target.before(item) : container.append(item));
+      const target = next.tab ? null : insertion(next.row);
+      if (sameRow && (target ? item.nextElementSibling === target : next.row.lastElementChild === item))
+        return;
+      const peers = [...new Set([...item.parentElement.children, ...next.row.children])].filter(n => n !== item);
+      // The real button is the faint landing preview. No layout is saved until
+      // pointer-up; cancellation puts it back in its exact original order.
+      slide(peers, () => target ? target.before(item) : next.row.append(item));
+      touchedFields.add(next.field);
+      refitButtonRow(previousField);
+      refitButtonRow(next.field);
+      place(true);
+      if (next.tab)
+        next.row.scrollLeft = next.row.scrollWidth;
       captureTarget.setPointerCapture(event.pointerId);
       slideUntil = performance.now() + SLIDE_MS;
     };
     const edgeScroll = () => {
-      if (!active)
+      if (!dragging)
         return;
       if (moved) {
         const bounds = host.getBoundingClientRect();
@@ -213,7 +233,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     };
     const startedAt = performance.now();
     const activate = () => {
-      active = true;
+      dragging = true;
       root.dataset.buttonDragging = 'true';
       document.body.classList.add('drag-active', 'menu-reordering');
       window.getSelection()?.removeAllRanges();
@@ -232,7 +252,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       const dx = e.clientX - start.x, dy = e.clientY - start.y;
       if (Math.hypot(dx, dy) > (event.pointerType === 'mouse' ? MOUSE_DRAG_PX : TOUCH_DRAG_PX))
         moved = true;
-      if (!active) {
+      if (!dragging) {
         if (event.pointerType === 'mouse') {
           if (!moved)
             return;
@@ -256,40 +276,48 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       ghost.style.setProperty('top', p.y + 'px', 'important');
       arrange();
     };
-    const stopTouchScroll = e => { if (active && e.cancelable)
+    const stopTouchScroll = e => { if (dragging && e.cancelable)
       e.preventDefault(); };
     captureTarget.addEventListener('touchmove', stopTouchScroll, { passive: false });
     const finish = (e, cancel = false) => {
       if (e.pointerId !== event.pointerId)
         return;
+      const releaseMoved = last.clientX !== e.clientX || last.clientY !== e.clientY;
       last = e;
       window.clearTimeout(timer);
       cancelAnimationFrame(frame);
       let changed = false, movedTo = null, droppedOn = null;
-      if (active) {
+      if (dragging) {
         suppressFor(captureTarget);
         const next = cancel ? null : destination();
         if (!next) {
-          clearMotion(initial);
+          clearMotion([...touchedFields].flatMap(field => [...field.querySelector('.buttons').children]));
           initial.forEach(n => container.append(n));
           container.scrollLeft = start.scroll;
           host.scrollLeft = start.hostLeft;
           host.scrollTop = start.hostTop;
         }
         else if (moved) {
-          droppedOn = next.tab || next.field !== origin ? next.field : null;
-          if (next.field !== origin) {
-            const target = next.tab ? null : insertion(next.row);
-            if (target)
-              target.before(item);
-            else
-              next.row.append(item);
-            movedTo = next.field;
-          }
-          else if (next.tab) {
-            container.append(item);
-          }
+          // Commit the visible slot. A neighbor's unfinished slide must not
+          // pick a different slot when the pointer is released in place.
+          if (releaseMoved || item.closest('fieldset') !== next.field)
+            arrange(next, true);
+          droppedOn = next.field;
+          movedTo = next.field !== origin ? next.field : null;
           changed = Boolean(movedTo) || initial.some((n, i) => container.children[i] !== n);
+        }
+        // Tabs opened only to preview a destination do not stay open after
+        // cancellation or a drop elsewhere.
+        for (const field of fields()) {
+          if (!initialOpen.has(field) && field !== droppedOn) {
+            field.classList.add('collapsed');
+            field.querySelector('legend').setAttribute('aria-expanded', 'false');
+          }
+        }
+        if (!next) {
+          setActive(initialActive);
+          for (const [field, layer] of initialLayers) field.style.zIndex = layer;
+          initialActive?.querySelector('legend').focus({ preventScroll: true });
         }
         ghost.remove();
         ghosts.delete(ghost);
@@ -306,13 +334,12 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering');
       off.forEach(fn => fn());
       cancelGesture = undefined;
-      if (movedTo) {
-        refitButtonRow(origin);
-        refitButtonRow(movedTo);
+      if (dragging) {
+        for (const field of touchedFields) refitButtonRow(field);
         place();
       }
       if (droppedOn) {
-        changed ||= active !== droppedOn || !isOpen(droppedOn);
+        changed ||= initialActive !== droppedOn || !initialOpen.has(droppedOn);
         openField(droppedOn);
         stageHeight();
         droppedOn.querySelector('legend').focus({ preventScroll: true });
