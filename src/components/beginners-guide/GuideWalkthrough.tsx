@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
+import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import styles from "./GuideWalkthrough.module.css";
 
@@ -26,6 +26,10 @@ type Props = {
   when?: string;
   action: GuideAction;
   onTry?: () => void;
+  onPracticeAsk?: (opener: HTMLButtonElement) => void;
+  onPracticeWorkOrder?: () => void;
+  onPracticeImage?: () => void;
+  practice?: ReactNode;
 };
 
 const COMPACT_GUIDE = "(max-width: 700px), (hover: none) and (pointer: coarse)";
@@ -56,7 +60,7 @@ function highlightPosition(screenshot: GuideAction["screenshot"], target: GuideA
   };
 }
 
-export default function GuideWalkthrough({ title, purpose, when, action, onTry }: Props) {
+export default function GuideWalkthrough({ title, purpose, when, action, onTry, onPracticeAsk, onPracticeWorkOrder, onPracticeImage, practice }: Props) {
   const { t } = useUiLanguage();
   const headingId = useId();
   const actionId = useId();
@@ -71,7 +75,7 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
   const compact = useSyncExternalStore(subscribeToDevice, readCompactDevice, readServerDevice);
   const step = compact && action.mobile ? { ...action, ...action.mobile } : action;
   const { screenshot, target } = step;
-  const position = highlightPosition(screenshot, target);
+  const position = practice ? undefined : highlightPosition(screenshot, target);
   // Fitting a wide strip makes its controls too small to read.
   const isWideStrip = Boolean(target && screenshot && screenshot.width >= screenshot.height * 5);
   const actualSize = sizePreference ?? (isWideStrip && !step.fitToWidth);
@@ -162,8 +166,11 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
               </p>}
             </div>
             {step.hint && <p className={styles.hint}>{t(step.hint)}</p>}
-            {(onTry || step.sourceUrl) && <div className={styles.actionLinks}>
-              {onTry && <button type="button" className={styles.tryButton} aria-describedby={actionId} onClick={onTry}>
+            {(onTry || onPracticeAsk || step.sourceUrl) && <div className={styles.actionLinks}>
+              {onPracticeAsk && <button type="button" className={styles.tryButton} aria-describedby={actionId} onClick={event => onPracticeAsk(event.currentTarget)}>
+                {t("Try in sample", "Practicar en el ejemplo")}
+              </button>}
+              {onTry && !onPracticeAsk && <button type="button" className={styles.tryButton} aria-describedby={actionId} onClick={onTry}>
                 {t("Try in sample", "Practicar en el ejemplo")}
               </button>}
               {step.sourceUrl && <a href={step.sourceUrl} target="_blank" rel="noreferrer"
@@ -181,25 +188,30 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
         </section>
         {screenshot && <div className={styles.exampleToolbar}>
           <span className={styles.exampleLabel}>{t("Sample screen", "Pantalla de ejemplo")}</span>
-          <div className={styles.viewModes} role="group" aria-label={t("Sample display size", "Tamaño del ejemplo")}>
+          {onPracticeAsk && <div className={styles.sampleModes} role="group" aria-label={t("Walkthrough sample", "Ejemplo de la guía")}>
+            <button type="button" aria-pressed={!practice} onClick={onPracticeImage}>{t("Image", "Imagen")}</button>
+            <button type="button" aria-haspopup="dialog" onClick={event => onPracticeAsk(event.currentTarget)}>{t("Ask CMPRI")}</button>
+            <button type="button" aria-pressed={Boolean(practice)} onClick={onPracticeWorkOrder}>{t("Work order", "Orden de trabajo")}</button>
+          </div>}
+          {!practice && <div className={styles.viewModes} role="group" aria-label={t("Sample display size", "Tamaño del ejemplo")}>
             <button type="button" aria-pressed={!actualSize} onClick={() => setSizePreference(false)}>
               {t("Fit to width", "Ajustar al ancho")}
             </button>
             <button type="button" aria-pressed={actualSize} onClick={() => setSizePreference(true)}>
               {t("Actual size", "Tamaño real")}
             </button>
-          </div>
-          {onTry && position && <button type="button" className={styles.compactButton} aria-describedby={actionId} onClick={onTry}>
+          </div>}
+          {(onTry || onPracticeAsk) && position && <button type="button" className={styles.compactButton} aria-describedby={actionId} onClick={event => onPracticeAsk ? onPracticeAsk(event.currentTarget) : onTry?.()}>
             {t("Try control", "Probar control")}
           </button>}
-          <button type="button" className={styles.compactButton} aria-controls={viewportId} onClick={() => setSizePreference(!actualSize)}>
+          {!practice && <button type="button" className={styles.compactButton} aria-controls={viewportId} onClick={() => setSizePreference(!actualSize)}>
             {actualSize ? t("Fit width", "Ajustar al ancho") : t("Actual size", "Tamaño real")}
-          </button>
+          </button>}
         </div>}
       </div>
       {screenshot && <div className={styles.exampleViewport} id={viewportId} ref={viewportRef} role="region" tabIndex={0}
         aria-label={t("Scrollable sample screen", "Pantalla de ejemplo desplazable")}>
-        <div className={`${styles.capture}${actualSize ? "" : ` ${styles.fit}`}`}
+        {practice || <div className={`${styles.capture}${actualSize ? "" : ` ${styles.fit}`}`}
           data-short-capture={screenshot.height < 85 ? "" : undefined}
           style={{ "--capture-width": `${screenshot.width}px` } as CSSProperties}>
           <Image key={screenshot.src} src={screenshot.src} width={screenshot.width} height={screenshot.height} alt={t(screenshot.alt)} unoptimized />
@@ -207,7 +219,7 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
             <span className={arrowBelow ? styles.arrowBelow : styles.arrowAbove} ref={arrowRef} aria-hidden="true" />
             {onTry && <button type="button" className={styles.hotspot} aria-label={hotspotLabel} onClick={onTry} />}
           </span>}
-        </div>
+        </div>}
       </div>}
     </div>
   );

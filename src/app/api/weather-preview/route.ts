@@ -194,7 +194,6 @@ async function propertyResources(signal: AbortSignal, includeStations: boolean) 
 }
 
 async function dashboardResource(signal: AbortSignal) {
-  const now = new Date();
   const forecast = read(API + '/points/' + LOOKUP_POINT, signal).then(points => {
     const property = object(points.data?.properties);
     return Promise.all([
@@ -202,14 +201,15 @@ async function dashboardResource(signal: AbortSignal) {
       read(property?.forecastGridData, signal).then(value => dated(value, 'forecast')),
     ]);
   });
-  const [observation, [hourly, grid], moonAngle] = await Promise.all([
+  const [observation, [hourly, grid], astronomy] = await Promise.all([
     observationResource(signal),
     forecast,
-    import('astronomy-engine').then(({ MoonPhase }) => MoonPhase(now)).catch(() => null),
+    import('astronomy-engine').catch(() => null),
   ]);
+  const now = new Date();
   const dayStart = Date.parse(centralMidnight(now));
   const dayEnd = Date.parse(centralMidnight(new Date(dayStart + 26 * 3600000)));
-  return dashboardWeather(observation, hourly, grid, now, dayStart, dayEnd, moonAngle);
+  return dashboardWeather(observation, hourly, grid, now, dayStart, dayEnd, astronomy?.MoonPhase(now) ?? null);
 }
 
 export async function GET(request: Request) {

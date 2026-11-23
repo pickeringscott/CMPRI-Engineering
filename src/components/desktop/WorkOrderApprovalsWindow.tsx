@@ -34,8 +34,8 @@ export default function WorkOrderApprovalsWindow({
   notificationError: string;
   soundEnabled: boolean;
   onToggleSound: () => void;
-  onOpenWorkOrder: (workOrderId: string) => void;
-  onOpenNotification: (notification: WorkOrderNotification) => void;
+  onOpenWorkOrder: (workOrderId: string, opener: HTMLButtonElement) => void;
+  onOpenNotification: (notification: WorkOrderNotification, opener: HTMLButtonElement) => void;
   onClear: (notificationId: string) => void;
   onClearAll: () => void;
 }) {
@@ -52,7 +52,7 @@ export default function WorkOrderApprovalsWindow({
             {awaitingApproval.length > 0 && <ul aria-label={t("Work orders awaiting approval")} className="min-h-0 flex-1 divide-y divide-slate-800 overflow-auto">
               {awaitingApproval.map((order) => (
                 <li key={order.id}>
-                  <button type="button" onClick={() => onOpenWorkOrder(order.id)} className="flex w-full items-start gap-[0.6em] px-[0.7em] py-[0.45em] text-left hover:bg-slate-800/60">
+                  <button type="button" onClick={event => onOpenWorkOrder(order.id, event.currentTarget)} className="flex w-full items-start gap-[0.6em] px-[0.7em] py-[0.45em] text-left hover:bg-slate-800/60">
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold text-white">{order.display_id ? t("{value0} · ", { value0: String(formatWorkOrder(order.display_id)) }) : ""}{order.room || t("No location")}{roomStatusBadge(order.room_status) && <span className={`ml-1 inline-flex rounded-full border px-1.5 py-0.5 align-middle text-[10px] font-bold leading-none ${roomStatusBadge(order.room_status)!.className}`}>{t(roomStatusBadge(order.room_status)!.label)}</span>}</span>
                       <span className="block truncate text-[0.88em] text-slate-300">{order.issue || t("No issue description")}</span>
@@ -78,7 +78,7 @@ export default function WorkOrderApprovalsWindow({
             {notifications.length === 0 && <li className="p-[0.7em] text-slate-400">{t("No notifications. New ones stay on your account, on every computer, until you clear them.")}</li>}
             {notifications.map((notification) => (
               <li key={notification.id} className="flex items-start gap-[0.4em] px-[0.7em] py-[0.4em] hover:bg-slate-800/40">
-                <button type="button" onClick={() => onOpenNotification(notification)} className="min-w-0 flex-1 text-left" aria-label={t("{value0} notification: {value1}", { value0: String(t(notification.is_read ? "Read" : "Unread")), value1: String(translateNotificationMessage(formatWorkOrderNotification(notification), t)) })}>
+                <button type="button" onClick={event => onOpenNotification(notification, event.currentTarget)} className="min-w-0 flex-1 text-left" aria-label={t("{value0} notification: {value1}", { value0: String(t(notification.is_read ? "Read" : "Unread")), value1: String(translateNotificationMessage(formatWorkOrderNotification(notification), t)) })}>
                   <span className={`block hover:underline ${notification.is_read ? "text-slate-400" : "font-semibold text-slate-100"}`}>{translateNotificationMessage(formatWorkOrderNotification(notification), t)}</span>
                   <span className="block text-[0.8em] text-slate-500">{formatWhen(notification.recorded_at, locale)}</span>
                 </button>

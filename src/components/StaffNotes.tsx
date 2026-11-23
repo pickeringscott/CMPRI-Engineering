@@ -19,7 +19,12 @@ import {resourceViewVisible,watchResourceVisibility} from '@/lib/events/visibili
 type Note = { author_user_id?:string;author_name_id?:string|null;mentions?:StaffMentionRange[];id: string; author_name: string; body: string; parent_id: string | null; created_at: string; attachments?:StaffAttachment[]; gif_ids?:string[] };
 type Payload = { notes: Note[]; parents: Note[]; mentions: StaffMention[]; management: boolean; frontDesk: boolean; hotelId: string; userId?:string;
   targets?:Record<string,{href:string;preview:string}>;tickets: Record<string, { href: string; preview: string }>; next: string | null };
-export default function StaffNotes({ compact: forcedCompact }: { compact?: boolean }) {
+type StaffNotesProps = {
+  compact?: boolean;
+  targetNoteId?: string;
+  onOpenWorkOrder?: (href: string, opener: HTMLElement) => void;
+};
+export default function StaffNotes({ compact: forcedCompact, targetNoteId, onOpenWorkOrder }: StaffNotesProps) {
   const {t: ui, tt: tip, locale} = useUiLanguage();
   const [data, setData] = useState<Payload | null>(null);
   const compact = forcedCompact === true;
@@ -89,6 +94,53 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
   function chooseGif(gif:GiphyGif){if(files.length+gifIds.length>=STAFF_ATTACHMENT_LIMIT){setError('Attach up to 20 files or GIFs per note.');return}setGifs(old=>({...old,[gif.id]:gif}));setGifIds(old=>old.includes(gif.id)?old:[...old,gif.id]);}
   function removeAttachment(id:string){if(pending)return;if(id.startsWith('gif:')){setGifIds(old=>old.filter(g=>g!==id.slice(4)));return}setFiles(old=>old.filter(f=>{if(f.id!==id)return true;if(f.url){URL.revokeObjectURL(f.url);ownedURLs.current.delete(f.url)}return false}));}
   useEffect(() => { const task = setTimeout(() => void load(), 0); return () => clearTimeout(task); }, [load]);
+  const hotelId = data?.hotelId, userId = data?.userId;
+  useEffect(() => {
+    if (!targetNoteId || !hotelId || !userId) return;
+    const controller = new AbortController();
+    const owner = accountKey.current;
+    let frame = 0;
+    const selector = `[data-staff-note][id="${CSS.escape(`note-${targetNoteId}`)}"]`;
+    const reveal = () => {
+      const row = list.current?.querySelector<HTMLElement>(selector);
+      if (!row) return false;
+      nearBottom.current = false;
+      row.scrollIntoView({ block: "nearest" });
+      row.focus({ preventScroll: true });
+      return true;
+    };
+    void (async () => {
+      try {
+        const response = await fetch(`/api/staff-notes?note=${encodeURIComponent(targetNoteId)}`, {
+          headers: await authorizationHeaders(), cache: "no-store", signal: controller.signal,
+        });
+        const value = await response.json();
+        if (controller.signal.aborted || accountKey.current !== owner) return;
+        if (!response.ok) throw new Error(value.error || "This Staff Note is unavailable.");
+        const exact: Payload = value;
+        if (exact.hotelId !== hotelId || exact.userId !== userId) return;
+        nearBottom.current = false;
+        setError("");
+        setData(previous => {
+          if (!previous || previous.hotelId !== hotelId || previous.userId !== userId) return previous;
+          return {
+            ...previous,
+            notes: [...new Map([...previous.notes, ...exact.notes].map(note => [note.id, note])).values()],
+            parents: [...new Map([...previous.parents, ...exact.parents].map(note => [note.id, note])).values()],
+            tickets: { ...previous.tickets, ...exact.tickets },
+            targets: { ...previous.targets, ...exact.targets },
+          };
+        });
+        void restoreGIFs([...new Set([...exact.notes, ...exact.parents].flatMap(note => note.gif_ids || []))]);
+        frame = requestAnimationFrame(() => { if (!reveal()) frame = requestAnimationFrame(reveal); });
+      } catch (cause) {
+        if (!controller.signal.aborted && accountKey.current === owner) {
+          setError(cause instanceof Error ? cause.message : "This Staff Note is unavailable.");
+        }
+      }
+    })();
+    return () => { controller.abort(); cancelAnimationFrame(frame); };
+  }, [hotelId, restoreGIFs, targetNoteId, userId]);
   useEffect(() => {
     if (!data?.hotelId) return;
     const client = createClient();
@@ -237,17 +289,24 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
     }
     requestAnimationFrame(() => document.getElementById(`note-${id}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
   }
+  function ticketLink(ticket: { href: string; preview: string }, label: string, mentionId?: string) {
+    const className = "text-sky-400 hover:underline";
+    const target = mentionId ? { "data-staff-target-kind": "work_order", "data-staff-target-id": mentionId } : {};
+    return onOpenWorkOrder
+      ? <button {...target} type="button" title={ticket.preview} className={className} onClick={event => onOpenWorkOrder(ticket.href, event.currentTarget)}>{label}</button>
+      : <a {...target} href={ticket.href} title={ticket.preview} className={className}>{label}</a>;
+  }
   function content(note: Note) {
     const tokens: Array<{ start: number; end: number; node: React.ReactNode }> = [];
     for(const m of ranges(note.body,note.mentions)){
       const ticket=m.kind==='work_order'?data?.targets?.[m.id]:null;
-      tokens.push({start:m.start,end:m.end,node:m.kind==='work_order'?(ticket?<a data-staff-target-kind={m.kind} data-staff-target-id={m.id} href={ticket.href} title={ticket.preview} className="text-sky-400 hover:underline">{m.label}</a>:<span data-staff-target-kind={m.kind} data-staff-target-id={m.id} className="text-slate-500">{m.label}</span>):<span data-staff-target-kind={m.kind} data-staff-target-id={m.id} title={staffTargetType(m.kind)} className="rounded bg-sky-400/10 text-sky-300">{note.body.slice(m.start,m.end)}</span>});
+      tokens.push({start:m.start,end:m.end,node:m.kind==='work_order'?(ticket?ticketLink(ticket,m.label,m.id):<span data-staff-target-kind={m.kind} data-staff-target-id={m.id} className="text-slate-500">{m.label}</span>):<span data-staff-target-kind={m.kind} data-staff-target-id={m.id} title={staffTargetType(m.kind)} className="rounded bg-sky-400/10 text-sky-300">{note.body.slice(m.start,m.end)}</span>});
     }
     for(const match of note.body.matchAll(/#[\p{L}][\p{L}\p{N}_-]*/gu)) tokens.push({start:match.index!,end:match.index!+match[0].length,node:<span className="staff-note-tag text-sky-300">{match[0]}</span>});
     for (const reference of staffTicketReferences(note.body)) {
       if(tokens.some(t=>t.start<reference.end&&t.end>reference.start))continue;
       const ticket = data?.tickets[reference.number];
-      tokens.push({ start: reference.start, end: reference.end, node: ticket ? <a href={ticket.href} title={ticket.preview} className="text-sky-400 hover:underline">{reference.label}</a> : <span className="text-slate-500">{reference.label}</span> });
+      tokens.push({ start: reference.start, end: reference.end, node: ticket ? ticketLink(ticket, reference.label) : <span className="text-slate-500">{reference.label}</span> });
     }
     let at = 0;
     const output: React.ReactNode[] = [];
@@ -294,7 +353,7 @@ export default function StaffNotes({ compact: forcedCompact }: { compact?: boole
     {!compact && data?.next && <button type="button" className="text-xs text-sky-300" onClick={() => void load(data.next!)}>{ui("Older comments")}</button>}
     <div ref={list} className={`${compact ? "" : "min-h-0 flex-1"} overflow-y-auto overscroll-auto`} onScroll={e => { nearBottom.current = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 60; }}>
       {ordered.map(note => { const parent = note.parent_id ? all.get(note.parent_id) : null; const date = new Date(note.created_at);
-        return <div data-reply={Boolean(parent)} key={note.id} id={`note-${note.id}`} data-staff-note className="flex items-start gap-1 border-b border-slate-800 px-2 py-0.5 text-xs leading-tight">
+        return <div data-reply={Boolean(parent)} key={note.id} id={`note-${note.id}`} data-staff-note tabIndex={-1} className="flex items-start gap-1 border-b border-slate-800 px-2 py-0.5 text-xs leading-tight">
           <button type="button" aria-label={note.author_name} className="staff-note-author shrink-0 font-semibold" title={'Insert @'+note.author_name} onClick={()=>{if(nameMode)return;const target=staffAuthorMention(note,data?.mentions||[]);if(!target)return;const start=input.current?.selectionStart??body.length,end=input.current?.selectionEnd??start,inserted=insertStaffMention(body,{start,end},target,selected);setBody(inserted.value);setSelected(inserted.mentions);setCaret(inserted.caret);requestAnimationFrame(()=>{input.current?.focus();input.current?.setSelectionRange(inserted.caret,inserted.caret)})}}><span className="staff-author-name">{note.author_name}</span>{note.author_name_id&&<span className="staff-front-desk-badge">{ui("Front Desk")}</span>}</button>
           <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-slate-300">{parent && <button type="button" onClick={() => jump(parent.id)} title={ui("{value0}: {value1}",{value0:String(parent.author_name),value1:String(parent.body)})} className="mr-1 text-slate-500 hover:text-sky-300">↪ {parent.author_name}</button>}{content(note)}<StaffNoteAttachments files={note.attachments||[]} gifIds={note.gif_ids||[]} gifs={gifs} onRetry={()=>{void load();void restoreGIFs(note.gif_ids||[])}}/></div>
           <time dateTime={note.created_at} title={date.toLocaleString(locale)} className="shrink-0 text-slate-500">{date.toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })} <small>{date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" })}</small></time>

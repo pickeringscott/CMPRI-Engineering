@@ -35,8 +35,10 @@ import {
   defaultWindowRect,
   desktopFrameHref,
   desktopWindowKeyForHref,
+  isAskRecordRoute,
   isDesktopRoute,
   raiseWindow,
+  refocusAssetWindow,
   readDesktopLayouts,
   saveDesktopLayout,
   windowLayoutKey,
@@ -477,6 +479,7 @@ export default function EngineeringDashboardPage() {
         windowOpenedAtRef.current.set(entry.key, Date.now());
         setWindows(windowsRef.current);
       }
+      refocusAssetWindow(frameRefs.current.get(entry.key), existing.src);
       raise(entry.key, true);
       return;
     }
@@ -580,7 +583,7 @@ export default function EngineeringDashboardPage() {
     const key = desktopWindowKeyForHref(href, origin);
     if (key === "/engineering") return;
     const workOrderId = /^\/work-orders\/([^/]+)$/.exec(key)?.[1];
-    const known = ROUTE_WINDOWS[key];
+    const known = ROUTE_WINDOWS[new URL(href, origin).pathname];
     let title = launcher?.label || known?.title || titleHint || key;
     if (workOrderId) {
       const order = ordersRef.current.find((entry) => entry.id === decodeURIComponent(workOrderId));
@@ -600,15 +603,30 @@ export default function EngineeringDashboardPage() {
     });
   }, [openWindow]);
 
-  const openWorkOrder = useCallback((workOrderId: string) => {
-    openRoute(`/work-orders/${encodeURIComponent(workOrderId)}`);
+  useEffect(() => {
+    if (!cmpriSession || window.parent !== window) return;
+    const openAskRecord = (event: Event) => {
+      const detail = (event as CustomEvent<{ origin?: string; href?: string; title?: string; opener?: HTMLElement; openerRect?: DOMRect }>).detail;
+      if (detail?.origin !== "ask-cmpri" || typeof detail.href !== "string" || !isAskRecordRoute(detail.href, window.location.origin)) return;
+      if (!event.cancelable) event.stopImmediatePropagation();
+      event.preventDefault();
+      const opener = detail.opener instanceof HTMLElement ? detail.opener : undefined;
+      const rect = detail.openerRect instanceof DOMRect ? detail.openerRect : undefined;
+      openRoute(detail.href, detail.title, undefined, captureWindowLauncher(opener, rect));
+    };
+    window.addEventListener("cmpri-open-modal", openAskRecord, true);
+    return () => window.removeEventListener("cmpri-open-modal", openAskRecord, true);
+  }, [cmpriSession, openRoute]);
+
+  const openWorkOrder = useCallback((workOrderId: string, opener?: HTMLElement) => {
+    openRoute(`/work-orders/${encodeURIComponent(workOrderId)}`, undefined, undefined, captureWindowLauncher(opener));
   }, [openRoute]);
 
   const openWorkOrderList = useCallback((launcher?: WindowLauncher) => {
     openWindow({ key: WORK_ORDER_LIST_KEY, title: "Work Order List", kind: "list", accent: "bg-slate-300", preferred: { width: 1100, height: 640 }, launcher });
   }, [openWindow]);
 
-  const openDraft = useCallback((draftId: string) => {
+  const openDraft = useCallback((draftId: string, opener?: HTMLElement) => {
     const origin = window.location.origin;
     openWindow({
       key: `work-order-draft:${draftId}`,
@@ -617,6 +635,7 @@ export default function EngineeringDashboardPage() {
       src: desktopFrameHref(`/work-orders?draftId=${encodeURIComponent(draftId)}&reviewDraft=1`, crypto.randomUUID(), origin),
       accent: "bg-amber-400",
       preferred: { width: 960, height: 780 },
+      launcher: captureWindowLauncher(opener),
     });
   }, [openWindow]);
 
@@ -641,8 +660,9 @@ export default function EngineeringDashboardPage() {
       switch (data.type) {
         case "cmpri-assets-changed": {
           const source = windowsRef.current.find(entry => entry.key === key);
-          if (key !== "/management/equipment" || !source?.src || typeof data.assetId !== "string" || !data.assetId) return;
-          if (new URL(source.src, window.location.origin).searchParams.get("modalToken") !== data.modalToken) return;
+          if (!source?.src || typeof data.assetId !== "string" || !data.assetId) return;
+          const sourceUrl = new URL(source.src, window.location.origin);
+          if (sourceUrl.pathname !== "/management/equipment" || sourceUrl.searchParams.get("modalToken") !== data.modalToken) return;
           for (const entry of windowsRef.current) {
             if (!entry.src) continue;
             const target = new URL(entry.src, window.location.origin);
@@ -738,10 +758,14 @@ export default function EngineeringDashboardPage() {
     });
   }
 
-  function openNotification(notification: WorkOrderNotification) {
+  function openNotification(notification: WorkOrderNotification, opener: HTMLElement) {
     void markNotificationRead(notification);
-    if (notification.target_path) openRoute(notification.target_path, "Daily Room Ops");
-    else if (notification.work_order_id) openWorkOrder(notification.work_order_id);
+    if (notification.target_path && isDesktopRoute(notification.target_path, window.location.origin)) {
+      const target = new URL(notification.target_path, window.location.origin);
+      if (target.pathname === "/staff-notes") {
+        window.dispatchEvent(new CustomEvent("cmpri-ask-open", { detail: { tab: "staff", noteId: target.searchParams.get("note") || undefined, opener } }));
+      } else openRoute(notification.target_path, "Daily Room Ops", undefined, captureWindowLauncher(opener));
+    } else if (notification.work_order_id) openWorkOrder(notification.work_order_id, opener);
   }
 
   const launchers: Array<Launcher | false> = [
@@ -773,7 +797,7 @@ export default function EngineeringDashboardPage() {
   const availableLaunchers = launchers.filter((item): item is Launcher => Boolean(item));
   const visibleLauncherGroups = dashboardMenuGroups(session.user.role, availableLaunchers, chiefHeaderPresentation);
 
-  function launchWindow(key: string, clickedAt: number, open: () => void) {
+  function launchWindow(key: string, clickedAt: number, open: () => void, opener?: HTMLElement) {
     // The approved list launcher must bring a background list forward even
     // immediately after it was opened, so other windows can stay mounted.
     if (key === WORK_ORDER_LIST_KEY && zOrder.at(-1) !== key) {
@@ -781,7 +805,12 @@ export default function EngineeringDashboardPage() {
       return;
     }
     const openedAt = windowOpenedAtRef.current.get(key);
-    if (windowsRef.current.some((entry) => entry.key === key && !entry.weatherCached) && openedAt !== undefined && clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS) {
+    const existing = windowsRef.current.find(entry => entry.key === key && !entry.weatherCached);
+    if (existing?.launcher && opener && currentWindowLauncher(existing.launcher) !== opener) {
+      open();
+      return;
+    }
+    if (existing && openedAt !== undefined && clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS) {
       requestCloseWindow(key);
       return;
     }
@@ -794,7 +823,7 @@ export default function EngineeringDashboardPage() {
 
   function launch(launcher: Launcher, clickedAt: number, opener?: HTMLElement) {
     if (launcher.key === "pool-status") openPoolStatus(opener);
-    else if (launcher.action === "work-order-list") launchWindow(WORK_ORDER_LIST_KEY, clickedAt, () => openWorkOrderList(captureWindowLauncher(opener)));
+    else if (launcher.action === "work-order-list") launchWindow(WORK_ORDER_LIST_KEY, clickedAt, () => openWorkOrderList(captureWindowLauncher(opener)), opener);
     else if (launcher.action === "sign-out") void signOut();
     else if (launcher.href) {
       const href = launcher.href;
@@ -802,7 +831,7 @@ export default function EngineeringDashboardPage() {
       // asynchronously arriving NWS warning can play on mobile browsers too.
       if (href.split(/[?#]/)[0] === WEATHER_PREVIEW_PATH) void armWeatherWarningSound();
       const key = desktopWindowKeyForHref(href, window.location.origin);
-      launchWindow(key, clickedAt, () => openRoute(href, launcher.label, { ...launcher, label: launcher.label.replace(/ \(\d+\)$/, "") }, captureWindowLauncher(opener)));
+      launchWindow(key, clickedAt, () => openRoute(href, launcher.label, { ...launcher, label: launcher.label.replace(/ \(\d+\)$/, "") }, captureWindowLauncher(opener)), opener);
     }
   }
 
@@ -971,7 +1000,7 @@ export default function EngineeringDashboardPage() {
                       potential_duplicate: orders.some((order) => likelyDuplicate(draft, order)),
                     }))}
                     loading={loading}
-                    onOpenWorkOrder={(order) => openWorkOrder(order.id)}
+                    onOpenWorkOrder={(order, opener) => openWorkOrder(order.id, opener)}
                     onOpenDraft={openDraft}
                   />
                 )}

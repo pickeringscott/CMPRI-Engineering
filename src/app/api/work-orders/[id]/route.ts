@@ -15,7 +15,7 @@ import { isEngineeringWorkOrderActor, recordEngineeringWorkOrderView } from "@/l
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 import { currentRoomOperation, currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
 import { isUuid } from "@/lib/uuid";
-import { canCorrectReport as reportCorrectionAllowed, REPORT_CORRECTION_FIELDS, TECHNICAL_WORK_ORDER_FIELDS, workOrderEditableFields } from "@/lib/work-order-edit-policy";
+import { canCorrectReport as reportCorrectionAllowed, REPORT_CORRECTION_FIELDS, TECHNICAL_WORK_ORDER_FIELDS, workOrderEditableFields, workOrderStatusEffect } from "@/lib/work-order-edit-policy";
 
 const ALL_STATUSES = ["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"] as const;
 
@@ -336,18 +336,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
   }
 
-  const resultingStatus = String(update.status ?? existing.status ?? "Open");
-  if (
-    existing.status === "Closed" &&
-    resultingStatus === "In Progress" &&
-    !("technician_name" in update) &&
-    !String(existing.technician_name || "").trim() &&
-    String(existing.last_assigned_technician_name || "").trim()
-  ) {
-    update.technician_name = String(existing.last_assigned_technician_name).trim();
-  }
-  const resultingTechnician = String(update.technician_name ?? existing.technician_name ?? "").trim();
-  if (!chief && !correctionOnly && !frontDeskPriorityOnly && resultingStatus === "In Progress" && !resultingTechnician) {
+  const effect = workOrderStatusEffect(existing, update);
+  if (effect.restoredTechnician) update.technician_name = effect.restoredTechnician;
+  if (!chief && !correctionOnly && !frontDeskPriorityOnly && effect.status === "In Progress" && !effect.technician) {
     return NextResponse.json({ error: "A technician must be assigned while a work order is In Progress." }, { status: 400 });
   }
 
@@ -378,24 +369,23 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     field => Object.prototype.hasOwnProperty.call(update, field) && update[field] !== existing[field],
   );
   let committed = data;
+  const warnings = [];
   if (rankInputChanged) {
     const { data: current, error: reloadError } = await db.from("work_orders")
       .select("*").eq("hotel_id", HOTEL_ID).eq("id", id).maybeSingle();
-    if (reloadError || !current) {
-      return NextResponse.json({ saved: true, error: "Your changes were saved, but the updated ticket could not be loaded. Reload it before making more changes." });
-    }
-    committed = current;
+    if (reloadError || !current) warnings.push("The current ticket could not be reloaded. Refresh it before making more changes.");
+    else committed = current;
   }
   if (isEngineeringWorkOrderActor(auth.principal.profile)) {
     try {
       await recordEngineeringWorkOrderView(auth.admin, { id, display_id: existing.display_id }, {
         id: auth.principal.identity.id,
       });
-    } catch (resolutionError) {
-      return NextResponse.json({ error: resolutionError instanceof Error ? resolutionError.message : "Technician notifications could not be resolved." }, { status: 503 });
+    } catch {
+      warnings.push("Technician notifications could not be refreshed.");
     }
   }
-  return NextResponse.json({ workOrder: { ...committed, can_correct_report: reportCorrectionAllowed(auth.principal.profile, committed.status, canReadWorkOrder(workOrderReader(auth.principal), committed)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, committed.room) } : {}) } });
+  return NextResponse.json({ workOrder: { ...committed, can_correct_report: reportCorrectionAllowed(auth.principal.profile, committed.status, canReadWorkOrder(workOrderReader(auth.principal), committed)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, committed.room) } : {}) }, ...(warnings.length ? { warning: warnings.join(" ") } : {}) });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

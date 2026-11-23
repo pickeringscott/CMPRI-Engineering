@@ -75,6 +75,20 @@ export async function rememberAskCmpriFolder(scopeKey: string, folder: AskCmpriF
   }
 }
 
+export async function forgetAskCmpriFolder(scopeKey: string) {
+  const database = await openFolderStore();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(folderStore, "readwrite");
+      transaction.objectStore(folderStore).delete(scopeKey);
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error);
+    });
+  } finally {
+    database.close();
+  }
+}
+
 export async function canUseAskCmpriFolder(folder: AskCmpriFolderHandle, request = false) {
   const permission = request
     ? await folder.requestPermission(permissionOptions)
@@ -119,18 +133,46 @@ async function unusedFileName(folder: AskCmpriFolderHandle, name: string) {
   }
 }
 
+/** A failed save with a target that could not be verified or safely cleaned up. */
+export class AskCmpriFolderSaveError extends Error {
+  constructor(readonly fileName: string) {
+    super("Check the selected folder before downloading another copy.");
+  }
+}
+
+async function removeEmptyTarget(folder: AskCmpriFolderHandle, target: FileSystemFileHandle, name: string) {
+  try {
+    const current = await folder.getFileHandle(name);
+    if (!await current.isSameEntry(target) || (await current.getFile()).size !== 0) return false;
+    await folder.removeEntry(name);
+    return true;
+  } catch (error) {
+    return error instanceof DOMException && error.name === "NotFoundError";
+  }
+}
+
 export async function saveAskCmpriFolderFile(folder: AskCmpriFolderHandle, name: string, blob: Blob) {
   const write = async () => {
-    const target = await folder.getFileHandle(await unusedFileName(folder, safeFileName(name)), { create: true });
-    const stream = await target.createWritable();
+    const candidate = await unusedFileName(folder, safeFileName(name));
+    const target = await folder.getFileHandle(candidate, { create: true });
+    let stream: FileSystemWritableFileStream | undefined;
+    let empty = false;
     try {
+      // An outside program could create the same name after our availability check.
+      empty = (await target.getFile()).size === 0;
+      if (!empty) throw new AskCmpriFolderSaveError(candidate);
+      stream = await target.createWritable();
       await stream.write(blob);
+      if ((await target.getFile()).size !== 0) throw new AskCmpriFolderSaveError(candidate);
       await stream.close();
     } catch (error) {
-      await stream.abort().catch(() => {});
+      await stream?.abort().catch(() => {});
+      if (!empty || !await removeEmptyTarget(folder, target, candidate)) throw new AskCmpriFolderSaveError(candidate);
       throw error;
     }
-    return target.getFile();
+    // close() is the commit. An error reading the committed file must not
+    // send another copy to the browser's download folder.
+    return await target.getFile().catch(() => new File([blob], candidate, { type: blob.type }));
   };
   const result = pendingWrite.then(async () => navigator.locks
     ? await navigator.locks.request("cmpri-engineering-file-write", write)
@@ -145,7 +187,8 @@ export async function downloadAskCmpriFile(scopeKey: string, name: string, blob:
     try {
       await saveAskCmpriFolderFile(folder, name, blob);
       return "folder" as const;
-    } catch {
+    } catch (error) {
+      if (error instanceof AskCmpriFolderSaveError) throw error;
       /* The browser download remains available after a folder permission changes. */
     }
   }

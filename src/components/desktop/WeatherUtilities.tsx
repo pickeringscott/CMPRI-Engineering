@@ -12,15 +12,15 @@ type WeatherVisuals = {
   condition: (description: string | null, options: { icon: string | null; isDaytime: boolean | null }) => SVGElement;
 };
 
-const DESKTOP = "(min-width: 64rem)";
+const DESKTOP = "(min-width: 701px) and (hover: hover)";
 const REFRESH_INTERVAL = 10 * 60 * 1000;
 const CENTER_X = 51.6, CENTER_Y = 49, RADIUS = 42.5;
 const ARC_START = 210, ARC_SPAN = 300, HIGH_ANGLE = 321, LOW_ANGLE = 498;
 const UNKNOWN_COLOR = "#373a40";
 
-function onArc(angle: number) {
+function onArc(angle: number, radius = RADIUS) {
   const radians = angle * Math.PI / 180;
-  return { x: CENTER_X + RADIUS * Math.sin(radians), y: CENTER_Y - RADIUS * Math.cos(radians) };
+  return { x: CENTER_X + radius * Math.sin(radians), y: CENTER_Y - radius * Math.cos(radians) };
 }
 
 function dialArc(visuals: WeatherVisuals | null, high: number | null, low: number | null) {
@@ -66,13 +66,20 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
   const isDaytime = data?.isDaytime ?? null;
 
   useEffect(() => {
-    conditionHost.current?.replaceChildren(...(visuals ? [visuals.condition(condition, { icon, isDaytime })] : []));
+    const drawing = visuals?.condition(condition, { icon, isDaytime });
+    const cloud = drawing?.querySelector<SVGPathElement>(".wv-cloud:only-of-type");
+    if (drawing?.dataset.condition === "cloud" && drawing.childElementCount === 2 && cloud) {
+      cloud.setAttribute("d", "M22 35h-4a8 8 0 1 1 6-14m-5-3a14 14 0 0 1 27-2m-5 9a8 8 0 0 0-10 5m0 0a5 5 0 1 0-2 5h20a6 6 0 1 0-5-9");
+    }
+    conditionHost.current?.replaceChildren(...(drawing ? [drawing] : []));
   }, [condition, icon, isDaytime, visuals]);
 
   const high = data?.high ?? null, low = data?.low ?? null, current = data?.current ?? null;
   const range = high !== null && low !== null && high > low && current !== null
     ? Math.min(1, Math.max(0, (high - current) / (high - low))) : 0.5;
-  const bead = onArc(HIGH_ANGLE + range * (LOW_ANGLE - HIGH_ANGLE));
+  const beadAngle = HIGH_ANGLE + range * (LOW_ANGLE - HIGH_ANGLE);
+  const nearestMarker = Math.min(beadAngle - HIGH_ANGLE, LOW_ANGLE - beadAngle);
+  const bead = onArc(beadAngle, nearestMarker < 13 ? RADIUS - 10 : RADIUS);
   const arc = dialArc(visuals, high, low);
   const endpoints = [onArc(ARC_START), onArc(ARC_START + ARC_SPAN)];
   const markers = [
@@ -113,18 +120,17 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
             <path d="M23.9 51.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
             <path d="M23.9 57.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
           </g>
-          <text x="27" y="61.1" className={styles.precipitation}>{precipitation}</text>
-          <text x="74" y="55.8" className={styles.wind}>{wind}<tspan className={styles.windUnit}> mph</tspan></text>
-          <circle cx="74.5" cy="64.5" r="4" className={styles.windCircle} />
-          {data?.wind === 0 ? <circle cx="74.5" cy="64.5" r="1" className={styles.calm} /> : data?.bearing != null && data?.wind != null ? (
-            <path d="M74.5 62v5m-1.5-1.6 1.5 1.6 1.5-1.6" transform={`rotate(${data.bearing} 74.5 64.5)`} className={styles.windArrow} />
+          <text x="27" y="61.1" className={styles.precipitation} textLength={precipitation.length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs">{precipitation}</text>
+          <text x="75.1" y="55.8" className={styles.wind}>{wind}<tspan className={styles.windUnit}> mph</tspan></text>
+          <circle cx="75.1" cy="62.4" r="4.2" className={styles.windCircle} />
+          {data?.wind === 0 ? <circle cx="75.1" cy="62.4" r="1" className={styles.calm} /> : data?.bearing != null && data?.wind != null ? (
+            <path d="M75.1 60v4.8m-1.5-1.6 1.5 1.6 1.5-1.6" transform={`rotate(${data.bearing} 75.1 62.4)`} className={styles.windArrow} />
           ) : null}
-          <rect x="30" y="69.5" width="20" height="9.4" rx="4.7" fill={arc.lowColor} />
-          <rect x="53" y="69.5" width="20" height="9.4" rx="4.7" fill={arc.highColor} />
-          <text x="40" y="76.3" fill={temperatureInk(arc.lowColor)} className={styles.extreme}>{temperature(low)}</text>
-          <text x="63" y="76.3" fill={temperatureInk(arc.highColor)} className={styles.extreme}>{temperature(high)}</text>
+          <rect x="34" y="67.6" width="17.2" height="8.2" rx="4.1" fill={arc.lowColor} />
+          <rect x="52.2" y="67.6" width="17.2" height="8.2" rx="4.1" fill={arc.highColor} />
+          <text x="42.6" y="74.1" textLength={temperature(low).length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs" fill={temperatureInk(arc.lowColor)} className={styles.extreme}>{temperature(low)}</text>
+          <text x="60.8" y="74.1" textLength={temperature(high).length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs" fill={temperatureInk(arc.highColor)} className={styles.extreme}>{temperature(high)}</text>
           {moon ? <g transform={`translate(${CENTER_X} 89.7)`}>
-            <circle r="4.2" className={styles.moon} />
             <path d={moon} className={styles.moonLight} />
           </g> : null}
         </svg>

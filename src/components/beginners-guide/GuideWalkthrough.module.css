@@ -31,6 +31,7 @@
 }
 
 .viewModes,
+.sampleModes,
 .actionLinks {
   display: flex;
   flex-wrap: wrap;
@@ -39,6 +40,7 @@
 }
 
 .viewModes button,
+.sampleModes button,
 .tryButton {
   min-height: 2.5rem;
   padding: 0.35rem 0.625rem;
@@ -50,13 +52,15 @@
 }
 
 .viewModes button[aria-pressed="true"],
+.sampleModes button[aria-pressed="true"],
 .tryButton {
   border-color: var(--guide-accent);
   background: var(--guide-accent);
   color: var(--guide-ink);
 }
 
-.viewModes button[aria-pressed="false"]:hover {
+.viewModes button[aria-pressed="false"]:hover,
+.sampleModes button:not([aria-pressed="true"]):hover {
   border-color: var(--guide-accent);
 }
 

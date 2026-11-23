@@ -83,6 +83,10 @@ test('window layouts are remembered per user and work-order windows share a layo
 
 test('desktop routes open same-origin screens as embedded windows', () => {
   assert.equal(desktopWindowKeyForHref('/engineering/pool-log?date=2026-01-01', origin), '/engineering/pool-log');
+  assert.equal(desktopWindowKeyForHref('/management/equipment?asset=one&modalToken=token', origin), '/management/equipment?asset=one');
+  assert.notEqual(desktopWindowKeyForHref('/management/equipment?asset=one', origin), desktopWindowKeyForHref('/management/equipment?asset=two', origin));
+  assert.equal(desktopWindowKeyForHref('/notes?note=one', origin), '/notes?note=one');
+  assert.equal(windowLayoutKey('/management/equipment?asset=one'), '/management/equipment');
   assert.equal(isDesktopRoute('/management/rooms', origin), true);
   assert.equal(isDesktopRoute('https://elsewhere.example/x', origin), false);
   assert.equal(isDesktopRoute('/api/work-orders', origin), false);
@@ -142,7 +146,7 @@ test('dashboard notifications live in the database, scoped to the signed-in user
   assert.doesNotMatch(route, /\.delete\(/);
   assert.match(route, /target_path: notification\.target_path \|\| null/);
   assert.doesNotMatch(dashboard, /saveDashboardInbox|addEventListener\("storage"|detectNewOrders/);
-  assert.match(dashboard, /if \(notification\.target_path\) openRoute\(notification\.target_path, "Daily Room Ops"\)/);
+  assert.match(dashboard, /if \(notification\.target_path && isDesktopRoute[\s\S]*?else openRoute\(notification\.target_path, "Daily Room Ops", undefined, captureWindowLauncher\(opener\)\)/);
   assert.match(roomOpsMigration, /alter column work_order_id drop not null/);
   assert.match(roomOpsMigration, /add column if not exists target_path text/);
   assert.match(goLiveMigration, /add column if not exists read_at timestamptz/i);

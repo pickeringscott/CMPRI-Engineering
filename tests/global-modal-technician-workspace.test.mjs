@@ -9,7 +9,7 @@ import * as registry from '../src/lib/open-work-orders.ts';
 import * as workspace from '../src/lib/ui/workspace-resume.ts';
 import * as windowTelescope from '../src/lib/ui/window-telescope.ts';
 import { uiLanguageDependency } from './helpers/ui-language.mjs';
-import { defaultWindowRect } from '../src/lib/ui/desktop-windows.ts';
+import * as desktopWindows from '../src/lib/ui/desktop-windows.ts';
 
 const dom = new JSDOM('<!doctype html><html><body><main><header></header><div data-cmpri-technician-window-anchor></div></main><div id="root"></div></body></html>', {
   url: 'https://cmpri.test/technician', pretendToBeVisual: true,
@@ -38,7 +38,7 @@ const globals = {
     if (name === '@/lib/ui/workspace-resume') return workspace;
     if (name === '@/lib/ui/window-telescope') return windowTelescope;
     if (name === '@/lib/ui/workspace-route-access') return { canResumeWorkspaceView: () => true };
-    if (name === '@/lib/ui/desktop-windows') return { defaultWindowRect };
+    if (name === '@/lib/ui/desktop-windows') return desktopWindows;
     if (name === '@/lib/auth/client-session') return { loadCmpriSession: async () => { reads++; return session; } };
     if (name === './desktop/WeatherPreviewWindow') return { default: props => React.createElement('button', {
       'data-weather-stub': '', 'data-visible': String(props.visible), onClick: props.onClose,

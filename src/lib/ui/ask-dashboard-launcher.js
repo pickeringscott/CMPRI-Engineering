@@ -134,7 +134,7 @@ function paintOutline(canvas, context, pill, tab, stroke, capsuleFill, tabFill, 
  * @param {HTMLElement} root
  * @param {string} scope property and account
  * @param {(text: string) => string} translate
- * @param {{modalOpen:boolean,voiceActive:boolean,voiceStatus:string,voiceDraft:string,query:string}} [initial]
+ * @param {{modalOpen:boolean,voiceActive:boolean,voiceStatus:string,voiceDraft:string,voiceFallback:boolean,query:string}} [initial]
  */
 export function mountAskDashboardLauncher(root, scope, translate, initial) {
   const header = root.closest('header.cmpri-dashboard-titlebar');
@@ -149,9 +149,10 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
   let voiceActive = initial?.voiceActive ?? false;
   let voiceStatus = initial?.voiceStatus ?? '';
   let voiceDraft = initial?.voiceDraft ?? '';
+  let voiceFallback = initial?.voiceFallback ?? false;
 
   const events = new AbortController();
-  const on = (target, type, handler) => target.addEventListener(type, handler, { signal: events.signal });
+  const on = (target, type, handler, options) => target.addEventListener(type, handler, { ...options, signal: events.signal });
   const native = fields.map((field) => ({
     field,
     legend: field.querySelector('legend'),
@@ -171,6 +172,9 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
   const legend = native[0].legend.cloneNode(false);
   legend.id = 'desktop-ask-tab';
   legend.removeAttribute('style');
+  legend.style.maxWidth = 'none';
+  legend.style.width = 'max-content';
+  legend.style.boxSizing = 'border-box';
   tab.dataset.askLauncherTab = '';
   legend.setAttribute('aria-controls', 'desktop-ask-search');
   legend.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
@@ -228,7 +232,25 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
   outgoing.textContent = nextHint();
   incoming.textContent = nextHint(outgoing.textContent);
 
+  let activeNativeDialog = null;
+
+  function positionFormHost(dialog) {
+    const canUsePopover = typeof form.showPopover === 'function';
+    const host = !modalOpen && desktop.matches && canUsePopover && dialog?.id !== 'ask-cmpri' && dialog ? dialog : rail;
+    if (form.parentElement === host) return;
+    if (form.hasAttribute('popover')) {
+      if (form.isConnected && form.matches(':popover-open')) form.hidePopover();
+      form.removeAttribute('popover');
+    }
+    host.append(form);
+    if (host !== rail) {
+      form.setAttribute('popover', 'manual');
+      form.showPopover();
+    }
+  }
+
   function placeForm() {
+    positionFormHost(activeNativeDialog);
     if (!desktop.matches) {
       document.body.style.removeProperty('--ask-launcher-clearance');
       return;
@@ -265,8 +287,9 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
     const width = Math.min(desired, rightEdge + railBounds.left - 2);
     const left = Math.min(anchorLeft, rightEdge - width);
     form.style.width = width + 'px';
-    form.style.left = left + 'px';
-    form.style.top = (labelBounds.bottom - railBounds.top + 1) + 'px';
+    const hosted = form.parentElement !== rail;
+    form.style.left = (left + (hosted ? railBounds.left : 0)) + 'px';
+    form.style.top = (labelBounds.bottom - (hosted ? 0 : railBounds.top) + 1) + 'px';
     form.style.setProperty('--desktop-ask-idle-caret-inset', Math.max(0, preferredLeft - left) + 'px');
     form.style.setProperty('--desktop-ask-border', labelStyle.borderLeftColor);
     const pillBounds = form.getBoundingClientRect();
@@ -284,8 +307,7 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
       incoming.textContent = nextHint(outgoing.textContent, hintSource);
     }
     const bottom = Math.max(pillBounds.bottom, status.getBoundingClientRect().bottom);
-    if (modalOpen) document.body.style.removeProperty('--ask-launcher-clearance');
-    else document.body.style.setProperty('--ask-launcher-clearance', Math.ceil(bottom + 8) + 'px');
+    document.body.style.setProperty('--ask-launcher-clearance', Math.ceil(bottom + 8) + 'px');
   }
 
   function updateVoice() {
@@ -296,6 +318,7 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
     draft.hidden = !voiceActive || !!input.value || !voiceDraft;
     draft.textContent = voiceDraft;
     status.hidden = !voiceActive || !voiceStatus;
+    status.classList.toggle('sr-only', !voiceFallback);
     status.textContent = voiceStatus;
     placeForm();
   }
@@ -305,7 +328,7 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
     const field = getComputedStyle(form);
     const leftChrome = (parseFloat(field.borderLeftWidth) || 0) + parseFloat(field.paddingLeft) +
       (star.offsetWidth || 16) + parseFloat(field.columnGap);
-    const rightChrome = (voiceActive ? 18 : 0) + 9;
+    const rightChrome = (voiceActive ? stop.offsetWidth || 18 : 0) + 9;
     const widthLimit = document.documentElement.clientWidth - 4 - leftChrome - rightChrome;
     if (measure) {
       measure.font = styles.fontStyle + ' ' + styles.fontWeight + ' ' + styles.fontSize + ' ' + styles.fontFamily;
@@ -432,18 +455,28 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
     const askEnd = renderedPosition + tabWidth;
     let occupiedEnd = askEnd + spacing;
     let followingField = null;
+    let layoutChanged = false;
     neighbors.forEach(entry => {
       let left = entry.x;
-      if (desktop.matches && left < occupiedEnd && left + entry.width + spacing > renderedPosition) {
+      if (desktop.matches && !entry.field.classList.contains('dragging') &&
+          left < occupiedEnd && left + entry.width + spacing > renderedPosition) {
         left = occupiedEnd;
         occupiedEnd = left + entry.width + spacing;
       }
       if (!followingField && left > renderedPosition) followingField = entry.field;
       const cssLeft = left + 'px';
-      if (entry.field.style.left !== cssLeft) entry.field.style.left = cssLeft;
+      if (entry.field.style.left !== cssLeft) {
+        entry.field.style.left = cssLeft;
+        layoutChanged = true;
+      }
     });
-    tab.style.left = renderedPosition + 'px';
+    const tabLeft = renderedPosition + 'px';
+    if (tab.style.left !== tabLeft) {
+      tab.style.left = tabLeft;
+      layoutChanged = true;
+    }
     if (desktop.matches && tab.nextElementSibling !== followingField) row.insertBefore(tab, followingField);
+    if (layoutChanged) root.dispatchEvent(new Event('cmpri-menu-placement'));
   }
 
   function arrangeTabs() {
@@ -458,11 +491,11 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
     if (persist) savePosition(scope, renderedPosition);
   }
 
-  function open(opener, voice = false) {
+  function open(opener, voice = false, tab) {
     if (modalOpen) return;
     const query = opener === star ? rawSearch.trim() : '';
     window.dispatchEvent(new CustomEvent('cmpri-ask-open', {
-      detail: { query: query || undefined, voice, opener }
+      detail: { query: query || undefined, voice, opener, tab }
     }));
   }
 
@@ -534,6 +567,7 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
     voiceActive = state.voiceActive === true;
     voiceStatus = state.voiceStatus || '';
     voiceDraft = state.voiceDraft || '';
+    voiceFallback = state.voiceFallback === true;
     reflowSearch();
     updateVoice();
     syncVisibility();
@@ -552,7 +586,7 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
   on(input, 'keydown', (event) => {
     if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
     event.preventDefault();
-    if (rawSearch.trim()) open(star);
+    open(star, false, 'search');
   });
   on(input, 'beforeinput', () => {
     beforeEdit = { start: input.selectionStart, end: input.selectionEnd };
@@ -566,15 +600,28 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
     event.preventDefault();
     event.clipboardData.setData('text/plain', rawSearch.slice(start, end));
   });
-  on(outgoing, 'animationiteration', () => {
-    outgoing.textContent = incoming.textContent;
-    incoming.textContent = nextHint(outgoing.textContent, hintSource);
-  });
+  on(outgoing, 'animationiteration', () => { outgoing.textContent = nextHint(incoming.textContent, hintSource); });
+  on(incoming, 'animationiteration', () => { incoming.textContent = nextHint(outgoing.textContent, hintSource); });
   on(scroller, 'scroll', placeForm);
   on(desktop, 'change', () => { arrangeTabs(); syncVisibility(); });
 
   const resize = new ResizeObserver(arrangeTabs);
   resize.observe(rail);
+  function syncNativeDialog(preferred) {
+    const dialogs = [...document.querySelectorAll('dialog:modal')];
+    const focused = document.activeElement?.closest('dialog:modal');
+    const next = [preferred, focused, activeNativeDialog].find(dialog => dialogs.includes(dialog)) || dialogs.at(-1);
+    if (activeNativeDialog === next) return;
+    activeNativeDialog = next;
+    placeForm();
+  }
+  const nativeLayer = new MutationObserver(records => {
+    const changed = records.filter(change => change.target instanceof HTMLDialogElement);
+    if (changed.length || activeNativeDialog && !activeNativeDialog.isConnected) syncNativeDialog(changed.at(-1)?.target);
+  });
+  nativeLayer.observe(document.body, { attributes: true, attributeFilter: ['open'], childList: true, subtree: true });
+  on(document, 'close', () => syncNativeDialog(), { capture: true });
+  syncNativeDialog();
   const menuLayout = new MutationObserver(arrangeTabs);
   for (const { field, legend } of native) {
     menuLayout.observe(field, { attributes: true, attributeFilter: ['style', 'class'] });
@@ -586,12 +633,13 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
   updateVoice();
 
   return {
-    getState() { return { modalOpen, voiceActive, voiceStatus, voiceDraft, query: rawSearch }; },
+    getState() { return { modalOpen, voiceActive, voiceStatus, voiceDraft, voiceFallback, query: rawSearch }; },
     setPresentation(t) { setPresentation(t); arrangeTabs(); },
     dispose() {
       events.abort();
       resize.disconnect();
       menuLayout.disconnect();
+      nativeLayer.disconnect();
       document.body.style.removeProperty('--ask-launcher-clearance');
       tab.remove();
       form.remove();

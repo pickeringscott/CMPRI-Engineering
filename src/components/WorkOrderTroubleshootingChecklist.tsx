@@ -7,7 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createClient, getValidSession } from "@/lib/supabase/client";
 import type { CmpriClientSession } from "@/lib/auth/client-session";
 import { taskEditable, type PmTaskState } from "@/lib/pm/task-review";
-import { changeTroubleshootingTask,troubleshootingTaskVisual, type TroubleshootingChecklist, type TroubleshootingChecklistStep } from "@/lib/work-orders/troubleshooting-checklist";
+import { canSaveTroubleshootingAttempt, changeTroubleshootingTask, saveTroubleshootingAttempt, troubleshootingOutcomes, troubleshootingTaskVisual, type TroubleshootingAttempt, type TroubleshootingChecklist, type TroubleshootingChecklistStep, type TroubleshootingTaskState } from "@/lib/work-orders/troubleshooting-checklist";
 import { subscribeResources } from "@/lib/events/browser";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { troubleshootingVisit } from "@/lib/work-orders/troubleshooting-visits";
@@ -57,6 +57,23 @@ function chartParts(label: string): { context: string; detail: string } | null {
   return { context: parts.slice(0, -2).join(" — "), detail: parts.slice(-2).join(" — ") };
 }
 
+function OutcomeFields({ state, label, disabled, onSave }: { state: TroubleshootingTaskState; label: string; disabled: boolean; onSave: (attempt: TroubleshootingAttempt) => void }) {
+  const { t } = useUiLanguage();
+  const [outcome, setOutcome] = useState<TroubleshootingAttempt["outcome"]>(state.outcome || "");
+  const [observation, setObservation] = useState(state.observation || "");
+  const changed = outcome !== (state.outcome || "") || observation.trim() !== (state.observation || "");
+  return <div className="mt-1 flex flex-wrap items-center gap-1 text-xs leading-5">
+    <label className="flex items-center gap-1">{t("Outcome", "Resultado")}
+      <select aria-label={`${t("Outcome", "Resultado")}: ${label}`} value={outcome} disabled={disabled} onChange={event => setOutcome(event.target.value as TroubleshootingAttempt["outcome"])} className="rounded border border-slate-700 bg-slate-950 px-1">
+        <option value="">{t("Select outcome", "Selecciona un resultado")}</option>
+        {troubleshootingOutcomes.map(value => <option key={value} value={value}>{t(value)}</option>)}
+      </select>
+    </label>
+    <input aria-label={`${t("Observation", "Observación")}: ${label}`} placeholder={t("Add observation", "Añadir observación")} maxLength={140} value={observation} disabled={disabled} onChange={event => setObservation(event.target.value)} className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-950 px-1" />
+    <button type="button" disabled={disabled || !changed} className="rounded border border-sky-700 px-1 text-sky-200" onClick={() => onSave({ outcome, observation: observation.trim() })}>{t("Save outcome", "Guardar resultado")}</button>
+  </div>;
+}
+
 /** PM completion/review visuals with explicit work-order ownership for clearing. */
 export default function WorkOrderTroubleshootingChecklist({ workOrderId, session, expectedContextIdentity, ticketRevision, disabledReason, manualUrl, sourceFileName, assetId, sourceSha256, visitId, isOpen = true, onRestartRevision, registerExitFlush, previewSteps,previewReadOnly=false }: Props) {
   const { t, tt } = useUiLanguage();
@@ -90,7 +107,7 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
 
   useEffect(() => previewReadOnly?undefined:registerExitFlush?.(() => getVisit().flush()), [getVisit, registerExitFlush,previewReadOnly]);
 
-  const request = useCallback(async function fetchChecklist(itemId?: string, current?: TroubleshootingChecklistResponse, action: "toggle" | "clear" = "toggle") {
+  const request = useCallback(async function fetchChecklist(itemId?: string, current?: TroubleshootingChecklistResponse, action: "toggle" | "clear" | "details" = "toggle", attempt?: TroubleshootingAttempt) {
     if (inFlight.current) { if (!itemId) refreshPending.current = true; return; }
     if (disabledReason || !expectedContextIdentity) return;
     inFlight.current = true;
@@ -112,17 +129,21 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
       setError(null);
       if(itemId&&current?.previewReadOnly){
         if(current.contextIdentity!==expectedContextIdentity||!current.steps.some(step=>step.id===itemId))throw Error('The guide changed. Reopen it before checking a step.');
-        const states={...current.taskStates,[itemId]:changeTroubleshootingTask(current,current.taskStates[itemId],action)};
+        const before = current.taskStates[itemId];
+        const next = action === "details" && attempt ? saveTroubleshootingAttempt(current, before, attempt) : changeTroubleshootingTask(current, before, action === "clear" ? "clear" : "toggle");
+        const states = { ...current.taskStates, [itemId]: next };
         savePreview(current,states);setResult({scope,value:{...current,taskStates:states,revision:current.revision+1}});return;
       }
       if (itemId) {
-        if (!current || (action === "clear" ? !canClear(current, current.taskStates[itemId]) : !current.canEdit || !taskEditable(current.taskStates[itemId], current.actor))) throw new Error("This completion cannot be changed by this user.");
+        if (!current || (action === "clear" ? !canClear(current, current.taskStates[itemId])
+          : action === "details" ? !canSaveTroubleshootingAttempt(current, current.taskStates[itemId])
+          : !current.canEdit || !taskEditable(current.taskStates[itemId], current.actor))) throw new Error("This completion cannot be changed by this user.");
         getVisit().remember();
       }
       const init: RequestInit = {
         method: itemId ? "PATCH" : "GET",
         headers: { Authorization: `Bearer ${token}`, ...(itemId ? { "Content-Type": "application/json" } : {}) },
-        ...(itemId ? { body: JSON.stringify({ contextKey: current!.contextKey, expectedRevision: current!.revision, itemId, action, visitId, mutationId: crypto.randomUUID() }), keepalive: true } : {}),
+        ...(itemId ? { body: JSON.stringify({ contextKey: current!.contextKey, expectedRevision: current!.revision, itemId, action, visitId, mutationId: crypto.randomUUID(), ...(attempt ? { attempt } : {}) }), keepalive: true } : {}),
         cache: "no-store",
         signal: controller.signal,
       };
@@ -296,7 +317,11 @@ export default function WorkOrderTroubleshootingChecklist({ workOrderId, session
               </button>
               <div className="min-w-0 flex-1">
                 <p className="text-sm leading-4 text-slate-200">{chart?.detail || step.label}{semantics && <span data-source-semantics={semantics.kind} aria-label={t("Source label: {label}", {label: semantics.label})} className="ml-1 inline-block rounded-sm border px-1 align-middle text-[10px] leading-3" style={{ color: semantics.color, borderColor: semantics.color }}>{semantics.label}</span>}</p>
+                <p className="text-xs text-slate-400">{t("Tried", "Intentado")}</p>
                 <p id={`troubleshooting-status-${step.id}`} className={showStatus ? "text-[10px] leading-3 text-slate-400" : "sr-only"}>{busy === step.id ? t("Saving…") : t(status)}{state?.workerName ? ` · ${t("Completed by {name}", {name: state.workerName})}` : ""}{state?.reviewedBy ? ` · ${t("Reviewed by {name}", {name: state.reviewedBy})}` : ""}</p>
+                {state && canSaveTroubleshootingAttempt(display, state)
+                  ? <OutcomeFields key={JSON.stringify([state.outcome, state.observation])} state={state} label={step.label} disabled={blocked} onSave={attempt => void request(step.id, display, "details", attempt)} />
+                  : state && (state.outcome || state.observation) && <p className="text-xs text-slate-300">{[state.outcome && t(state.outcome), state.observation].filter(Boolean).join(" · ")}</p>}
                 {!!step.media?.length && assetId && stepSha256 && expectedContextIdentity && <WorkOrderStepMedia media={step.media} assetId={assetId} sourceSha256={stepSha256} userId={session.user.id} contextIdentity={expectedContextIdentity} />}
                 {!chart && !step.media?.length && stepManualUrl && step.sourcePages?.length ? <ManualSourceFrame userId={session.user.id} href={`${stepManualUrl}#page=${step.sourcePages[0]}&toolbar=0`} title={t("Manual source page {page}", {page: step.sourcePages[0]})} /> : null}
               </div>

@@ -1,6 +1,6 @@
 .overlay {
   position: absolute;
-  z-index: 4;
+  z-index: 20;
   inset: 0;
   display: grid;
   min-height: 0;
@@ -202,6 +202,28 @@
   display: none;
 }
 
+.feedback:empty {
+  display: block;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.sourceExcerpt {
+  padding: 8px;
+  border: 1px solid var(--ask-edge, #7b492a);
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+.sourceExcerpt p {
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .heading h3 {
   margin: 0;
   font-size: 13px;
@@ -271,6 +293,16 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
+  }
+}
+
+@media (max-width: 700px), (pointer: coarse) {
+  .overlay {
+    position: fixed;
+    width: 100%;
+    height: 100dvh;
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   }
 }
 

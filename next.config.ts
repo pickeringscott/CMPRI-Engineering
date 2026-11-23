@@ -22,6 +22,7 @@ const nextConfig: NextConfig = {
 		"/api/assets/documentation/ocr/dispatch": [...PDF_RUNTIME, ...OCR_RUNTIME],
 		"/api/maintenance-reference": [...PDF_RUNTIME, ...OCR_RUNTIME],
 		"/api/work-orders/*/troubleshooting": [...PDF_RUNTIME, ...OCR_RUNTIME],
+		"/api/ask-cmpri/troubleshooting": PDF_RUNTIME,
 		"/api/assets": PDF_RUNTIME,
 		"/api/assets/documentation": [...PDF_RUNTIME, ...OCR_RUNTIME],
 	},

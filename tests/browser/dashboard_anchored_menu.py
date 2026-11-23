@@ -312,6 +312,10 @@ async def check_wake_and_scroll(browser, width):
     assert int(await daily.evaluate("node => node.style.zIndex")) > int(await rooms.evaluate("node => node.style.zIndex"))
 
     await (rooms_tab.tap() if touch else rooms_tab.click())
+    await expect(rooms_tab).to_have_attribute("aria-expanded", "false")
+    await expect(daily).to_have_attribute("data-active", "true")
+    await (rooms_tab.tap() if touch else rooms_tab.click())
+    await expect(rooms_tab).to_have_attribute("aria-expanded", "true")
     row = rooms.locator(".buttons")
     if not touch:
         edge = rooms.locator(".resize-edge")

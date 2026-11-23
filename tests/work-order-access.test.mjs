@@ -167,7 +167,7 @@ function fixture(config={}){
       };
       if(name==='@/lib/server/work-order-notification-resolution')return {
         isEngineeringWorkOrderActor:profile=>['Engineer','Chief Engineer','system_admin'].includes(profile?.role),
-        recordEngineeringWorkOrderView:async()=>{},
+        recordEngineeringWorkOrderView:async()=>{if(config.notificationError)throw new Error("Notification failure");},
       };
       if(name==='@/lib/server/work-order-assignment')return {canAccessWorkOrderByAssignment};
       if(name==='@/lib/work-order-edit-policy')return editPolicyExports;
@@ -196,6 +196,14 @@ function fixture(config={}){
 
 for(const config of [{profile:null},{profile:{active:false,role:'Engineer'}},{profile:{active:null,role:'Engineer'}},{profileError:true},{permissionError:true},{denied:true},{profile:{active:true,role:'Front Desk'}},{profile:{active:true,role:'Housekeeping'}}])test(`rejects unauthorized edit ${JSON.stringify(config)}`,async()=>{
   const f=fixture(config);assert.equal((await f.run()).status,403);assert.equal(f.writes(),0);
+});
+
+test("notification refresh failure after commit still acknowledges the saved work order", async () => {
+  const route = fixture({ body: { status: "Completed" }, notificationError: true });
+  const response = await route.run();
+  assert.equal(response.status, 200);
+  assert.equal(route.saved().status, "Completed");
+  assert.match(response.body.warning, /notifications could not be refreshed/i);
 });
 
 for(const config of [{badJson:true},{nullBody:true},{status:'Duplicate'},{status:'invented'}])test(`rejects invalid edit ${JSON.stringify(config)}`,async()=>{

@@ -106,7 +106,13 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
   const styledGroups=(JSON.parse(signature) as MenuGroup<T>[]).map(group=>({
    ...group,items:group.items.map(action=>({...action,style:modalLauncherStyle(action.key,action.label)})),
   }));
-  const launch=(action:T,at:number,opener?:HTMLButtonElement)=>latest.current(action,at,opener);
+  const launch=(action:T,at:number,opener?:HTMLButtonElement)=>{
+   if(askEnabled&&action.key==='/staff-notes'){
+    window.dispatchEvent(new CustomEvent('cmpri-ask-open',{detail:{tab:'staff',opener}}));
+    return;
+   }
+   latest.current(action,at,opener);
+  };
   const mount=()=>{
    const askState=askLauncher?.getState() ?? (savedAskState.current?.scope===askScope ? savedAskState.current.state : undefined);
    askLauncher?.dispose();

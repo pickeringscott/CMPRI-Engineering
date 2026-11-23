@@ -14,7 +14,9 @@ function fixture(body,config={}) {
   const profile={active:true,role:'Front Desk',full_name:'Shared Desk',...config.profile};
   const assets=config.assets??[{id:'asset',location_id:config.wrongAsset?'other':'location-409',name:'Verified sink',asset_type:'Plumbing',active:true}];
   const db={from(table){return {
-    select(){return this;},eq(){return this;},in(){return this;},range(from,to){
+    select(){return this;},eq(){return this;},in(){return this;},delete(){return this;},
+    maybeSingle:async()=>({data:table==='cmpri_work_order_drafts'?config.draft:table==='profiles'?{...profile,id:'shared-id'}:null,error:null}),
+    range(from,to){
       const rows = table === 'assets' ? assets : (config.existing || []);
       return Promise.resolve({data: rows.slice(from, to + 1), error: (table === 'assets' ? config.assetLookupError : config.duplicateError) ? {message:'Unavailable'} : null});
     },
@@ -60,6 +62,26 @@ test('batch submissions attribute every ticket to the same first name and accoun
   const f=fixture({orders:[order,{...order,issue:'Door sticks'}],staff_first_name:' Scott '});
   assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes.length,2);assert.ok(f.writes.every(row=>row.creator_name==='Scott'&&row.created_by==='shared-id'&&row.creator_source==='front_desk_pending_verification'));
 });
+test('legacy Sales Manager submits with the same shared first-name attribution as Front Desk',async()=>{
+  const config={profile:{role:'Sales Manager'},propertyPrincipal:true};
+  const missing=fixture({orders:[order]},config);
+  assert.equal((await missing.handler(missing.request)).status,400);
+  const named=fixture({orders:[{...order,priority:"Urgent"}],staff_first_name:"María"},config);
+  assert.equal((await named.handler(named.request)).status,200);
+  assert.equal(named.writes[0].creator_name,"María");
+  assert.equal(named.writes[0].priority,"Urgent");
+});
+
+test('a split draft saves both exact rooms and links the source only on its matching row',async()=>{
+  const config={propertyPrincipal:true,draft:{id:'draft-1',location_id:'location-409',created_by:'shared-id',revision:3,staff_first_name:'María',priority:'Urgent'},
+    locations:[{id:"location-409",name:"Room 409"},{id:"location-410",name:"Room 410"}]};
+  const response=fixture({source_draft_id:'draft-1',source_draft_revision:3,orders:[{...order,priority:undefined},
+    {...order,location_id:'location-410',issue:'Door sticks',priority:'Urgent'}]},config);
+  assert.equal((await response.handler(response.request)).status,200);
+  assert.deepEqual(response.writes.map(row=>[row.room,row.priority,row.source_draft_id,row.creator_name]),[
+    ["Room 409","Urgent","draft-1","María"],["Room 410","Urgent",undefined,"María"],
+  ]);
+});
 test('Housekeeping submissions retain department provenance without a front-desk name',async()=>{
   const f=fixture({orders:[order]}, {profile:{role:'Housekeeping',full_name:'Audit Housekeeping'}});
   assert.equal((await f.handler(f.request)).status,200);
@@ -91,7 +113,7 @@ test('all roles use inactivity-only drafts while submit-only role presentation r
   assert.match(source,/const isSubmitOnlyUser = isSubmitOnlyRole\(currentRole\)/);
   assert.match(roles,/export const isSubmitOnlyRole = \(role: unknown\) =>\s*\[\s*"front_desk", "housekeeping"\s*\]\.includes\(roleKey\(role\)\)/);
   assert.doesNotMatch(source,/const isSubmitOnlyUser = \[[^\n]*(?:front desk manager|assistant general manager)/i);
-  assert.match(source,/frontdeskmanager/);
+  assert.match(source,/const isFrontDeskUser = isFrontDesk\(currentRole\)/);
   assert.match(source,/setTimeout\(\(\) => \{ if \(!cancelled\) void saveDraft\(\); \}, 30 \* 60 \* 1000\)/);
 });
 test('issue-driven suggestions share inference with submit-only overrides',()=>{

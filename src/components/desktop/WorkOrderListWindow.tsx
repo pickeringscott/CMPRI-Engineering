@@ -181,8 +181,8 @@ export default function WorkOrderListWindow({
   orders: DesktopWorkOrder[];
   drafts?: DesktopWorkOrderDraft[];
   loading: boolean;
-  onOpenWorkOrder: (order: DesktopWorkOrder) => void;
-  onOpenDraft?: (draftId: string) => void;
+  onOpenWorkOrder: (order: DesktopWorkOrder, opener: HTMLButtonElement) => void;
+  onOpenDraft?: (draftId: string, opener: HTMLButtonElement) => void;
   preferencesScope?: string;
 }) {
   const { t, locale } = useUiLanguage();
@@ -319,7 +319,7 @@ export default function WorkOrderListWindow({
 
                   data-preview-status={order.status}
                   type="button"
-                  onClick={() => isDraft && sourceDraftId ? onOpenDraft?.(sourceDraftId) : onOpenWorkOrder(order)}
+                  onClick={event => isDraft && sourceDraftId ? onOpenDraft?.(sourceDraftId, event.currentTarget) : onOpenWorkOrder(order, event.currentTarget)}
                   aria-label={t("{value0} for {value1}: {value2}", { value0: String(t(isDraft ? "Review draft" : "Open work order")), value1: String(order.room || t("No location")), value2: String(order.issue || t("No issue description")) })}
                   className="flex w-full min-w-0 items-center gap-x-[0.5em] rounded-md border border-slate-700 bg-slate-900 px-[0.6em] py-[0.28em] text-left transition-colors hover:border-slate-500 hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-sky-400"
                 >

@@ -5,8 +5,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
 import { requireCapability } from "@/lib/server/auth";
 import { roleAllows } from "@/lib/server/roles";
+import { canSetFrontDeskWorkOrderPriority } from "@/lib/server/access";
 
 const MAX_DRAFTS = 100;
+const priorities = ["Low", "Medium", "High", "Urgent"];
 type Authorized = NonNullable<Awaited<ReturnType<typeof requireCapability>>>;
 
 function text(value: unknown, maximum: number, required = false) {
@@ -161,6 +163,11 @@ export async function POST(request: NextRequest) {
   }
   const canSetEngineeringFields = roleAllows(auth.principal.profile.role, "edit_tickets")
     || roleAllows(auth.principal.profile.role, "review_tickets");
+  const canChoosePriority = canSetEngineeringFields || canSetFrontDeskWorkOrderPriority(auth.principal);
+  const priority = text(body.priority, 100);
+  if (canChoosePriority && (priority === null || priority && !priorities.includes(priority))) {
+    return NextResponse.json({ error: "Select a valid priority." }, { status: 400 });
+  }
   // Compare only request-derived fields. The room label is copied from a
   // location and may have changed since the original draft was created.
   const requestRow = {
@@ -174,7 +181,7 @@ export async function POST(request: NextRequest) {
     asset_id: canSetEngineeringFields ? text(body.asset_id, 100) || null : null,
     asset_name: canSetEngineeringFields ? text(body.asset_name, 500) || "" : "",
     category: canSetEngineeringFields ? text(body.category, 500) || "General" : "General",
-    priority: canSetEngineeringFields ? text(body.priority, 100) || "Medium" : "Medium",
+    priority: canChoosePriority ? priority || (canSetEngineeringFields ? "Medium" : "") : "Medium",
   };
   const replayMatches = (existing: Record<string, unknown>) => Object.entries(requestRow).every(([key, value]) => existing[key] === value);
   const conflict = () => NextResponse.json({ error: "This draft save could not be safely retried. Keep your changes and check your saved drafts." }, { status: 409 });
@@ -261,8 +268,12 @@ export async function PATCH(request: NextRequest) {
   }
   const canSetEngineeringFields = roleAllows(auth.principal.profile.role, "edit_tickets")
     || roleAllows(auth.principal.profile.role, "review_tickets");
+  const canChoosePriority = canSetEngineeringFields || canSetFrontDeskWorkOrderPriority(auth.principal);
+  if (canChoosePriority && typeof update.priority === "string" && update.priority && !priorities.includes(update.priority)) {
+    return NextResponse.json({ error: "Select a valid priority." }, { status: 400 });
+  }
   if (Object.keys(update).length && !canSetEngineeringFields) {
-    Object.assign(update, { asset_id: null, asset_name: "", category: "General", priority: "Medium" });
+    Object.assign(update, { asset_id: null, asset_name: "", category: "General", ...(!canChoosePriority ? { priority: "Medium" } : {}) });
   }
   if (Object.prototype.hasOwnProperty.call(body, "location_id")) {
     const locationId = text(body.location_id, 100, true);
@@ -304,8 +315,12 @@ export async function DELETE(request: NextRequest) {
     && !roleAllows(auth.principal.profile.role, "review_tickets")) {
     return NextResponse.json({ error: "Only the submitter or an engineer/System Administrator can delete this draft." }, { status: 403 });
   }
+  const revision = request.nextUrl.searchParams.get("expected_revision");
+  if (revision !== null && Number(revision) !== existing.revision) {
+    return NextResponse.json({ error: "This draft changed. Reload it before deleting." }, { status: 409 });
+  }
   const { error } = await auth.admin.from("cmpri_work_order_drafts")
-    .delete().eq("hotel_id", HOTEL_ID).eq("id", id);
+    .delete().eq("hotel_id", HOTEL_ID).eq("id", id).eq("revision", existing.revision);
   if (error) return NextResponse.json({ error: "Draft could not be deleted." }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import type { UiValues } from "@/lib/i18n/ui";
 import {
+  AskCmpriFolderSaveError,
   canUseAskCmpriFolder,
   downloadAskCmpriFile,
+  forgetAskCmpriFolder,
   loadAskCmpriFolder,
   pickAskCmpriFolder,
   rememberAskCmpriFolder,
@@ -25,12 +28,31 @@ export type AskCmpriLocalFile = {
   text: string;
 };
 
+export type AskCmpriFilesStatus = { pending: number; error: string | null };
+export const ASK_MAX_FILES = 8;
+export const ASK_MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+const ticketAttachmentTypes: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+  bmp: "image/bmp", heic: "image/heic", heif: "image/heif", mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm",
+};
+
+export function isAskCmpriTicketMedia(file: Pick<File, "name" | "type">) {
+  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+  const contentType = ticketAttachmentTypes[extension];
+  const declared = file.type.toLowerCase();
+  return Object.hasOwn(ticketAttachmentTypes, extension) && (!declared || declared === "application/octet-stream" || contentType === declared);
+}
+
 type Props = {
   open: boolean;
   active: boolean;
   scopeKey: string;
+  scopeError?: string;
+  focusFileId?: string;
+  focusExcerpt?: AskCmpriLocalFile;
+  selectionReset?: number;
   onOpenFiles: () => void;
-  onFilesChange: (files: AskCmpriLocalFile[]) => void;
+  onFilesChange: (files: AskCmpriLocalFile[], status: AskCmpriFilesStatus) => void;
 };
 
 type Entry = {
@@ -44,7 +66,73 @@ type Entry = {
 
 const consentKey = "cmpri:ask-files-consent:v1";
 const contextLimit = 3_800;
+const noExcerpts: AskCmpriLocalFile[] = [];
 let consentInMemory = false;
+
+const filesSpanish: Record<string, string> = {
+  "Checking your CMPRI access…": "Comprobando tu acceso a CMPRI…",
+  "An excluded file has no readable text. Check the Files tab.": "Un archivo excluido no tiene texto legible. Revisa la pestaña Archivos.",
+  "Folder access was declined. You can pick another folder or choose files individually.": "Se rechazó el acceso a la carpeta. Puedes elegir otra carpeta o seleccionar los archivos uno por uno.",
+  "Selected folder connected.": "La carpeta seleccionada está conectada.",
+  "Folder connected for this session. Browser storage could not remember it.": "Carpeta conectada durante esta sesión. El navegador no pudo recordar la conexión.",
+  "Folder selection ended. The current folder is still connected.": "Terminó la selección. La carpeta actual sigue conectada.",
+  "Folder selection ended. You can choose files individually.": "Terminó la selección de carpeta. Puedes seleccionar archivos uno por uno.",
+  "In the folder picker, open Documents and select CMPRI-Engineering itself. You can also choose files individually.": "En el selector, abre Documentos y selecciona la carpeta CMPRI-Engineering. También puedes seleccionar archivos uno por uno.",
+  "Folder disconnected. Its files stay on this device.": "Carpeta desconectada. Sus archivos siguen en este dispositivo.",
+  "Folder disconnected for this session. Browser storage could not clear the remembered folder.": "Carpeta desconectada durante esta sesión. El navegador no pudo borrar la conexión guardada.",
+  "Check the selected folder. Ask CMPRI could not verify every saved copy. The original files are available this session.": "Revisa la carpeta seleccionada. Ask CMPRI no pudo verificar todas las copias. Los archivos originales están disponibles durante esta sesión.",
+  "Files are ready to select and saved in the connected folder.": "Los archivos están listos para seleccionar y se guardaron en la carpeta conectada.",
+  "Some files could not be saved in the connected folder. Those files are available this session.": "Algunos archivos no se pudieron guardar en la carpeta conectada. Están disponibles durante esta sesión.",
+  "Files are ready to select for Ask CMPRI.": "Los archivos están listos para seleccionar en Ask CMPRI.",
+  "Wait for the current folder operation, then add your files.": "Espera a que termine la operación de la carpeta antes de añadir archivos.",
+  "The folder save could not finish. Check your browser’s downloads.": "No se pudo completar el guardado en la carpeta. Revisa las descargas del navegador.",
+  "Download sent to your browser.": "Se envió la descarga al navegador.",
+  "Saved a copy in the selected folder.": "Se guardó una copia en la carpeta seleccionada.",
+  "Ask CMPRI could not verify the copy. Check the selected folder for {file} before downloading again.": "Ask CMPRI no pudo verificar la copia. Busca {file} en la carpeta seleccionada antes de volver a descargarlo.",
+  "Check the selected folder or your browser’s downloads to verify the copy.": "Revisa la carpeta seleccionada o las descargas del navegador para verificar la copia.",
+  "Select up to eight files. Clear one before adding another to Ask CMPRI.": "Selecciona hasta ocho archivos. Desmarca uno antes de añadir otro a Ask CMPRI.",
+  "Choose a file of 100 MB or less for Ask CMPRI.": "Elige un archivo de hasta 100 MB para Ask CMPRI.",
+  "Set Up Local Files": "Configurar archivos locales",
+  "Close folder setup": "Cerrar configuración de carpeta",
+  "Use Documents / CMPRI-Engineering on this device for files you download or add through Ask CMPRI?": "¿Usar Documentos / CMPRI-Engineering en este dispositivo para archivos que descargues o añadas en Ask CMPRI?",
+  "In the browser picker, open Documents and select the CMPRI-Engineering folder itself. Create it there if needed.": "En el selector del navegador, abre Documentos y selecciona la carpeta CMPRI-Engineering. Créala allí si es necesario.",
+  "Choose files on this device and use browser downloads.": "Elige archivos en este dispositivo y usa las descargas del navegador.",
+  "Not now": "Ahora no",
+  "Choose Folder": "Elegir carpeta",
+  "Open Files": "Abrir archivos",
+  "Connected to the folder you selected on this device. Added files and downloads go there.": "Carpeta conectada en este dispositivo. Allí se guardan los archivos que añadas o descargues.",
+  "Grant access again to use the saved CMPRI folder.": "Vuelve a conceder acceso para usar la carpeta de CMPRI guardada.",
+  "Choose or create CMPRI-Engineering inside Documents, then select that folder.": "Busca o crea CMPRI-Engineering en Documentos y selecciona esa carpeta.",
+  "File selection and browser downloads are available on this device.": "Puedes seleccionar archivos y usar las descargas del navegador en este dispositivo.",
+  "Refresh folder": "Actualizar carpeta",
+  "Reconnect folder": "Reconectar carpeta",
+  "Connect folder": "Conectar carpeta",
+  "Choose another folder": "Elegir otra carpeta",
+  "Disconnect folder": "Desconectar carpeta",
+  "Drop files here or choose files on this device.": "Suelta archivos aquí o selecciónalos en este dispositivo.",
+  "Choose files": "Elegir archivos",
+  "Choose the original file on this device to open it from Files.": "Selecciona el archivo original en este dispositivo para abrirlo desde Archivos.",
+  "Available files": "Archivos disponibles",
+  "Selected": "Seleccionados",
+  "Reading": "Leyendo",
+  "Choose or drop a file to make it available in Ask CMPRI.": "Elige o suelta un archivo para usarlo en Ask CMPRI.",
+  "Local files": "Archivos locales",
+  "CMPRI folder": "Carpeta de CMPRI",
+  "This session": "Esta sesión",
+  "Use {file} in Ask CMPRI": "Usar {file} en Ask CMPRI",
+  "Use in Ask CMPRI": "Usar en Ask CMPRI",
+  "Download a copy of {file}": "Descargar una copia de {file}",
+  "Download copy": "Descargar copia",
+  "Reading text on this device…": "Leyendo texto en este dispositivo…",
+  "No readable text was found. Try a text file, PDF, PNG, JPEG, or WebP copy.": "No se encontró texto legible. Prueba con un archivo de texto, PDF, PNG, JPEG o WebP.",
+  "Review text for Ask CMPRI": "Revisar texto para Ask CMPRI",
+  "Ask CMPRI uses selected text excerpts. It reads the beginning of text files and up to 10 pages of PDFs.": "Ask CMPRI usa los fragmentos de texto seleccionados. Lee el comienzo de los archivos de texto y hasta diez páginas de los PDF.",
+};
+
+function useFilesLanguage() {
+  const { t, locale } = useUiLanguage();
+  return { t: (text: string, values?: UiValues) => t(text, filesSpanish[text] ?? text, values), locale };
+}
 
 function consentRecorded() {
   try {
@@ -80,15 +168,17 @@ function fileSize(bytes: number, locale: string) {
   }).format(number);
 }
 
-async function extractText(file: File, signal: AbortSignal) {
+export async function readAskCmpriFileExcerpt(file: File, signal: AbortSignal) {
+  signal.throwIfAborted();
   let text: string;
-  if (file.type.startsWith("text/") || /\.(txt|md|csv|tsv|json|ya?ml|log)$/i.test(file.name)) {
+  if (file.type.startsWith("text/") || /^(application\/(json|xml))$/i.test(file.type) || /\.(txt|md|csv|tsv|json|xml|ya?ml|log)$/i.test(file.name)) {
     text = await file.slice(0, contextLimit * 4).text();
   } else {
     const { recognizeLocalDocument } = await import("@/lib/ocr/local-ocr");
     const result = await recognizeLocalDocument(file, { signal, readAllPages: true, maxPages: 10 });
     text = result.pages.map((page) => page.text).filter(Boolean).join("\n\n");
   }
+  signal.throwIfAborted();
   return text.replaceAll("\u0000", "").trim().slice(0, contextLimit);
 }
 
@@ -114,39 +204,55 @@ async function listFolder(folder: AskCmpriFolderHandle) {
 }
 
 export function AskCmpriFiles(props: Props) {
-  return props.scopeKey ? <AccountLocalFiles key={props.scopeKey} {...props} /> : null;
+  const { t } = useFilesLanguage();
+  if (props.scopeKey) return <AccountLocalFiles key={props.scopeKey} {...props} />;
+  return <section id="ask-cmpri-files-view" className={styles.panel} role="tabpanel" aria-labelledby="ask-cmpri-files-tab"
+    tabIndex={0} hidden={!props.open || !props.active}>
+    <p className={styles.content} role={props.scopeError ? "alert" : "status"}>
+      {props.scopeError || t("Checking your CMPRI access…")}
+    </p>
+  </section>;
 }
 
-function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange }: Props) {
-  const { t, locale } = useUiLanguage();
+function AccountLocalFiles({ open, active, scopeKey, focusFileId, focusExcerpt, selectionReset, onOpenFiles, onFilesChange }: Props) {
+  const { t, locale } = useFilesLanguage();
   const [entries, setEntries] = useState<Entry[]>([]);
+  const [appliedReset, setAppliedReset] = useState(selectionReset);
   const [setupDismissed, setSetupDismissed] = useState<boolean>();
   const [folderSupported, setFolderSupported] = useState(false);
   const [folderConnected, setFolderConnected] = useState(false);
   const [folderRemembered, setFolderRemembered] = useState(false);
+  const [folderName, setFolderName] = useState("");
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [feedback, setFeedback] = useState("");
   const overlay = useRef<HTMLDivElement>(null);
   const decline = useRef<HTMLButtonElement>(null);
   const focusFilesTab = useRef(false);
+  const panel = useRef<HTMLElement>(null);
   const folder = useRef<AskCmpriFolderHandle | null>(null);
   const rememberedFolder = useRef<AskCmpriFolderHandle | null>(null);
   const permissionBusy = useRef(false);
   const restored = useRef(false);
   const lifetime = useRef<AbortController | null>(null);
   const reading = useRef(new Map<string, AbortController>());
+  const selectedIds = useRef(new Set<string>());
   const showSetup = open && setupDismissed === false;
+  const requestSelectionActive = open && appliedReset === selectionReset;
+  const focusedEntry = focusFileId ? entries.find((entry) => entry.id === focusFileId) : undefined;
+  const focusedId = focusedEntry?.id;
 
   useEffect(() => {
     const session = new AbortController();
     lifetime.current = session;
     const currentReads = reading.current;
+    const currentSelection = selectedIds.current;
     return () => {
       session.abort();
       if (lifetime.current === session) lifetime.current = null;
       for (const read of currentReads.values()) read.abort();
       currentReads.clear();
+      currentSelection.clear();
       setActiveAskCmpriFolder(scopeKey, null);
     };
   }, [scopeKey]);
@@ -171,6 +277,7 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
         folder.current = remembered;
         setActiveAskCmpriFolder(scopeKey, remembered);
         setFolderConnected(true);
+        setFolderName(remembered.name);
         setEntries((previous) => replaceFolderEntries(previous, initialEntries));
       } catch {
         /* The file chooser and browser downloads remain available. */
@@ -180,6 +287,27 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
     });
     return () => { cancelled = true; };
   }, [open, scopeKey]);
+
+  useEffect(() => {
+    if (requestSelectionActive) return;
+    for (const read of reading.current.values()) read.abort();
+    reading.current.clear();
+    selectedIds.current.clear();
+    queueMicrotask(() => {
+      setEntries((previous) => previous.map((entry) => entry.status === "available" ? entry : { ...entry, status: "available", text: "" }));
+      setDragging(false);
+      setAppliedReset(selectionReset);
+    });
+  }, [requestSelectionActive, selectionReset]);
+
+  useEffect(() => {
+    for (const id of selectedIds.current) {
+      if (entries.some((entry) => entry.id === id)) continue;
+      reading.current.get(id)?.abort();
+      reading.current.delete(id);
+      selectedIds.current.delete(id);
+    }
+  }, [entries]);
 
   useEffect(() => {
     if (!showSetup) return;
@@ -205,7 +333,22 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
     .filter((entry) => entry.status === "selected")
     .map(({ id, file, text }) => ({ id, name: file.name.slice(0, 255), type: file.type.slice(0, 120), size: file.size, text })), [entries]);
 
-  useEffect(() => { onFilesChange(selected); }, [onFilesChange, selected]);
+  const pending = entries.filter((entry) => entry.status === "reading").length;
+  const readError = entries.some((entry) => entry.status === "unreadable") ? t("An excluded file has no readable text. Check the Files tab.") : null;
+  useEffect(() => {
+    onFilesChange(requestSelectionActive ? selected : noExcerpts, { pending: requestSelectionActive ? pending : 0, error: requestSelectionActive ? readError : null });
+  }, [onFilesChange, pending, readError, requestSelectionActive, selected]);
+
+  useEffect(() => {
+    if (!active || !open || !focusFileId || showSetup) return;
+    const frame = requestAnimationFrame(() => {
+      const element = focusedId
+        ? panel.current?.querySelector<HTMLElement>(`[data-source-file-id="${CSS.escape(focusedId)}"]`)
+        : panel.current?.querySelector<HTMLElement>("[data-file-source-fallback]");
+      element?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active, focusFileId, focusedId, open, showSetup]);
 
   function dismissSetup() {
     recordConsent();
@@ -234,8 +377,9 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
     setBusy(true);
     const session = lifetime.current;
     const alive = () => session && !session.signal.aborted;
+    const previous = folder.current;
     try {
-      let nextFolder = folder.current;
+      let nextFolder = pickAnother ? null : previous;
       const remembered = rememberedFolder.current;
       if (!nextFolder && remembered && !pickAnother) {
         if (!await canUseAskCmpriFolder(remembered, true)) {
@@ -252,19 +396,69 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
       setActiveAskCmpriFolder(scopeKey, nextFolder);
       setFolderConnected(true);
       setFolderRemembered(true);
-      setEntries((previous) => replaceFolderEntries(previous, currentEntries));
-      setFeedback(t("CMPRI-Engineering is connected."));
-      void rememberAskCmpriFolder(scopeKey, nextFolder).catch(() => {});
-    } catch {
+      setFolderName(nextFolder.name);
+      if (pickAnother) {
+        abortFolderReads();
+        setEntries((old) => replaceFolderEntries(old.filter((entry) => !entry.inFolder), currentEntries));
+      } else {
+        setEntries((old) => replaceFolderEntries(old, currentEntries));
+      }
+      setFeedback(t("Selected folder connected."));
+      try {
+        await rememberAskCmpriFolder(scopeKey, nextFolder);
+      } catch {
+        if (alive()) setFeedback(t("Folder connected for this session. Browser storage could not remember it."));
+      }
+    } catch (error) {
       if (!alive()) return;
-      folder.current = null;
-      setActiveAskCmpriFolder(scopeKey, null);
-      setFolderConnected(false);
-      setEntries((previous) => previous.filter((entry) => !entry.inFolder));
-      setFeedback(t("In the folder picker, open Documents and select CMPRI-Engineering itself. You can also choose files individually."));
+      if (pickAnother && previous) {
+        setFeedback(t("Folder selection ended. The current folder is still connected."));
+      } else {
+        if (previous) clearFolder();
+        setFeedback(error instanceof DOMException && error.name === "AbortError"
+          ? t("Folder selection ended. You can choose files individually.")
+          : t("In the folder picker, open Documents and select CMPRI-Engineering itself. You can also choose files individually."));
+      }
     } finally {
       permissionBusy.current = false;
       if (alive()) setBusy(false);
+    }
+  }
+
+  function abortFolderReads() {
+    for (const { id, inFolder } of entries) {
+      if (!inFolder) continue;
+      reading.current.get(id)?.abort();
+      reading.current.delete(id);
+      selectedIds.current.delete(id);
+    }
+  }
+
+  function clearFolder() {
+    abortFolderReads();
+    folder.current = null;
+    setActiveAskCmpriFolder(scopeKey, null);
+    setFolderConnected(false);
+    setFolderName("");
+    setEntries((previous) => previous.filter((entry) => !entry.inFolder));
+  }
+
+  async function disconnectFolder() {
+    if (permissionBusy.current) return;
+    permissionBusy.current = true;
+    setBusy(true);
+    const session = lifetime.current;
+    clearFolder();
+    rememberedFolder.current = null;
+    setFolderRemembered(false);
+    try {
+      await forgetAskCmpriFolder(scopeKey);
+      if (!session?.signal.aborted) setFeedback(t("Folder disconnected. Its files stay on this device."));
+    } catch {
+      if (!session?.signal.aborted) setFeedback(t("Folder disconnected for this session. Browser storage could not clear the remembered folder."));
+    } finally {
+      permissionBusy.current = false;
+      if (!session?.signal.aborted) setBusy(false);
     }
   }
 
@@ -272,21 +466,38 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
     if (!files.length) return;
     const session = lifetime.current;
     if (!session) return;
+    if (permissionBusy.current) {
+      setFeedback(t("Wait for the current folder operation, then add your files."));
+      return;
+    }
     const target = folder.current;
     const added: Entry[] = [];
     let connected = 0;
-    for (const file of files) {
-      if (session.signal.aborted) return;
-      if (target) {
-        try {
-          added.push(entryFor(await saveAskCmpriFolderFile(target, file.name, file), true));
-          connected++;
-          continue;
-        } catch {
-          /* Keep access to the user-selected original for this session. */
+    let uncertain = false;
+    if (target) {
+      permissionBusy.current = true;
+      setBusy(true);
+    }
+    try {
+      for (const file of files) {
+        if (session.signal.aborted) return;
+        if (target) {
+          try {
+            added.push(entryFor(await saveAskCmpriFolderFile(target, file.name, file), true));
+            connected++;
+            continue;
+          } catch (error) {
+            uncertain ||= error instanceof AskCmpriFolderSaveError;
+            /* Keep access to the user-selected original for this session. */
+          }
         }
+        added.push(entryFor(file, false));
       }
-      added.push(entryFor(file, false));
+    } finally {
+      if (target) {
+        permissionBusy.current = false;
+        if (!session.signal.aborted) setBusy(false);
+      }
     }
     if (session.signal.aborted) return;
     setEntries((previous) => {
@@ -296,30 +507,43 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
       }
       return [...combined.values()];
     });
-    setFeedback(connected === added.length
-      ? t("Files are ready to select and saved in CMPRI-Engineering.")
-      : t("Files are ready to select for Ask CMPRI."));
+    if (uncertain) setFeedback(t("Check the selected folder. Ask CMPRI could not verify every saved copy. The original files are available this session."));
+    else if (connected === added.length) setFeedback(t("Files are ready to select and saved in the connected folder."));
+    else if (target) setFeedback(t("Some files could not be saved in the connected folder. Those files are available this session."));
+    else setFeedback(t("Files are ready to select for Ask CMPRI."));
   }
 
   async function downloadCopy(entry: Entry) {
     const session = lifetime.current;
-    if (!session) return;
-    const destination = await downloadAskCmpriFile(scopeKey, entry.file.name, entry.file);
-    if (session.signal.aborted) return;
-    if (destination === "browser") {
-      setFeedback(t("Download sent to your browser."));
-      return;
-    }
-    setFeedback(t("Saved a copy in CMPRI-Engineering."));
+    if (!session || permissionBusy.current) return;
     const target = folder.current;
-    if (!target) return;
+    permissionBusy.current = true;
+    setBusy(true);
     try {
+      const destination = await downloadAskCmpriFile(scopeKey, entry.file.name, entry.file);
+      if (session.signal.aborted) return;
+      if (destination === "browser") {
+        setFeedback(target
+          ? t("The folder save could not finish. Check your browser’s downloads.")
+          : t("Download sent to your browser."));
+        return;
+      }
+      setFeedback(t("Saved a copy in the selected folder."));
+      if (!target) return;
       const updated = await listFolder(target);
       if (!session.signal.aborted && folder.current === target) {
         setEntries((previous) => replaceFolderEntries(previous, updated));
       }
-    } catch {
-      /* The saved file appears the next time the folder refreshes. */
+    } catch (error) {
+      if (session.signal.aborted) return;
+      if (error instanceof AskCmpriFolderSaveError) {
+        setFeedback(t("Ask CMPRI could not verify the copy. Check the selected folder for {file} before downloading again.", { file: error.fileName }));
+      } else {
+        setFeedback(t("Check the selected folder or your browser’s downloads to verify the copy."));
+      }
+    } finally {
+      permissionBusy.current = false;
+      if (!session.signal.aborted) setBusy(false);
     }
   }
 
@@ -328,20 +552,38 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
   }
 
   async function changeSelection(entry: Entry, useFile: boolean) {
-    reading.current.get(entry.id)?.abort();
-    reading.current.delete(entry.id);
     if (!useFile) {
+      reading.current.get(entry.id)?.abort();
+      reading.current.delete(entry.id);
+      selectedIds.current.delete(entry.id);
       changeFile(entry.id, "available");
       return;
     }
+    if (selectedIds.current.has(entry.id)) return;
+    if (selectedIds.current.size >= ASK_MAX_FILES) {
+      setFeedback(t("Select up to eight files. Clear one before adding another to Ask CMPRI."));
+      return;
+    }
+    if (entry.file.size > ASK_MAX_ATTACHMENT_BYTES) {
+      setFeedback(t("Choose a file of 100 MB or less for Ask CMPRI."));
+      return;
+    }
+    setFeedback("");
     const reader = new AbortController();
+    selectedIds.current.add(entry.id);
     reading.current.set(entry.id, reader);
     changeFile(entry.id, "reading");
     try {
-      const text = await extractText(entry.file, reader.signal);
-      if (!reader.signal.aborted) changeFile(entry.id, text ? "selected" : "unreadable", text);
+      const text = await readAskCmpriFileExcerpt(entry.file, reader.signal);
+      if (!reader.signal.aborted) {
+        if (!text) selectedIds.current.delete(entry.id);
+        changeFile(entry.id, text ? "selected" : "unreadable", text);
+      }
     } catch {
-      if (!reader.signal.aborted) changeFile(entry.id, "unreadable");
+      if (!reader.signal.aborted) {
+        selectedIds.current.delete(entry.id);
+        changeFile(entry.id, "unreadable");
+      }
     } finally {
       if (reading.current.get(entry.id) === reader) reading.current.delete(entry.id);
     }
@@ -391,15 +633,15 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
         </div>
       </section>
     </div>}
-    <section id="ask-cmpri-files-view" className={styles.panel} role="tabpanel" aria-labelledby="ask-cmpri-files-tab"
+    <section ref={panel} id="ask-cmpri-files-view" className={styles.panel} role="tabpanel" aria-labelledby="ask-cmpri-files-tab"
       tabIndex={0} hidden={!open || !active}>
       <div className={styles.content}>
         <div className={styles.location}>
           <div>
-            <strong>Documents / CMPRI-Engineering</strong>
+            <strong>{folderConnected ? folderName : "Documents / CMPRI-Engineering"}</strong>
             <p className={styles.muted}>{t(folderSupported
               ? folderConnected
-                ? "Folder connected. Added files and downloads are saved here."
+                ? "Connected to the folder you selected on this device. Added files and downloads go there."
                 : folderRemembered
                   ? "Grant access again to use the saved CMPRI folder."
                   : "Choose or create CMPRI-Engineering inside Documents, then select that folder."
@@ -409,8 +651,10 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
             <button type="button" className={styles.secondary} disabled={busy} onClick={() => void connectFolder()}>
               {t(folderConnected ? "Refresh folder" : folderRemembered ? "Reconnect folder" : "Connect folder")}
             </button>
-            {folderRemembered && !folderConnected && <button type="button" className={styles.link} disabled={busy}
+            {folderRemembered && <button type="button" className={styles.link} disabled={busy}
               onClick={() => void connectFolder(true)}>{t("Choose another folder")}</button>}
+            {folderRemembered && <button type="button" className={styles.link} disabled={busy}
+              onClick={() => void disconnectFolder()}>{t("Disconnect folder")}</button>}
           </div>}
         </div>
         <div className={styles.drop} data-active={dragging}
@@ -422,7 +666,7 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
           onDrop={dropFiles}>
           <p>{t("Drop files here or choose files on this device.")}</p>
           <label className={styles.filePicker}>
-            <input type="file" multiple className={styles.visuallyHidden} onChange={(event) => {
+            <input type="file" multiple disabled={busy} className={styles.visuallyHidden} onChange={(event) => {
               const files = [...(event.currentTarget.files ?? [])];
               event.currentTarget.value = "";
               void addFiles(files);
@@ -430,14 +674,24 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
             <span className={styles.secondary}>{t("Choose files")}</span>
           </label>
         </div>
-        <p className={styles.muted} role="status">{feedback}</p>
+        <p className={`${styles.muted} ${styles.feedback}`} role="status">{feedback}</p>
+        {focusFileId && (!focusedEntry || focusedEntry.status !== "selected") && <aside className={styles.sourceExcerpt}
+          tabIndex={-1} data-file-source-fallback>
+          {focusExcerpt && focusExcerpt.id === focusFileId && <>
+            <strong>{focusExcerpt.name}</strong>
+            <p>{focusExcerpt.text}</p>
+          </>}
+          {!focusedEntry && <p className={styles.muted}>{t("Choose the original file on this device to open it from Files.")}</p>}
+        </aside>}
         <div className={styles.heading}>
           <h3>{t("Available files")}</h3>
-          {selected.length > 0 && <span className={styles.muted}>{t("Selected")} · {selected.length}</span>}
+          <span className={styles.muted}>{t("Selected")} · {selected.length} / {ASK_MAX_FILES}
+            {pending > 0 && <> · {t("Reading")} {pending}</>}</span>
         </div>
         {entries.length === 0 ? <p className={styles.muted}>{t("Choose or drop a file to make it available in Ask CMPRI.")}</p>
           : <ul className={styles.list} aria-label={t("Local files")}>
-            {entries.map((entry) => <li className={styles.file} key={entry.id}>
+            {entries.map((entry) => <li className={styles.file} key={entry.id} data-source-file-id={entry.id}
+              tabIndex={entry.id === focusFileId ? -1 : undefined}>
               <div className={styles.fileRow}>
                 <span className={styles.fileIdentity}><strong>{entry.file.name}</strong>
                   <span className={styles.muted}> · {fileSize(entry.file.size, locale)} · {t(entry.inFolder ? "CMPRI folder" : "This session")}</span>
@@ -449,7 +703,7 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
                       onChange={(event) => void changeSelection(entry, event.currentTarget.checked)} />
                     {t("Use in Ask CMPRI")}
                   </label>
-                  <button type="button" className={styles.link}
+                  <button type="button" className={styles.link} disabled={busy}
                     aria-label={t("Download a copy of {file}", { file: entry.file.name })}
                     onClick={() => void downloadCopy(entry)}>{t("Download copy")}</button>
                 </div>
@@ -457,13 +711,13 @@ function AccountLocalFiles({ open, active, scopeKey, onOpenFiles, onFilesChange 
               {entry.status === "reading" && <p className={styles.muted} role="status">{t("Reading text on this device…")}</p>}
               {entry.status === "unreadable" && <p className={styles.muted} role="status">
                 {t("No readable text was found. Try a text file, PDF, PNG, JPEG, or WebP copy.")}</p>}
-              {entry.status === "selected" && <details className={styles.excerpt}>
+              {entry.status === "selected" && <details className={styles.excerpt} open={entry.id === focusFileId ? true : undefined}>
                 <summary>{t("Review text for Ask CMPRI")}</summary>
                 <p>{entry.text}</p>
               </details>}
             </li>)}
           </ul>}
-        <p className={styles.muted}>{t("Select files to review a text excerpt. Ask CMPRI uses those excerpts for your CMPRI request.")}</p>
+        <p className={styles.muted}>{t("Ask CMPRI uses selected text excerpts. It reads the beginning of text files and up to 10 pages of PDFs.")}</p>
       </div>
     </section>
   </>;

@@ -14,20 +14,23 @@
 }
 
 .dial {
-  position: relative;
+  position: fixed;
+  top: 653px;
+  left: 1198px;
+  z-index: 1;
   display: none;
-  aspect-ratio: 1;
+  inline-size: 225px;
+  block-size: 225px;
   min-inline-size: 0;
   padding: 0;
   border: 0;
-  border-radius: 5px;
-  background: #000;
+  background: transparent;
   color-scheme: only dark;
   color: #fff;
   cursor: pointer;
 }
 
-@media (min-width: 64rem) {
+@media (min-width: 701px) and (hover: hover) {
   .dial { display: block; }
 }
 
@@ -66,11 +69,10 @@
 .precipitation { fill: #a9d6ff; text-anchor: start; font-size: 7.4px; font-weight: 650; }
 .wind { fill: #fff; font-size: 8.4px; font-weight: 650; }
 .windUnit { fill: #e5e5ea; font-size: 5.6px; font-weight: 550; }
-.windCircle { fill: #17171d; stroke: #a9a9b5; stroke-width: .55; }
+.windCircle { fill: none; stroke: #e5e5ea; stroke-width: .55; }
 .windArrow { fill: none; stroke: #fff; stroke-width: .7; stroke-linecap: round; stroke-linejoin: round; }
 .calm { fill: #fff; }
 .extreme { font-size: 7.2px; font-weight: 650; }
-.moon { fill: #282930; stroke: #656575; stroke-width: .3; }
 .moonLight { fill: #ececf5; }
 
 .condition {
@@ -85,12 +87,10 @@
 .condition :global(.wv-moon) { fill: #e9d496; stroke: #f5e4b6; stroke-width: 1.7; }
 .condition :global(.wv-star) { fill: none; stroke: #f5e4b6; stroke-width: 1.7; }
 .condition :global(.wv-cloud) { fill: #c4d0dc; stroke: #e7edf3; stroke-width: 1.6; }
-.condition :global(svg[data-condition="cloud"]) { transform: scale(.84); }
-.condition :global(svg[data-condition="cloud"] > :not(.wv-cloud)) { display: none; }
 .condition :global(svg[data-condition="cloud"] > .wv-cloud) {
   fill: none;
   stroke: #fff;
-  stroke-width: 3;
+  stroke-width: 2.1;
   stroke-linecap: round;
   stroke-linejoin: round;
 }

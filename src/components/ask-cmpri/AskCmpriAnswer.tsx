@@ -18,19 +18,23 @@ function SourceLink({ href, label }: { href?: string; label: string }) {
   return safe ? <a className="ask-text-action" href={safe} target="_blank" rel="noopener noreferrer">{label}</a> : null;
 }
 
-function ResultItem({ item, openRecord }: { item: AskResultItem; openRecord: OpenRecord }) {
+function ItemLinks({ item, openRecord }: { item: AskResultItem; openRecord: OpenRecord }) {
   const links = item.links || [];
-  const hasRecord = item.record && !links.some(link => link.kind === item.record?.kind && link.id === item.record.id);
+  const records = item.record && !links.some(link => link.kind === item.record?.kind && link.id === item.record.id) ? [item.record, ...links] : links;
+  if (!records.length && !item.href) return null;
+  return <div className="ask-hit-links">
+    {records.map(record => <RecordLink key={record.kind + ":" + record.id} record={record} openRecord={openRecord} />)}
+    {item.href && <SourceLink href={item.href} label={item.hrefLabel || "Open source"} />}
+  </div>;
+}
+
+function ResultItem({ item, openRecord }: { item: AskResultItem; openRecord: OpenRecord }) {
   return <li className="ask-hit">
     <h4>{item.title}</h4>
     {item.text && <p>{item.text}</p>}
     {!!item.facts?.length && <dl>{item.facts.map((fact, index) => <div key={index}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>)}</dl>}
     <p className="ask-source-label" data-source={item.sourceType}>{item.source}</p>
-    {(hasRecord || links.length > 0 || item.href) && <div className="ask-hit-links">
-      {hasRecord && item.record && <RecordLink record={item.record} openRecord={openRecord} />}
-      {links.map(link => <RecordLink key={link.kind + ":" + link.id} record={link} openRecord={openRecord} />)}
-      {item.href && <SourceLink href={item.href} label={item.hrefLabel || "Open source"} />}
-    </div>}
+    <ItemLinks item={item} openRecord={openRecord} />
   </li>;
 }
 
@@ -44,9 +48,12 @@ function ResultsTable({ table, title, openRecord }: { table: AskTable; title: st
         {table.columns.map(column => {
           const cell = row.cells[column.id];
           return <td key={column.id} data-column-id={column.id.toLowerCase().replace(/ +/g, "-")}>
-            {!cell ? "—" : typeof cell === "string" ? cell : cell.record
-              ? <RecordLink record={cell.record} openRecord={openRecord} label={cell.text} />
-              : safePublicHref(cell.href) ? <SourceLink href={cell.href} label={cell.text} /> : cell.text}
+            {!cell ? "—" : typeof cell === "string" ? cell : <>
+              {cell.record ? <RecordLink record={cell.record} openRecord={openRecord} label={cell.text} />
+                : safePublicHref(cell.href) ? <SourceLink href={cell.href} label={cell.text} /> : cell.text}
+              {!!cell.links?.length && <div className="ask-hit-links">{cell.links.map(record =>
+                <RecordLink key={record.kind + ":" + record.id} record={record} openRecord={openRecord} />)}</div>}
+            </>}
           </td>;
         })}
       </tr>)}</tbody>
@@ -62,5 +69,8 @@ export function AskCmpriAnswer({ result, openRecord }: { result: AskResponse; op
       : result.format !== "brief" && !!result.items?.length && <ul className="ask-result-list" data-format={result.format}>
         {result.items.map(item => <ResultItem key={item.id} item={item} openRecord={openRecord} />)}
       </ul>}
+    {result.format === "brief" && !result.table && result.items?.some((item) => item.record || item.href || item.links?.length) &&
+      <ul className="ask-result-list" data-format="brief">{result.items.filter((item) => item.record || item.href || item.links?.length).map((item) =>
+        <li key={item.id}><p className="ask-source-label" data-source={item.sourceType}>{item.source}</p><ItemLinks item={item} openRecord={openRecord} /></li>)}</ul>}
   </div>;
 }

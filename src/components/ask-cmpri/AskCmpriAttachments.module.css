@@ -167,9 +167,14 @@
   padding: 4px 8px;
   text-decoration: none;
   overflow-wrap: anywhere;
+  text-align: start;
+  cursor: pointer;
 }
 
 .download:hover { border-color: #a48230; }
+.download[aria-disabled="true"] { cursor: progress; }
+.downloadStatus { margin-top: 4px; color: var(--ask-muted, #d2baa6); font-size: 11px; }
+.downloadStatus:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 
 .dropIndicator {
   position: absolute;

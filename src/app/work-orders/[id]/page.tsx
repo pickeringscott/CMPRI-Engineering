@@ -46,6 +46,7 @@ import { classifyAsset } from "@/lib/asset-category";
 import { categoryOptions as workOrderCategoryOptions } from "@/lib/work-order-categories";
 import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } from "@/lib/manual-knowledge";
 import ManualSourceLink from "@/components/ManualSourceLink";
+import AskTicketTroubleshooting from "@/components/ask-cmpri/AskTicketTroubleshooting";
 import {diagnosticCodeRuledOut,technicianTroubleshootingContext} from "@/lib/work-orders/technician-context";
 import { assetGuideIdentity, reconcileAssetGuide, type AssetGuideIdentity } from "@/lib/work-orders/asset-guide-cache";
 import { profileHasRole, profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
@@ -2544,6 +2545,12 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   <WorkOrderSectionIcon section="troubleshooting" />{t("Suggested Troubleshooting")} </h2>
               </summary>
 
+              {selectedAsset && cmpriSession?.capabilities.includes("view_dashboard") && cmpriSession.capabilities.includes("view_pm") &&
+                (selectedAsset.id === order.asset_id && !checklistContextUnsaved
+                  ? <AskTicketTroubleshooting key={`${order.id}:${order.revision}:${selectedAsset.id}`} workOrderId={order.id} assetId={selectedAsset.id}
+                      assetLabel={[selectedAsset.manufacturer, selectedAsset.model_number].filter(Boolean).join(" ") || selectedAsset.name}
+                      active={troubleshootingOpen} />
+                  : <p className="mt-1 text-xs text-amber-200">{t("Save the selected equipment and reported issue before using Ask CMPRI.")}</p>)}
               {manualResult?.readOnly && <p className="mt-1 text-xs text-amber-200" role="status">{t("Preview. Check marks stay in this browser; live work-order records are unchanged.")}</p>}
               {selectedAsset && (manualLoading
                 ? <p role="status" className="mt-1 text-sm text-slate-400">{t("Loading the equipment’s uploaded guide…")}</p>

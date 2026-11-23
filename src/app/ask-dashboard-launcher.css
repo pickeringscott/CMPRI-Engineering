@@ -122,7 +122,7 @@
     align-items: center;
     gap: 1px;
     width: 130px;
-    padding: 0 2px 0 1px;
+    padding: 0 4px 0 3px;
     border: 1px solid var(--desktop-ask-border);
     border-radius: var(--desktop-ask-pill-radius, 11px);
     background: var(--desktop-ask-surface);
@@ -137,6 +137,16 @@
   }
 
   .desktop-ask-search[data-modal-open] { visibility: hidden; pointer-events: none; }
+
+  .desktop-ask-search[popover] {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    overflow: visible;
+    color: inherit;
+  }
+
+  .desktop-ask-search[popover]:not(:popover-open) { display: none; }
 
   .desktop-ask-search[data-outline-joined] {
     border-color: transparent;
@@ -159,9 +169,9 @@
   .desktop-ask-star,
   .desktop-ask-mic {
     display: grid;
-    flex: 0 0 18px;
+    flex: 0 0 20px;
     place-items: center;
-    width: 18px;
+    width: 20px;
     height: 20px;
     padding: 0;
     border: 0;
@@ -175,7 +185,7 @@
     filter: none;
   }
 
-  .desktop-ask-star { position: relative; flex-basis: 16px; width: 16px; }
+  .desktop-ask-star { position: relative; }
   #desktop-ask-search .desktop-ask-star:focus {
     outline: none;
     box-shadow: none;
@@ -188,14 +198,14 @@
     background: var(--cmpri-palette-gold);
   }
   .desktop-ask-star .desktop-ask-gemini {
-    width: 13px;
-    height: 13px;
+    width: 15px;
+    height: 15px;
     pointer-events: none;
   }
 
   .desktop-ask-mic,
   .desktop-ask-mic:hover { color: #97866a; }
-  .desktop-ask-mic .desktop-ask-mic-icon { margin: 0; transform: translateY(.75px) scale(.75); }
+  .desktop-ask-mic .desktop-ask-mic-icon { margin: 0; transform: translate(-1.5px, .6px) scale(.85); }
   .desktop-ask-mic .desktop-ask-mic-icon::before { background: var(--desktop-ask-surface); }
   .desktop-ask-stop {
     display: grid;
@@ -235,7 +245,7 @@
     color: var(--cmpri-palette-desktop-tone-10);
     caret-color: transparent;
     background: transparent;
-    font-family: inherit;
+    font-family: "Comic Sans MS", "Comic Neue", cursive;
     font-size: 13px;
     line-height: 18px;
     overflow: auto;
@@ -280,10 +290,25 @@
     display: flex;
     align-items: center;
     height: 100%;
-    animation: desktop-ask-prompt 18s linear infinite;
+    animation: desktop-ask-prompt 36s linear -18s infinite;
   }
 
-  .desktop-ask-hint-incoming { top: -100%; }
+  .desktop-ask-hint-incoming { animation-delay: 0s; }
+
+  .desktop-ask-voice-status:not(.sr-only) {
+    position: absolute;
+    left: 4px;
+    top: calc(100% + 3px);
+    max-width: max(100%, 176px);
+    padding: 3px 5px;
+    border: 1px solid var(--desktop-ask-border);
+    border-radius: 5px;
+    background: var(--desktop-ask-surface);
+    color: var(--cmpri-palette-desktop-tone-8);
+    font-size: 11px;
+    line-height: 1.35;
+    box-shadow: 0 3px 7px rgb(0 0 0 / 60%);
+  }
 
   .desktop-ask-voice-draft {
     position: absolute;
@@ -298,18 +323,26 @@
   }
 
   body:has(.desktop-ask-search:not([data-modal-open], [data-tab-offscreen])) .cmpri-beginners-guide[open] {
-    --ask-available-guide-height: calc(100dvh - var(--ask-launcher-clearance, 8px) - 8px);
+    --ask-available-guide-height: max(0px, calc(100dvh - var(--ask-launcher-clearance, 8px) - 8px));
     inset: var(--ask-launcher-clearance, 8px) 0 8px;
     min-height: min(18rem, var(--ask-available-guide-height));
     max-height: var(--ask-available-guide-height);
   }
 
-  body:has(.desktop-ask-search:not([data-modal-open], [data-tab-offscreen])) .cmpri-beginners-guide[open]::backdrop {
+  body:has(.desktop-ask-search:not([data-modal-open], [data-tab-offscreen])) dialog:modal:not(#ask-cmpri)::backdrop {
     clip-path: inset(var(--ask-launcher-clearance, 0px) 0 0);
   }
 
+  body:has(.desktop-ask-search:not([data-modal-open], [data-tab-offscreen])) dialog[data-cmpri-global-modal-shell] .cmpri-modal-backdrop {
+    top: var(--ask-launcher-clearance, 0px);
+  }
+
+  body:has(.desktop-ask-search:not([data-modal-open], [data-tab-offscreen])) dialog[data-cmpri-global-modal-shell] .cmpri-modal-shell {
+    max-height: max(0px, calc(100dvh - var(--ask-launcher-clearance, 0px)));
+  }
+
   @keyframes desktop-ask-prompt {
-    from { transform: translateY(0); }
+    from { transform: translateY(-100%); }
     to { transform: translateY(100%); }
   }
 }
@@ -318,4 +351,5 @@
   .desktop-ask-hint-line {
     animation: none;
   }
+  .desktop-ask-hint-incoming { visibility: hidden; }
 }

@@ -240,7 +240,7 @@ test('read notifications immediately leave the unread count without being cleare
 
 test('opening a dashboard notification marks it read before navigation and the badge counts only unread items', () => {
   const dashboard = readFileSync(new URL('../src/app/engineering/page.tsx', import.meta.url), 'utf8');
-  assert.match(dashboard, /function openNotification\(notification: WorkOrderNotification\) \{\s*void markNotificationRead\(notification\);[\s\S]*?if \(notification\.target_path\)/);
+  assert.match(dashboard, /function openNotification\(notification: WorkOrderNotification, opener: HTMLElement\) \{\s*void markNotificationRead\(notification\);[\s\S]*?if \(notification\.target_path && isDesktopRoute/);
   const openApprovals = dashboard.match(/function openApprovals\([^)]*\) \{([\s\S]*?)\n  \}/)?.[1];
   assert.ok(openApprovals, 'notification bell opens the approvals window');
   assert.match(openApprovals, /inbox\.forEach\(\(notification\) => \{\s*if \(!notification\.is_read\) void markNotificationRead\(notification\);\s*\}\);\s*openWindow\(/);

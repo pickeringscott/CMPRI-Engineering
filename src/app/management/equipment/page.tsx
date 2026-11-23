@@ -1,7 +1,7 @@
 "use client";
 
 import { useUiLanguage } from "@/components/UiLanguageProvider";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import "./asset-browser.css";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
 import LocalOcrReview, { type ReviewedOcrText, type ReviewedGuideText } from "@/components/LocalOcrReview";
@@ -313,6 +313,23 @@ export default function ManageEquipmentPage() {
     setDialogMessage("");
     setRevisionReason("");
   }
+
+  const selectRequestedAsset = useEffectEvent((event: MessageEvent) => {
+    if (window.parent === window || event.source !== window.parent || event.origin !== window.location.origin) return;
+    const params = new URLSearchParams(window.location.search);
+    const assetId = params.get("asset");
+    if (!assetId || !params.get("modalToken") || event.data?.type !== "cmpri-open-asset"
+      || event.data.modalToken !== params.get("modalToken") || event.data.assetId !== assetId) return;
+    const item = assets.find(asset => asset.id === assetId);
+    if (!item || selectedId === assetId || photoBusy || moveBusy || saving || creating) return;
+    if ((unsavedEquipment || manualFile) && !window.confirm(ui("Discard unsaved equipment changes?"))) return;
+    selectAsset(item);
+  });
+
+  useEffect(() => {
+    window.addEventListener("message", selectRequestedAsset);
+    return () => window.removeEventListener("message", selectRequestedAsset);
+  }, []);
 
   useEffect(() => {
     let current = true;

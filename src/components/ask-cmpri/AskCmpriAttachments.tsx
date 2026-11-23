@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import type { AskResponse } from "@/lib/ask-cmpri/types";
+import { AskCmpriFolderSaveError, downloadAskCmpriFile } from "./local-file-storage";
 import styles from "./AskCmpriAttachments.module.css";
 
 const COPY = {
@@ -14,6 +16,11 @@ const COPY = {
     drop: "Drop files into this conversation",
     sent: "Sent attachments",
     received: "Received attachments",
+    save: (name: string) => `Download ${name}`,
+    saved: "Saved to the selected folder.",
+    downloaded: "Check your browser’s downloads.",
+    uncertain: (name: string) => `Check the selected folder for ${name} before downloading again.`,
+    unavailable: "This file could not be downloaded.",
   },
   es: {
     attach: "Adjuntar archivos",
@@ -25,6 +32,11 @@ const COPY = {
     drop: "Suelta los archivos en esta conversación",
     sent: "Archivos adjuntos enviados",
     received: "Archivos adjuntos recibidos",
+    save: (name: string) => `Descargar ${name}`,
+    saved: "Guardado en la carpeta seleccionada.",
+    downloaded: "Revisa las descargas del navegador.",
+    uncertain: (name: string) => `Busca ${name} en la carpeta seleccionada antes de volver a descargarlo.`,
+    unavailable: "No se pudo descargar este archivo.",
   },
 };
 
@@ -37,14 +49,16 @@ interface AttachmentPickerProps {
   disabled?: boolean;
   locale?: string;
   className?: string;
+  onInteraction?: () => void;
 }
 
-export function AskCmpriAttachments({ onSelect, disabled = false, locale, className }: AttachmentPickerProps) {
+export function AskCmpriAttachments({ onSelect, disabled = false, locale, className, onInteraction }: AttachmentPickerProps) {
   const text = labels(locale);
   const menuId = useId();
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const takePicture = useRef<HTMLButtonElement>(null);
+  const chooseFiles = useRef<HTMLButtonElement>(null);
   const filesInput = useRef<HTMLInputElement>(null);
   const cameraInput = useRef<HTMLInputElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -62,6 +76,7 @@ export function AskCmpriAttachments({ onSelect, disabled = false, locale, classN
 
   function pick(input: HTMLInputElement | null) {
     if (!input || disabled) return;
+    onInteraction?.();
     setMenuOpen(false);
     trigger.current?.focus({ preventScroll: true });
     input.value = "";
@@ -72,19 +87,30 @@ export function AskCmpriAttachments({ onSelect, disabled = false, locale, classN
     const input = event.currentTarget;
     const files = Array.from(input.files ?? []);
     input.value = "";
-    if (files.length && !disabled) onSelect(files);
+    if (files.length) onSelect(files);
   }
 
   return (
     <span
       ref={root}
       className={styles.picker}
+      onBlur={(event) => {
+        if (expanded && event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) {
+          setMenuOpen(false);
+        }
+      }}
       onKeyDown={(event) => {
-        if (event.key !== "Escape" || !expanded) return;
-        event.preventDefault();
-        event.stopPropagation();
-        setMenuOpen(false);
-        trigger.current?.focus({ preventScroll: true });
+        if (!expanded) return;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          setMenuOpen(false);
+          trigger.current?.focus({ preventScroll: true });
+        } else if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+          event.preventDefault();
+          (event.key === "Home" || (event.key !== "End" && event.target === chooseFiles.current)
+            ? takePicture.current : chooseFiles.current)?.focus({ preventScroll: true });
+        }
       }}
     >
       <button
@@ -95,9 +121,12 @@ export function AskCmpriAttachments({ onSelect, disabled = false, locale, classN
         aria-expanded={expanded}
         aria-controls={menuId}
         disabled={disabled}
+        data-ask-attach-trigger
         onClick={() => {
-          if (window.matchMedia("(max-width: 700px), (pointer: coarse)").matches) setMenuOpen(!menuOpen);
-          else pick(filesInput.current);
+          if (window.matchMedia("(max-width: 700px), (pointer: coarse)").matches) {
+            onInteraction?.();
+            setMenuOpen(!menuOpen);
+          } else pick(filesInput.current);
         }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
@@ -108,7 +137,7 @@ export function AskCmpriAttachments({ onSelect, disabled = false, locale, classN
       <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden onChange={receive} />
       <span id={menuId} className={styles.choices} role="group" aria-label={text.source} hidden={!expanded}>
         <button ref={takePicture} type="button" onClick={() => pick(cameraInput.current)}>{text.picture}</button>
-        <button type="button" onClick={() => pick(filesInput.current)}>{text.file}</button>
+        <button ref={chooseFiles} type="button" onClick={() => pick(filesInput.current)}>{text.file}</button>
       </span>
     </span>
   );
@@ -156,7 +185,9 @@ export function AskCmpriAttachmentDrafts({ files, onRemove, disabled = false, lo
             onClick={(event) => {
               const chip = event.currentTarget.parentElement;
               const neighbour = chip?.nextElementSibling ?? chip?.previousElementSibling;
-              neighbour?.querySelector("button")?.focus({ preventScroll: true });
+              const next = neighbour?.querySelector<HTMLButtonElement>("button")
+                ?? chip?.closest("dialog")?.querySelector<HTMLButtonElement>("[data-ask-attach-trigger]");
+              next?.focus({ preventScroll: true });
               onRemove(index);
             }}
           >×</button>
@@ -208,38 +239,74 @@ export function AskCmpriAttachmentDropIndicator({ locale }: { locale?: string })
   return <div className={styles.dropIndicator} aria-hidden="true">{labels(locale).drop}</div>;
 }
 
-function DownloadableFile({ file }: { file: File }) {
-  const link = useRef<HTMLAnchorElement>(null);
-  useEffect(() => {
-    const anchor = link.current;
-    if (!anchor) return;
-    const url = URL.createObjectURL(file);
-    anchor.href = url;
-    return () => {
-      anchor.removeAttribute("href");
-      URL.revokeObjectURL(url);
-    };
-  }, [file]);
-  return (
-    <a ref={link} className={styles.download} download={file.name}>
-      <FileThumbnail file={file} />
-      <span>{file.name}</span>
-    </a>
-  );
+function DownloadableFile({ name, openBlob, file, scopeKey = "", locale }: {
+  name: string;
+  openBlob: () => Blob;
+  file?: File;
+  scopeKey?: string;
+  locale?: string;
+}) {
+  const text = labels(locale);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  async function download() {
+    if (busy) return;
+    setBusy(true);
+    setStatus("");
+    try {
+      const destination = await downloadAskCmpriFile(scopeKey, name, openBlob());
+      setStatus(destination === "folder" ? text.saved : text.downloaded);
+    } catch (error) {
+      setStatus(error instanceof AskCmpriFolderSaveError ? text.uncertain(error.fileName) : text.unavailable);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <>
+    <button type="button" className={styles.download} aria-label={text.save(name)} aria-disabled={busy}
+      onClick={() => void download()}>
+      {file ? <FileThumbnail file={file} /> : <span className={styles.document} aria-hidden="true" />}
+      <span>{name}</span>
+    </button>
+    <p role="status" className={styles.downloadStatus}>{status}</p>
+  </>;
 }
 
-export function AskCmpriFileList({ files, outgoing = false, locale }: {
+export function AskCmpriFileList({ files, outgoing = false, locale, scopeKey }: {
   files: readonly File[];
   outgoing?: boolean;
   locale?: string;
+  scopeKey?: string;
 }) {
   if (!files.length) return null;
   const text = labels(locale);
   return (
     <ul className={styles.files} data-outgoing={outgoing} aria-label={outgoing ? text.sent : text.received}>
       {files.map((file, index) => (
-        <li key={`${file.name}-${file.lastModified}-${index}`}><DownloadableFile file={file} /></li>
+        <li key={`${file.name}-${file.lastModified}-${index}`}><DownloadableFile name={file.name} file={file}
+          openBlob={() => file} locale={locale} scopeKey={scopeKey} /></li>
       ))}
     </ul>
   );
+}
+
+type ReplyDownload = NonNullable<AskResponse["downloads"]>[number];
+
+function responseDownload(download: ReplyDownload) {
+  if (download.encoding === "utf8") return new Blob([download.content], { type: download.mimeType });
+  const decoded = atob(download.content);
+  return new Blob([Uint8Array.from(decoded, (value) => value.charCodeAt(0))], { type: download.mimeType });
+}
+
+export function AskCmpriDownloadList({ downloads, scopeKey, locale }: {
+  downloads?: readonly ReplyDownload[];
+  scopeKey: string;
+  locale?: string;
+}) {
+  if (!downloads?.length) return null;
+  return <ul className={styles.files} aria-label={labels(locale).received}>
+    {downloads.map((item) => <li key={item.id}>
+      <DownloadableFile name={item.name} openBlob={() => responseDownload(item)} locale={locale} scopeKey={scopeKey} />
+    </li>)}
+  </ul>;
 }

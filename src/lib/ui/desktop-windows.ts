@@ -93,9 +93,10 @@ export function raiseWindow(order: string[], key: string): string[] {
   return [...order.filter((entry) => entry !== key), key];
 }
 
-/** Work-order detail windows share one remembered size and position. */
+/** Record windows share the remembered size and position of their screen. */
 export function windowLayoutKey(windowKey: string) {
-  return /^\/work-orders\/[^/]+$/.test(windowKey) ? "/work-orders/:id" : windowKey;
+  if (/^\/work-orders\/[^/]+$/.test(windowKey)) return "/work-orders/:id";
+  return windowKey.split("?")[0];
 }
 
 export function desktopLayoutStorageKey(userId: string) {
@@ -120,9 +121,32 @@ export function saveDesktopLayout(storage: StorageLike, userId: string, layoutKe
   return layouts;
 }
 
-/** The desktop opens each same-origin route in exactly one window keyed by its path. */
+/** Reuse an exact record window, never a different record on the same screen. */
 export function desktopWindowKeyForHref(href: string, origin: string) {
-  return new URL(href, origin).pathname;
+  const url = new URL(href, origin);
+  const parameter = url.pathname === "/management/equipment" ? "asset" : url.pathname === "/notes" ? "note" : "";
+  const id = parameter && url.searchParams.get(parameter);
+  return id ? `${url.pathname}?${parameter}=${encodeURIComponent(id)}` : url.pathname;
+}
+
+export function isAskRecordRoute(href: string, origin: string) {
+  if (!isDesktopRoute(href, origin)) return false;
+  const url = new URL(href, origin);
+  return /^\/work-orders\/[^/]+$/.test(url.pathname)
+    || (url.pathname === "/management/equipment" && Boolean(url.searchParams.get("asset")))
+    || (url.pathname === "/notes" && Boolean(url.searchParams.get("note")))
+    || url.pathname === "/engineering/room-ranker"
+    || url.pathname === "/engineering/room-ranking";
+}
+
+export function refocusAssetWindow(frame: HTMLIFrameElement | undefined, href: string | undefined) {
+  if (!frame || !href) return;
+  const url = new URL(href, window.location.origin);
+  const assetId = url.pathname === "/management/equipment" && url.searchParams.get("asset");
+  const modalToken = url.searchParams.get("modalToken");
+  if (assetId && modalToken) {
+    frame.contentWindow?.postMessage({ type: "cmpri-open-asset", assetId, modalToken }, url.origin);
+  }
 }
 
 export function isDesktopRoute(href: string, origin: string) {

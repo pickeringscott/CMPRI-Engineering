@@ -4,6 +4,8 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { profileIsChiefEngineer, roleKey } from "@/lib/server/roles";
 import GuideFlowchart, { type GuidePhase } from "./GuideFlowchart";
 import GuideWalkthrough, { type GuideAction } from "./GuideWalkthrough";
+import GuidePracticeWorkOrder from "./GuidePracticeWorkOrder";
+import { practiceWorkOrder, roomPracticePrompts, workOrderPracticeId } from "./ask-cmpri-practice";
 import "./beginners-guide.css";
 
 type GuideUser = { id: string; name: string; role: string; displayRole?: string };
@@ -113,6 +115,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   const [launchReason, setLaunchReason] = useState<LaunchReason>("Reopened from the dashboard");
   const [content, setContent] = useState<GuideContent | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [practiceOrderId, setPracticeOrderId] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
@@ -156,6 +159,16 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
 
   useEffect(() => {
     if (!open) return;
+    function openPracticeOrder(event: Event) {
+      const id = (event as CustomEvent<{ id?: string }>).detail?.id;
+      if (id && practiceWorkOrder(id)) setPracticeOrderId(id);
+    }
+    window.addEventListener("cmpri-guide-open-work-order", openPracticeOrder);
+    return () => window.removeEventListener("cmpri-guide-open-work-order", openPracticeOrder);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     let active = true;
     void loadGuideData().then(data => {
       if (!active) return;
@@ -195,6 +208,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   function closeGuide() {
     dialog.current?.close();
     setOpen(false);
+    setPracticeOrderId("");
     trigger.current?.focus({ preventScroll: true });
   }
 
@@ -239,6 +253,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
 
   function next() {
     if (!content || animation.current) return;
+    setPracticeOrderId("");
     if (!lastAction) {
       setPosition({ ...position, action: position.action + 1 });
     } else if (lastStop) {
@@ -250,6 +265,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
 
   function back() {
     if (!content || animation.current) return;
+    setPracticeOrderId("");
     if (position.action) {
       setPosition({ ...position, action: position.action - 1 });
       return;
@@ -260,7 +276,17 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   }
 
   function jump(stop: number) {
-    if (content && !animation.current) setPosition({ stop, action: 0 });
+    if (content && !animation.current) {
+      setPracticeOrderId("");
+      setPosition({ stop, action: 0 });
+    }
+  }
+
+  function openPracticeAsk(opener: HTMLButtonElement) {
+    const roomStep = position.action - 6;
+    const prompts = roomStep === -1 ? ["Where is the salt stored?"] : roomPracticePrompts.slice(0, Math.max(0, roomStep));
+    const query = roomPracticePrompts[roomStep];
+    window.dispatchEvent(new CustomEvent("cmpri-ask-open", { detail: { practice: true, query, prompts, opener } }));
   }
 
   const navigation = <div className="cmpri-guide-nav-buttons">
@@ -344,7 +370,11 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
         <h1 id={titleId} ref={title} tabIndex={-1}>{lesson.title}</h1>
         <GuideWalkthrough key={lesson.key} title={position.stop === ASK_CMPRI_STOP ? "Using Ask CMPRI" : lesson.title}
           purpose={lesson.purpose} when={lesson.when} action={action}
-          onTry={action.target && (!lastAction || !lastStop) ? next : undefined} />
+          onTry={action.target && (!lastAction || !lastStop) ? next : undefined}
+          onPracticeAsk={position.stop === ASK_CMPRI_STOP ? openPracticeAsk : undefined}
+          onPracticeWorkOrder={position.stop === ASK_CMPRI_STOP ? () => setPracticeOrderId(workOrderPracticeId) : undefined}
+          onPracticeImage={practiceOrderId ? () => setPracticeOrderId("") : undefined}
+          practice={practiceOrderId && position.stop === ASK_CMPRI_STOP ? <GuidePracticeWorkOrder key={practiceOrderId} id={practiceOrderId} /> : undefined} />
       </div>}
       <footer className="cmpri-guide-footer">
         <div className="cmpri-guide-footer-controls">

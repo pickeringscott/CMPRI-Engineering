@@ -94,7 +94,7 @@ export function dashboardWeather(observation: Product, hourly: Product, grid: Pr
     item.start <= at && at < item.end && ["percent", "%"].includes(item.code || ""));
   const gridChance = number(gridPrecipitation?.value);
   const precipitation = [hourlyPrecipitation, gridChance].find(value => value !== null && value >= 0 && value <= 100) ?? null;
-  const temperatures = hours.filter(hour => hour.start >= dayStart && hour.start < dayEnd).map(hour => hour.value);
+  const temperatures = hours.filter(hour => hour.end > dayStart && hour.start < dayEnd).map(hour => hour.value);
   // The native dial uses grid data for unpublished hours; a covered hourly
   // period takes precedence over any overlapping grid temperature.
   const gridTemperatures = gridIntervals(forecastGrid?.temperature);

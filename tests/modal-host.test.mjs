@@ -115,7 +115,7 @@ test('global route modals scale down from their dashboard and retain usable mobi
     const assets = href.includes('/management/equipment');
     for (const index of [0, 1, 2, 5]) {
       const result = {};
-      vm.runInNewContext(sizingCode, { exports: result, entry: { href }, index, modalThemeStyle:()=>({}),modalActionForRoute:()=>"",modalDisplayTitle:()=>"" });
+      vm.runInNewContext(sizingCode, { exports: result, entry: { href }, index, dashboardOverlay: false, modalThemeStyle:()=>({}),modalActionForRoute:()=>"",modalDisplayTitle:()=>"" });
       const scale = 0.9 ** (Math.min(index, 2) + 1);
       const inset = (detail ? 24 : 16) * scale;
       assert.deepEqual({ ...result.panelStyle }, {

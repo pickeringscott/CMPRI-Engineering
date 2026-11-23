@@ -8,7 +8,7 @@ import {JSDOM} from 'jsdom';
 import * as registry from '../src/lib/open-work-orders.ts';
 import * as workspace from '../src/lib/ui/workspace-resume.ts';
 import * as windowTelescope from '../src/lib/ui/window-telescope.ts';
-import {defaultWindowRect} from '../src/lib/ui/desktop-windows.ts';
+import * as desktopWindows from '../src/lib/ui/desktop-windows.ts';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {url:'https://cmpri.test/notes', pretendToBeVisual:true});
 dom.window.HTMLDialogElement.prototype.showModal=function(){this.dataset.testModal='true';this.setAttribute('open','');};
@@ -34,7 +34,7 @@ const globals = {exports:{}, window, document, URL, URLSearchParams, HTMLElement
     if (name === '@/lib/ui/workspace-resume') return workspace;
     if (name === '@/lib/ui/window-telescope') return windowTelescope;
     if (name === '@/lib/ui/workspace-route-access') return {canResumeWorkspaceView:()=>false};
-    if (name === '@/lib/ui/desktop-windows') return {defaultWindowRect};
+    if (name === '@/lib/ui/desktop-windows') return desktopWindows;
     if (['./desktop/DesktopWindow','./desktop/WeatherPreviewWindow'].includes(name)) return {default:empty};
     if (name === '@/lib/ui/header-palette') return {modalActionForRoute:()=>'',modalThemeStyle:()=>({}),modalTitleStyle:()=>({}),modalDisplayTitle:(_path,title)=>title,hasBonvoyTierHelp:()=>false};
     if (['./WorkOrderTierKey','./RoomRankerKey','./WorkOrderTitleGuest'].includes(name)) return {default:empty};

@@ -47,7 +47,7 @@ import {
 import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { keepCreateFormOpen } from "@/lib/work-order-create-presentation";
-import { isSubmitOnlyRole, profileHasRole } from "@/lib/server/roles";
+import { isFrontDesk, isSubmitOnlyRole, profileHasRole } from "@/lib/server/roles";
 import { draftFieldsKey, guardedDraftRequest, mergeConfirmedOwnDraft, saveDraftWithRecovery, type DraftFields, type PendingDraftSave, type SavedDraft } from "@/lib/work-orders/draft-save";
 import { clearAttachmentDraft, readAttachmentDraft, saveAttachmentDraft, type AttachmentDraft } from "@/lib/work-orders/attachment-draft";
 import { canRestoreCreationRecovery, clearCreationRecovery, hasCreationRecoveryWork, readCreationRecovery, saveCreationRecovery, type CreationRecovery } from "@/lib/work-orders/creation-recovery";
@@ -782,7 +782,7 @@ export default function WorkOrdersPage() {
     "engineer", "engineers", "engineering", "chiefengineer", "engineeringmanager", "regionalmaintenance", "regionalengineer",
     "technician", "maintenancetechnician",
   ].includes(currentRoleKey);
-  const isFrontDeskUser = ["frontdesk", "frontdeskmanager", "assistantgm", "assistantgeneralmanager", "assistantmanager"].includes(currentRoleKey);
+  const isFrontDeskUser = isFrontDesk(currentRole);
   const isSubmitOnlyUser = isSubmitOnlyRole(currentRole);
   const keepOpenAfterCreate = Boolean(cmpriSession && keepCreateFormOpen(cmpriSession.user, cmpriSession.capabilities.includes("submit")));
   const submittingRef = useRef(false);
@@ -921,7 +921,7 @@ export default function WorkOrdersPage() {
 
     if (
       smartCategory &&
-      (!manualPriority || locationOverride || !canChoosePriority)
+      (!manualPriority || !canChoosePriority)
     ) {
       setPriority(
         priorityForCategory(
@@ -945,10 +945,9 @@ export default function WorkOrdersPage() {
     setAssetId("");
     setManualAsset(false);
     setCategory("General");
-    setPriority("Medium");
+    if (!manualPriority || !canChoosePriority) setPriority("Medium");
 
     setManualCategory(false);
-    setManualPriority(false);
 
 
 
@@ -1083,7 +1082,7 @@ export default function WorkOrdersPage() {
     asset_id: systemAssignedTechnicalFields ? null : (assets.find(item => item.id === assetId)?.id || null),
     asset_name: systemAssignedTechnicalFields ? "" : (assets.find(item => item.id === assetId)?.name || ""),
     category: systemAssignedTechnicalFields ? "General" : category,
-    priority: systemAssignedTechnicalFields ? "Medium" : priority,
+    priority: frontDeskPriorityOnly ? frontDeskPriorityOverride ?? "" : systemAssignedTechnicalFields ? "Medium" : priority,
   };
   const currentDraftFields = useRef(draftFields);
   currentDraftFields.current = draftFields;
@@ -1118,9 +1117,9 @@ export default function WorkOrdersPage() {
     setNotes(draft.notes || "");
     setManualLocation(Boolean(draft.location_id));
     setManualCategory(false);
-    setManualPriority(false);
+    setManualPriority(canChoosePriority && Boolean(draft.priority));
     setMessage(`Draft loaded${draft.creator_name ? ` — ${draft.creator_name}` : ""}.`);
-  }, [cmpriSession?.user.id, photos.length, issue, notes, locationId, unconfirmedCreationId, tx]);
+  }, [cmpriSession?.user.id, photos.length, issue, notes, locationId, unconfirmedCreationId, canChoosePriority, tx]);
 
   useEffect(() => {
     if (!cmpriSession) return;
@@ -1469,14 +1468,15 @@ export default function WorkOrdersPage() {
 
   async function clearSubmittedDraft() {
     if (!activeDraftId) return;
+    const revision = activeDraftRevision;
+    setActiveDraftId("");
+    setActiveDraftRevision(null);
+    confirmedDraftRecovery.current = null;
     try {
-      await fetch(`/api/work-orders/drafts?id=${encodeURIComponent(activeDraftId)}`, {
+      await fetch(`/api/work-orders/drafts?id=${encodeURIComponent(activeDraftId)}&expected_revision=${revision}`, {
         method: "DELETE",
         headers: await apiHeaders(),
       });
-      setActiveDraftId("");
-      setActiveDraftRevision(null);
-      confirmedDraftRecovery.current = null;
       await loadDrafts();
     } catch {
       // Submission succeeded; a stale draft can still be removed from the Drafts panel later.
@@ -1697,17 +1697,17 @@ export default function WorkOrdersPage() {
 
   function resolveSuggestionLocation(suggestion: RelatedIssueSuggestion): Location | null {
     if (suggestion.locationId) {
-      const matched = locations.find((item) => item.id === suggestion.locationId);
-      if (matched) return matched;
+      return locations.find((item) => item.id === suggestion.locationId) ?? null;
     }
     return locations.find((item) => item.id === locationId) ?? null;
   }
 
   function returnSingleBatchSuggestionToForm(suggestion: RelatedIssueSuggestion | null) {
-    const location = locations.find((item) => item.id === locationId);
+    const location = suggestion && resolveSuggestionLocation(suggestion);
     if (!location) {
       setShowBatchCreateDialog(false);
       setBatchCreateSuggestions([]);
+      setMessage("The remaining issue's room is unavailable. Review the location before submitting.");
       return;
     }
 
@@ -1718,9 +1718,11 @@ export default function WorkOrdersPage() {
     }
 
     const relatedAsset = resolveRelatedAsset(suggestion, location);
+    setLocationId(location.id);
+    setManualLocation(true);
     setIssue(suggestion.issue);
     setCategory(suggestion.category);
-    setPriority(frontDeskPriorityOverride ?? suggestion.priority);
+    if (!manualPriority || !canChoosePriority) setPriority(suggestion.priority);
     setAssetId(relatedAsset?.id ?? "");
     setManualAsset(Boolean(relatedAsset));
     setShowBatchCreateDialog(false);
@@ -1869,13 +1871,20 @@ export default function WorkOrdersPage() {
       notes: notes ? `Submitted individually from a split report. Original note: ${notes}` : "Submitted individually from a split report.",
     }];
 
-    const result = await submitWorkOrders(rows);
+    const activeDraft = drafts.find(draft => draft.id === activeDraftId) || (reviewDraft?.id === activeDraftId ? reviewDraft : null);
+    const matchesDraftLocation = !activeDraft || activeDraft.location_id === location.id;
+    if (!matchesDraftLocation && activeDraft.created_by !== cmpriSession?.user.id) {
+      setMessage("Submit the split together to preserve the original reporter on each work order.");
+      return;
+    }
+    const result = await submitWorkOrders(rows, { useDraft: matchesDraftLocation });
     if (result.error) {
       setMessage(result.error.message);
       return;
     }
 
     const remaining = batchCreateSuggestions.filter((item) => item.key !== suggestion.key);
+    if (matchesDraftLocation || remaining.length === 0) await clearSubmittedDraft();
     if (result.photoUploadPending) {
       setBatchCreateSuggestions(remaining);
       setShowBatchCreateDialog(false);
@@ -1884,7 +1893,6 @@ export default function WorkOrdersPage() {
       return;
     }
     if (remaining.length === 0) {
-      await clearSubmittedDraft();
       await loadWorkOrders(Boolean(cmpriSession?.capabilities.includes("view_work_orders") || cmpriSession?.capabilities.includes("add_work_order_notes")));
       setShowBatchCreateDialog(false);
       setBatchCreateSuggestions([]);
@@ -1925,8 +1933,13 @@ export default function WorkOrdersPage() {
 
     setCreatingBatchWorkOrders(true);
     setMessage("");
+    if (batchCreateSuggestions.some(suggestion => !resolveSuggestionLocation(suggestion))) {
+      setMessage("A proposed work order's room is unavailable. Review its location before submitting.");
+      setCreatingBatchWorkOrders(false);
+      return;
+    }
     const rows = batchCreateSuggestions.map((suggestion) => {
-      const rowLocation = resolveSuggestionLocation(suggestion) ?? location;
+      const rowLocation = resolveSuggestionLocation(suggestion)!;
       const relatedAsset = resolveRelatedAsset(suggestion, rowLocation);
       return {
         location_id: rowLocation.id,
@@ -1979,7 +1992,7 @@ export default function WorkOrdersPage() {
     }, 900);
   }
 
-  async function submitWorkOrders(orders: Record<string, unknown> | Record<string, unknown>[]): Promise<{
+  async function submitWorkOrders(orders: Record<string, unknown> | Record<string, unknown>[], { useDraft = true } = {}): Promise<{
     error: { message: string } | null;
     workOrders: CreatedWorkOrder[];
     photoUploadPending: boolean;
@@ -2011,7 +2024,7 @@ export default function WorkOrdersPage() {
               ? { ...order, priority: frontDeskPriorityOverride }
               : order),
           staff_first_name: staffFirstName.trim(),
-          ...(activeDraftId ? { source_draft_id: activeDraftId, source_draft_revision: activeDraftRevision } : {}),
+          ...(activeDraftId && useDraft ? { source_draft_id: activeDraftId, source_draft_revision: activeDraftRevision } : {}),
         }),
       });
       const result = await response.json().catch(() => ({}));

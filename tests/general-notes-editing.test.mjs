@@ -42,7 +42,7 @@ async function caret(at=editor().textContent.length){await React.act(async()=>{c
 async function key(key,options={}){await React.act(async()=>{editor().dispatchEvent(new dom.window.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...options}));await settle();});}
 async function before(inputType,options={}){let event;await React.act(async()=>{event=new dom.window.InputEvent('beforeinput',{inputType,bubbles:true,cancelable:true,...options});editor().dispatchEvent(event);await settle();});return event;}
 function reset(){storage.clear();records=new Map([['older',saved()],['newer',saved('newer')]]);engines=[];view.rememberActiveNote(storage,scope,'older');}
-test.afterEach(async()=>{await unmount();for(const engine of engines)engine.stop();});
+test.afterEach(async()=>{await unmount();for(const engine of engines)engine.stop();window.history.replaceState(null,'','/notes');});
 test.after(()=>dom.window.close());
 
 test('desktop Return continues check/bullet lists, empty Return exits, and Shift+Return is a plain line break',async()=>{
@@ -75,6 +75,14 @@ test('another property or user does not inherit selected-note navigation or the 
  const originalOutbox=storage.getItem(notes.noteStorageKey(scope)+':outbox');
  records=new Map();await mount({...scope,userId:'user-b'});assert.equal(editor().textContent,'');assert.equal(storage.getItem(notes.noteStorageKey(scope)+':outbox'),originalOutbox);
  assert.equal(view.readActiveNote(storage,{...scope,userId:'user-b'})!==view.readActiveNote(storage,scope),true);
+});
+
+test('a direct Personal Notepad link opens the named note or reports that it is unavailable',async()=>{
+ reset();window.history.replaceState(null,'','/notes?note=newer');await mount();
+ assert.equal(document.querySelector('#general-note-title').value,'newer');
+ await unmount();window.history.replaceState(null,'','/notes?note=unavailable');await mount();
+ assert.equal(document.querySelector('#general-note-title').value,'');
+ assert.match(document.body.textContent,/This Personal Notepad entry is unavailable/);
 });
 
 test('native insertion replaces a styled selection and treats pasted markup as literal text without execCommand',()=>{

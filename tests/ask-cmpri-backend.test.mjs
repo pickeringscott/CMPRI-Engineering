@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import ts from "typescript";
 import * as zod from "zod";
 import * as reference from "../src/lib/work-order-reference.js";
 import { loadTs } from "./helpers/load-ts.mjs";
@@ -11,7 +14,7 @@ const room = loadTs("src/lib/room-availability.ts");
 const workOrderReader = loadTs("src/lib/server/work-order-reader.ts", { "./access": access });
 const readPolicy = loadTs("src/lib/work-order-read-policy.ts");
 const workOrderSearch = loadTs("src/lib/work-order-search.ts", { "./work-order-reference.js": reference });
-const data = loadTs("src/lib/server/ask-cmpri-data.ts", {
+const dependencies = {
   "server-only": {},
   "next/server": {},
   zod,
@@ -26,7 +29,13 @@ const data = loadTs("src/lib/server/ask-cmpri-data.ts", {
   "@/lib/work-order-reference.js": reference,
   "@/lib/work-order-search": workOrderSearch,
   "@/lib/uuid": uuid,
-});
+  "@/lib/server/asset-file-register": { listRegisteredAssetFiles: async () => ({ data: [], error: null }) },
+};
+const data = {};
+const dataFile = "src/lib/server/ask-cmpri-data.ts";
+vm.runInNewContext(ts.transpileModule(readFileSync(dataFile, "utf8"), {
+  fileName: dataFile, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+}).outputText, { exports: data, URL, require: (name) => dependencies[name] });
 
 let modelCall;
 const gemini = loadTs("src/lib/server/ask-cmpri-gemini.ts", {
@@ -133,4 +142,68 @@ test("assigned tickets are restricted by the authenticated technician name and p
   const found = await data.askOrders({ principal, admin: { from() { return query; } } }, plan);
   assert.equal(found.length, 0);
   assert.deepEqual(fields, [["hotel_id", "property"], ["technician_name", "Signed In"]]);
+});
+
+test("exact work order identifiers are matched before limits and alphanumeric room numbers survive", async () => {
+  let expression;
+  const order = { id: "ticket", display_id: "WO#1042", room: "Room 103B", hotel_id: "property" };
+  const query = {
+    select() { return query; }, eq() { return query; },
+    or(value) { expression = value; return query; },
+    limit() { return Promise.resolve({ data: [order], error: null }); },
+  };
+  const principal = {
+    identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
+    membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
+  };
+  const plan = data.applyAskContext({ ...basePlan, sources: ["orders"] }, "What happened on WO#1042 in Room 103B?");
+  assert.deepEqual([...plan.rooms], ["103B"]);
+  const found = await data.askOrders({ principal, admin: { from() { return query; } } }, plan);
+  assert.deepEqual(Array.from(found, ({ id }) => id), ["ticket"]);
+  assert.match(expression, /display_id\.ilike\."1042"/);
+  assert.doesNotMatch(expression, /%1042%/);
+  const checkout = data.applyAskContext({ ...basePlan, rooms: ["12"], roomIntent: "late-checkouts" }, "Which rooms check out after 12:30 PM?");
+  assert.deepEqual([...checkout.rooms], []);
+  assert.equal(checkout.checkoutAfter, "12:30 PM");
+});
+
+test("an authorized linked asset stays tappable when physically elsewhere, with no Installed model badge", () => {
+  const order = { id: "order", display_id: "1078", room: "Front Desk", location_id: "desk", status: "Closed" };
+  const asset = { id: "pbx", location_id: "mechanical", name: "PBX phone", active: true, manufacturer: "GE", model_number: "X12" };
+  const remote = data.askOrderItem(order, true, asset);
+  assert.equal(remote.links[0].id, "pbx");
+  assert.equal(remote.facts.some(({ label }) => label === "Installed model"), false);
+  const installed = data.askOrderItem(order, true, { ...asset, location_id: "desk" });
+  assert.equal(installed.facts.find(({ label }) => label === "Installed model").value, "GE X12");
+});
+
+test("a formatter always rerenders previously selected result rows and keeps links and CSV export", async () => {
+  const principal = {
+    identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
+    membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
+  };
+  const order = { id: "order:one", title: "Room 134 · WO#1042", text: "Sink is leaking", source: "CMPRI · Work orders", sourceType: "internal",
+    record: { kind: "order", id: "one", label: "WO#1042" }, facts: [{ label: "Room", value: "134" }, { label: "Priority", value: "High" }] };
+  const another = { ...order, id: "order:two", title: "WO#1110", text: "Out of context" };
+  const requestHandler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
+    "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
+    "@/lib/server/ask-cmpri-data": { ...data, readAskSources: async () => ({ items: [order, another], orders: [], locations: [], assets: [], missing: [] }) },
+    "@/lib/server/ask-cmpri-gemini": { ...gemini, askGeminiKey: () => true, planAsk: async () => ({ ...basePlan, sources: ["orders"], rooms: ["134"] }),
+      answerAsk: async () => ({ title: "CMPRI results", summary: "A leaking sink.", itemIds: [order.id] }) },
+    "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}), beginAskAction: () => ({}) },
+  }, { AbortSignal, TextDecoder, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-only" } } });
+  const submit = async (question, previous) => (await requestHandler.POST(new Request("https://test.invalid/api/ask-cmpri", {
+    method: "POST", body: JSON.stringify({ question, previous }),
+  }))).json();
+  const first = await submit("Any maintenance issues in Room 134?");
+  assert.ok(first.context.contextProof);
+  assert.deepEqual(first.items.map(({ id }) => id), [order.id]);
+  const table = await submit("Put that in a table", first.context);
+  assert.deepEqual(table.table.rows.map(({ id }) => id), [order.id]);
+  assert.equal(table.table.rows[0].cells["Work order"].record.id, "one");
+  const csv = await submit("Download that as CSV", table.context);
+  assert.equal(csv.downloads[0].name, "CMPRI-search-results.csv");
+  assert.match(csv.downloads[0].content, /Sink is leaking/);
+  assert.doesNotMatch(csv.downloads[0].content, /Out of context/);
 });

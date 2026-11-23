@@ -38,6 +38,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   const label = group => group.dataset.layoutLabel || group.querySelector('legend').textContent;
   const fields = () => Array.from(bar.children).filter(field => !field.hasAttribute('data-ask-launcher-tab'));
   const isOpen = field => !field.classList.contains('collapsed');
+  const displayedX = field => Number.parseFloat(field.style.left) || 0;
   const emit = () => onSave({
     groups: fields().map(label),
     buttons: Object.fromEntries(fields().map(g => [label(g), [...g.querySelectorAll('.buttons>.action')].map(b => b.dataset.layoutKey)])),
@@ -356,8 +357,10 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     field.querySelector('.tab-resize-edge').style.left = `${title.offsetLeft + width - 3}px`;
   }
   const widthLimit = field => {
-    const available = root.scrollLeft + root.clientWidth - field.positionX - 3;
-    return Math.max(1, Math.min(field.fittedWidth, root.clientWidth - 3, bar.clientWidth - field.positionX, Math.max(field.minimumWidth, available)));
+    const left = displayedX(field);
+    const available = root.scrollLeft + root.clientWidth - left - 3;
+    const extent = Math.max(bar.clientWidth - left, field.minimumWidth);
+    return Math.max(1, Math.min(field.fittedWidth, root.clientWidth - 3, extent, Math.max(field.minimumWidth, available)));
   };
   const fitWidth = field => {
     const max = widthLimit(field);
@@ -437,18 +440,21 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     field.classList.remove('collapsed');
     field.querySelector('legend').setAttribute('aria-expanded', 'true');
     setActive(field);
-    if (field.positionX < root.scrollLeft)
-      root.scrollLeft = field.positionX;
-    else if (field.positionX + field.minimumWidth > root.scrollLeft + root.clientWidth - 3)
-      root.scrollLeft = field.positionX + field.minimumWidth - root.clientWidth + 3;
+    const left = displayedX(field);
+    if (left < root.scrollLeft)
+      root.scrollLeft = left;
+    else if (left + field.minimumWidth > root.scrollLeft + root.clientWidth - 3)
+      root.scrollLeft = left + field.minimumWidth - root.clientWidth + 3;
     fitWidth(field);
   }
   function activate(field) {
-    if (isOpen(field) && active === field) {
+    if (isOpen(field)) {
       field.classList.add('collapsed');
       field.querySelector('legend').setAttribute('aria-expanded', 'false');
-      const remaining = fields().filter(isOpen).sort((a, b) => Number(b.style.zIndex) - Number(a.style.zIndex));
-      setActive(remaining[0] || null);
+      if (active === field) {
+        const remaining = fields().filter(isOpen).sort((a, b) => Number(b.style.zIndex) - Number(a.style.zIndex));
+        setActive(remaining[0] || null);
+      }
     }
     else openField(field);
     stageHeight();
@@ -459,11 +465,11 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       return;
     suppressedClick = undefined;
     const touch = event.pointerType !== 'mouse';
-    const initialX = field.positionX, initialScroll = root.scrollLeft, initialZ = field.style.zIndex;
+    const initialX = field.positionX, initialDisplayX = displayedX(field), initialScroll = root.scrollLeft, initialZ = field.style.zIndex;
     let last = event, dragging = false, moved = false, swiping = false, frame;
     const within = () => { const { left, right, top } = root.getBoundingClientRect(); return last.clientX >= left && last.clientX <= right && last.clientY >= top - 1 && last.clientY <= top + TAB_HEIGHT + 1; };
     const displace = () => { if (within())
-      setPosition(field, initialX + last.clientX - event.clientX + root.scrollLeft - initialScroll); };
+      setPosition(field, initialDisplayX + last.clientX - event.clientX + root.scrollLeft - initialScroll); };
     const edgeScroll = () => {
       if (!dragging)
         return;
@@ -645,7 +651,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     title.onkeydown = e => {
       if (e.altKey && ['ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
-        setPosition(field, field.positionX + (e.key === 'ArrowLeft' ? -10 : 10));
+        setPosition(field, displayedX(field) + (e.key === 'ArrowLeft' ? -10 : 10));
         field.requestedX = field.positionX;
         stageHeight();
         emit();
@@ -722,7 +728,9 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     }
   };
   root.addEventListener('scroll', adjustToScroll, { passive: true });
-  cleanups.push(() => root.removeEventListener('scroll', adjustToScroll));
+  root.addEventListener('cmpri-menu-placement', adjustToScroll);
+  cleanups.push(() => root.removeEventListener('scroll', adjustToScroll),
+    () => root.removeEventListener('cmpri-menu-placement', adjustToScroll));
   const blur = () => cancelGesture?.();
   window.addEventListener('blur', blur);
   cleanups.push(() => window.removeEventListener('blur', blur));
@@ -731,9 +739,13 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       return;
     // Launching a screen moves focus into its window while the menu stays
     // selected. Clicking the desktop itself still clears menu selection.
-    if (e.target instanceof Element && e.target.closest(
-      '[data-cmpri-desktop-window], [data-modal-entry], [data-cmpri-ask-root], dialog[open]'
-    )) return;
+    if (e.target instanceof Element) {
+      if (e.target.closest(
+        '[data-cmpri-desktop-window], [data-modal-entry], [data-cmpri-ask-root], dialog[open], #desktop-ask-search, .cmpri-guide-launcher'
+      )) return;
+      const launcher = e.target.closest('button, a[href], [role="button"]');
+      if (launcher && root.closest('header.cmpri-dashboard-titlebar')?.contains(launcher)) return;
+    }
     setActive(null);
     emit();
   };

@@ -29,10 +29,10 @@ function fixture(options={}) {
   const route=loadTs('src/app/api/weather-preview/route.ts',{'astronomy-engine':{MoonPhase:()=>42}}, {
     process:{env:{VERCEL_ENV:options.environment===null?undefined:options.environment||'preview',NODE_ENV:options.nodeEnv||'production'}},
     Request,Response,URL,URLSearchParams,Error,AbortSignal:options.AbortSignal||AbortSignal,fetch:read,
-    Date:options.now?class extends Date {
+    Date:options.clock??(options.now?class extends Date {
       constructor(value) {super(arguments.length?value:options.now);}
       static now() {return Date.parse(options.now);}
-    }:Date,
+    }:Date),
   });
   return {route,calls,get:(part,init={})=>route.GET(new Request('https://branch.example/api/weather-preview?url=https://evil.example&point=0,0'
     +(part===undefined?'':'&part='+encodeURIComponent(part)),init))};
@@ -110,6 +110,35 @@ test('dashboard does not show stale observation, stale outlook, or missing value
   for(const field of ['current','high','low','precipitation','wind','condition','observationTime','forecastTime']) {
     assert.equal(dashboard[field],null,field);
   }
+});
+
+test('dashboard selects the new Central day when an upstream read crosses midnight', async () => {
+  let asOf = '2026-11-24T05:59:58Z';
+  class Clock extends Date {
+    constructor(value) { super(arguments.length ? value : asOf); }
+    static now() { return Date.parse(asOf); }
+  }
+  const sourceTime = '2026-11-24T05:50:00Z';
+  const sources = payloads({
+    '/gridpoints/ILX/95,71/forecast/hourly': { properties: { updateTime: sourceTime, periods: [
+      { startTime: '2026-11-24T05:00:00Z', endTime: '2026-11-24T06:00:00Z', temperature: 65, temperatureUnit: 'F', probabilityOfPrecipitation: { value: 5 } },
+      { startTime: '2026-11-24T06:00:00Z', endTime: '2026-11-24T07:00:00Z', temperature: 36, temperatureUnit: 'F', probabilityOfPrecipitation: { value: 70 } },
+    ] } },
+  });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { get } = fixture({ clock: Clock, fetch: async url => {
+    const path = new URL(url).pathname;
+    if (path.endsWith('/hourly')) await gate;
+    return Response.json(sources[path]);
+  } });
+  const response = get('dashboard');
+  asOf = '2026-11-24T06:00:02Z';
+  release();
+  const { dashboard } = await (await response).json();
+  assert.equal(dashboard.high, 36);
+  assert.equal(dashboard.low, 36);
+  assert.equal(dashboard.precipitation, 70);
 });
 
 test('live property resources preserve official text, times, null amounts and polygonless alerts',async()=>{

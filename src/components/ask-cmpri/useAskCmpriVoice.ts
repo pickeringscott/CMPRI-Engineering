@@ -11,6 +11,7 @@ export interface AskCmpriMicrophoneStatus {
 
 export interface AskCmpriVoiceOptions {
   onTranscript: (text: string) => void;
+  onInterruptedTranscript?: (text: string) => void;
   onEnd?: () => void;
   locale?: string;
   enabled?: boolean;
@@ -120,7 +121,7 @@ function punctuate(text: string) {
   return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
-function createVoiceController({ onTranscript, onEnd, locale }: AskCmpriVoiceOptions, publish: VoiceListener) {
+function createVoiceController({ onTranscript, onInterruptedTranscript, onEnd, locale }: AskCmpriVoiceOptions, publish: VoiceListener) {
   const speechWindow = window as Window & {
     SpeechRecognition?: RecognitionConstructor;
     webkitSpeechRecognition?: RecognitionConstructor;
@@ -145,6 +146,8 @@ function createVoiceController({ onTranscript, onEnd, locale }: AskCmpriVoiceOpt
   let finalSegments: string[] = [];
   let shortRuns = 0;
   let spokenUtterance: SpeechSynthesisUtterance | null = null;
+  let speechTimer: number | undefined;
+  let echoUntil = 0;
 
   function update(next: Partial<VoiceState>) {
     state = { ...state, ...next };
@@ -250,14 +253,14 @@ function createVoiceController({ onTranscript, onEnd, locale }: AskCmpriVoiceOpt
   }
 
   function scheduleRecognition() {
-    if (!state.active || state.typingFallback || spokenUtterance) return;
+    if (!state.active || state.typingFallback) return;
     window.clearTimeout(restartTimer);
     restartTimer = window.setTimeout(launchRecognition, RESTART_PAUSE_MS);
   }
 
   function launchRecognition() {
     restartTimer = undefined;
-    if (!state.active || state.typingFallback || run || micRequest || spokenUtterance || !supported) return;
+    if (!state.active || state.typingFallback || run || micRequest || !supported) return;
     try {
       const recognition = new supported();
       recognition.continuous = true;
@@ -276,21 +279,22 @@ function createVoiceController({ onTranscript, onEnd, locale }: AskCmpriVoiceOpt
         if (run !== current) return;
         const interim: string[] = [];
         let receivedFinal = false;
+        const rejectEcho = spokenUtterance !== null || performance.now() < echoUntil;
         for (let index = event.resultIndex; index < event.results.length; index += 1) {
           const result = event.results[index];
           const segment = result[0]?.transcript.trim();
           if (!segment) continue;
           if (!result.isFinal) {
-            interim.push(segment);
+            if (!rejectEcho) interim.push(segment);
             continue;
           }
           if (current.processed.has(index)) continue;
           current.processed.add(index);
           if (endsCall(segment)) {
-            submitTurn();
             stop();
             return;
           }
+          if (rejectEcho) continue;
           receivedFinal = true;
           finalSegments.push(segment);
         }
@@ -314,7 +318,7 @@ function createVoiceController({ onTranscript, onEnd, locale }: AskCmpriVoiceOpt
         if (run !== current) return;
         run = null;
         submitTurn();
-        if (!state.active || spokenUtterance) return;
+        if (!state.active) return;
         shortRuns = Date.now() - current.started < 1000 && !current.processed.size ? shortRuns + 1 : 0;
         if (shortRuns >= 3) fallback(text.recognitionEnded);
         else scheduleRecognition();
@@ -358,6 +362,9 @@ function createVoiceController({ onTranscript, onEnd, locale }: AskCmpriVoiceOpt
   }
 
   function cancelSpeech() {
+    window.clearTimeout(speechTimer);
+    speechTimer = undefined;
+    echoUntil = 0;
     if (!spokenUtterance) return;
     spokenUtterance.onend = spokenUtterance.onerror = null;
     spokenUtterance = null;
@@ -369,9 +376,13 @@ function createVoiceController({ onTranscript, onEnd, locale }: AskCmpriVoiceOpt
     generation += 1;
     closeRecognition();
     cancelSpeech();
+    const interrupted = finalSegments.join(" ").trim();
     clearTurn();
     update({ active: false, status: text.ended, typingFallback: false });
-    if (!disposed) onEnd?.();
+    if (!disposed) {
+      if (interrupted) onInterruptedTranscript?.(interrupted);
+      onEnd?.();
+    }
   }
 
   function newTopic() {
@@ -393,17 +404,24 @@ function createVoiceController({ onTranscript, onEnd, locale }: AskCmpriVoiceOpt
   function speak(answer: string) {
     if (!state.active || !answer.trim() || !speechWindow.speechSynthesis || typeof SpeechSynthesisUtterance !== "function") return;
     cancelSpeech();
-    closeRecognition();
-    clearTurn();
+    if (finalSegments.length) submitTurn();
+    else clearTurn();
     const utterance = new SpeechSynthesisUtterance(answer);
     utterance.lang = speechLocale;
     spokenUtterance = utterance;
     const resume = () => {
       if (spokenUtterance !== utterance) return;
       spokenUtterance = null;
-      scheduleRecognition();
+      window.clearTimeout(speechTimer);
+      speechTimer = undefined;
+      echoUntil = performance.now() + 230;
     };
     utterance.onend = utterance.onerror = resume;
+    speechTimer = window.setTimeout(() => {
+      if (spokenUtterance !== utterance) return;
+      resume();
+      speechWindow.speechSynthesis.cancel();
+    }, Math.min(16_000, Math.max(3_500, answer.length * 65)));
     try {
       speechWindow.speechSynthesis.speak(utterance);
     } catch {
@@ -443,6 +461,7 @@ export function useAskCmpriVoice(options: AskCmpriVoiceOptions) {
     const current = createVoiceController({
       locale,
       onTranscript: (text) => callbacks.current.onTranscript(text),
+      onInterruptedTranscript: (text) => callbacks.current.onInterruptedTranscript?.(text),
       onEnd: () => callbacks.current.onEnd?.(),
     }, setState);
     controller.current = current;

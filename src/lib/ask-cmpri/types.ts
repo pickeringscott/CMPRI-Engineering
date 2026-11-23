@@ -2,7 +2,7 @@ export type AskLanguage = "en" | "es";
 export type AskSource = "orders" | "assets" | "rooms" | "roomRank" | "staffNotes" | "personalNotes";
 export type AskStatus = "all" | "active" | "in-progress" | "completed" | "closed";
 export type AskFormat = "brief" | "bullets" | "table";
-export type AskRecordReference = { kind: "order" | "asset" | "roomRank" | "staffNote" | "personalNote"; id: string; label?: string };
+export type AskRecordReference = { kind: "order" | "asset" | "roomRank" | "staffNote" | "personalNote" | "file"; id: string; label?: string };
 export type AskResultItem = {
   id: string;
   title: string;
@@ -15,7 +15,7 @@ export type AskResultItem = {
   links?: AskRecordReference[];
   facts?: { label: string; value: string }[];
 };
-export type AskTableCell = string | { text: string; href?: string; record?: AskRecordReference };
+export type AskTableCell = string | { text: string; href?: string; record?: AskRecordReference; links?: AskRecordReference[] };
 export type AskTable = {
   caption?: string;
   columns: { id: string; label: string }[];
@@ -35,11 +35,27 @@ export type AskContext = {
   sortBy?: string;
   sortDirection?: "asc" | "desc" | "none";
   roomIntent?: "roster" | "availability" | "late-checkouts" | "features";
+  locationNames?: string[];
+  ticketStatus?: string;
+  checkoutAfter?: string;
+  roomAvailability?: string;
+  assetState?: "active" | "retired" | "all";
+  rank?: "A" | "B" | "C";
+  fromDate?: string;
+  toDate?: string;
+  noteAuthor?: string;
+  publicEquipment?: { manufacturer: string; model: string; errorCode?: string };
+  webIntent?: "none" | "manual" | "manufacturer" | "error-code" | "public-guidance";
+  focus?: "error-code" | "equipment";
+  evidence?: string[];
+  contextProof?: string;
   pending?: {
     field: AskProposal["field"];
     needs: "room" | "issue" | "staffName" | "workOrder" | "value" | "photo";
     value?: string;
     priority?: "Low" | "Medium" | "High" | "Urgent";
+    staffName?: string;
+    photoRequired?: boolean;
   };
 };
 export type AskProposal = {
@@ -49,7 +65,10 @@ export type AskProposal = {
   label: string;
   from: string;
   to: string;
+  effects?: string[];
+  attachments?: AskAttachment[];
 };
+export type AskAttachment = { uploadId: string; name: string; type: string; size: number; sha256?: string };
 export type AskResponse = {
   title: string;
   summary: string;
@@ -59,5 +78,7 @@ export type AskResponse = {
   table?: AskTable;
   context?: AskContext;
   proposal?: AskProposal;
-  savedOrder?: { id: string; displayId: string };
+  savedOrder?: { id: string; displayId: string; attachments?: AskAttachment[]; attachmentToken?: string };
+  code?: string;
+  downloads?: { id: string; name: string; mimeType: string; content: string; encoding: "utf8" | "base64" }[];
 };
