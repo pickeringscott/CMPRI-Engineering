@@ -101,6 +101,7 @@ export default function AskCmpri() {
   const [pending, setPending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [alert, setAlert] = useState("");
+  const [manualLink, setManualLink] = useState<{ href: string; name: string }>();
   const [authProblem, setAuthProblem] = useState("");
   const [draftFiles, setDraftFiles] = useState<File[]>([]);
   const [fileStatus, setFileStatus] = useState<AskCmpriFilesStatus>(noFileStatus);
@@ -234,6 +235,7 @@ export default function AskCmpri() {
     showTurns([]);
     setPending(false);
     setAlert("");
+    setManualLink(undefined);
     updateDraftFiles([]);
     submittedQuery.current = "";
     queryText("");
@@ -413,6 +415,14 @@ export default function AskCmpri() {
     search.current = { controller, submission };
     setPending(true);
     setAlert("");
+    const cancellingProposal = isCancelCommand(turn.question) && turnsRef.current.some((item) => item.result.proposal);
+    // A new request supersedes the previous review even when authorization,
+    // attachment reading, or the next answer fails. Keep its context for edits.
+    closeProposals(t(cancellingProposal ? "Change cancelled." : "Proposal closed."));
+    if (cancellingProposal) {
+      context.current = context.current && { ...context.current, pending: undefined };
+      pendingWorkOrderFiles.current = [];
+    }
     let auth: Authorized | undefined;
     const current = () => !controller.signal.aborted && serial === generation.current;
     try {
@@ -420,9 +430,7 @@ export default function AskCmpri() {
       if (!current() || (fromVoice && !call?.active)) return;
       submission.scope = auth.scope;
       captureTurn(submission, auth.scope);
-      const proposed = isCancelCommand(turn.question) && turnsRef.current.find((item) => item.result.proposal);
-      if (proposed) {
-        cancelProposal(proposed, false);
+      if (cancellingProposal) {
         updateTurn(turn.id, { waiting: false, outcome: t("Change cancelled.") }, auth.scope, call?.id);
         if (fromVoice && call?.active && call.origin === "launcher") voice.speak(t("Change cancelled."));
         return;
@@ -455,7 +463,6 @@ export default function AskCmpri() {
       if (!current() || authRef.current?.scope !== auth.scope) return;
       context.current = result.context || context.current;
       pendingWorkOrderFiles.current = result.context?.pending?.field === "create" ? requestFiles : [];
-      if (result.proposal) closeProposals(t("Proposal closed."), auth.scope);
       const attachments = result.proposal?.field === "create" ? requestFiles : newFiles;
       for (const file of excerpts) conversationFiles.current.set(file.id, file);
       updateTurn(turn.id, { result, attachments, attachmentNames: attachments.map(({ file }) => file.name), waiting: false }, auth.scope, call?.id);
@@ -806,9 +813,42 @@ export default function AskCmpri() {
     if (!verified || confirmation.current) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     const openerRect = opener?.getBoundingClientRect();
+    const registeredManual = record.kind === "file" && !!record.assetId;
+    const manualWindow = registeredManual ? window.open("about:blank", "_blank") : null;
+    if (manualWindow) manualWindow.opener = null;
+    const originalGeneration = generation.current;
     try {
-      await authorize(undefined, scope);
-      if (!openRef.current) return;
+      const auth = await authorize(undefined, scope);
+      if (!openRef.current) { manualWindow?.close(); return; }
+      if (registeredManual) {
+        setManualLink(undefined);
+        setAlert("");
+        try {
+          const response = await fetch("/api/assets/documentation?asset_id=" + encodeURIComponent(record.assetId!), {
+            headers: auth.headers, cache: "no-store",
+          });
+          const payload = await response.json().catch(() => null) as {
+            error?: string; documents?: { id?: string; name?: string; url?: string | null }[];
+          } | null;
+          if (!response.ok) throw new Error(payload?.error || t("Could not open this equipment manual."));
+          const document = payload?.documents?.find(item => item.id === record.id);
+          if (!document?.url) throw new Error(t("This manual is no longer available for the selected equipment."));
+          const url = new URL(document.url, window.location.origin);
+          if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) {
+            throw new Error(t("This manual has an unsupported document link."));
+          }
+          if (!openRef.current || authRef.current?.scope !== auth.scope || generation.current !== originalGeneration) {
+            manualWindow?.close();
+            return;
+          }
+          if (manualWindow && !manualWindow.closed) manualWindow.location.replace(url.href);
+          else setManualLink({ href: url.href, name: document.name || record.label || t("Open manual") });
+        } catch (error) {
+          manualWindow?.close();
+          if (openRef.current && authRef.current?.scope === auth.scope && generation.current === originalGeneration) setAlert(message(error));
+        }
+        return;
+      }
       if (record.kind === "staffNote") {
         setStaffNoteId(record.id);
         activeTab("staff");
@@ -823,7 +863,7 @@ export default function AskCmpri() {
       if (!href) return;
       dismiss({ focus: false, animate: false });
       launchRecord(href, opener, openerRect, record.label);
-    } catch (error) { sessionProblem(error); }
+    } catch (error) { manualWindow?.close(); sessionProblem(error); }
   }
 
   function openStaffWorkOrder(href: string, opener: HTMLElement) {
@@ -1021,6 +1061,7 @@ export default function AskCmpri() {
         <button type="button" className="ask-quiet" onClick={() => openVerified({ tab: viewRef.current === "staff" ? "staff" : "search" }, false)}>{t("Try again")}</button>
       </div>}
       {alert && !authProblem && <p className="ask-request-status" role="alert">{alert}</p>}
+      {verified && manualLink && <p className="ask-request-status"><a className="ask-text-action" href={manualLink.href} target="_blank" rel="noopener noreferrer">{manualLink.name}</a></p>}
       {verified && recoveries.length > 0 && <section className="ask-recoveries" aria-label={t("Attachment recovery")}>
         {recoveries.map(batch => <div key={batch.id}>
           <p>{batch.order ? `${batch.order.displayId} · ${t("The work order was saved. Retry the attachment upload.")}` : t("Check whether the work order was saved before retrying its attachments.")}</p>

@@ -448,7 +448,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     fitWidth(field);
   }
   function activate(field) {
-    if (isOpen(field)) {
+    if (isOpen(field) && active === field) {
       field.classList.add('collapsed');
       field.querySelector('legend').setAttribute('aria-expanded', 'false');
       if (active === field) {
@@ -734,22 +734,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   const blur = () => cancelGesture?.();
   window.addEventListener('blur', blur);
   cleanups.push(() => window.removeEventListener('blur', blur));
-  const leave = e => {
-    if (!active || cancelGesture || root.contains(e.target) || railScroll.contains(e.target))
-      return;
-    // Launching a screen moves focus into its window while the menu stays
-    // selected. Clicking the desktop itself still clears menu selection.
-    if (e.target instanceof Element) {
-      if (e.target.closest(
-        '[data-cmpri-desktop-window], [data-modal-entry], [data-cmpri-ask-root], dialog[open], #desktop-ask-search, .cmpri-guide-launcher'
-      )) return;
-      const launcher = e.target.closest('button, a[href], [role="button"]');
-      if (launcher && root.closest('header.cmpri-dashboard-titlebar')?.contains(launcher)) return;
-    }
-    setActive(null);
-    emit();
-  };
-  cleanups.push(listen('pointerdown', leave, true), listen('focusin', leave));
+  // Keep the selected row clear while focus moves to the desktop or a window.
   const unmount = () => { cancelGesture?.(); observer.disconnect(); bulletinObserver?.disconnect(); cleanups.forEach(fn => fn()); for (const ghost of ghosts)
     ghost.remove(); document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering'); root.replaceChildren(); railScroll.remove(); };
   // Language changes preserve the canonical layout, controls and pending drag/save work.

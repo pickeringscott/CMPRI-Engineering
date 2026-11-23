@@ -46,7 +46,7 @@ const actionSchema = z.object({
   attachments: z.array(askPhotoSchema).max(8).default([]),
 });
 type Action = z.infer<typeof actionSchema>;
-type ProposalResult = { proposal?: AskProposal; clarification?: string; needs?: NonNullable<AskContext["pending"]>["needs"]; unavailable?: string };
+type ProposalResult = { proposal?: AskProposal; clarification?: string; needs?: Exclude<NonNullable<AskContext["pending"]>["needs"], "review">; unavailable?: string };
 
 function receipt(payload: string, context = signingContext) {
   const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -125,6 +125,30 @@ function localizedOrderValue(value: string, language: AskLanguage) {
   return language === "es" ? TICKET_MEDIA_ES[value] || (value === "Open" ? "Abierta" : value === "Will Not Do" ? "No se realizará" : value) : value;
 }
 
+/** A request to open a ticket is not itself the reported maintenance issue. */
+export function askCreationIssue(value: string, locations: AskLocation[]) {
+  const issue = askText(value, 1000);
+  if (!issue) return "";
+  const comparable = (text: string) => text.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  let remaining = comparable(issue);
+  const targets = locations.flatMap((location) => {
+    const room = askText(location.room_number, 20);
+    return [location.name, room, ...(room ? ["room" + room, "rm" + room] : [])];
+  }).filter(Boolean).map(comparable).sort((a, b) => b.length - a.length);
+  for (const target of targets) {
+    const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    remaining = remaining.replace(new RegExp("(^|[^\\p{L}\\p{N}])" + escaped + "(?=$|[^\\p{L}\\p{N}])", "gu"), "$1 ");
+  }
+  const requestWords = new Set((
+    "a an the new work order orders workorder workorders wo ticket tickets maintenance request requests create submit open file log report make raise add start generate " +
+    "for in at to on with room rm please can could would you i me us need want like urgent high medium low priority " +
+    "una un la el las los nueva nuevo orden ordenes de del trabajo solicitud solicitudes reporte reportes crea crear cree envia enviar envie " +
+    "abre abrir genera generar haz hacer reporta reportar registra registrar quiero necesito puedes puede que crees tengo para en por favor habitacion cuarto urgente alta media baja prioridad"
+  ).split(" "));
+  const words = remaining.match(/[\p{L}\p{N}]+/gu) || [];
+  return words.every((word) => requestWords.has(word)) ? "" : issue;
+}
+
 export function beginAskAction(input: {
   plan: AskPlan; principal: Principal; orders: AskOrder[]; locations: AskLocation[]; language: AskLanguage;
   staffName: string; attachments?: AskPhoto[]; photoRequested: boolean; targetExplicit?: boolean;
@@ -143,7 +167,8 @@ export function beginAskAction(input: {
   if (action.field === "create") {
     if (!allows(principal, "submit")) return { unavailable: es ? "Tu cuenta no puede crear órdenes de trabajo." : "Your account cannot create work orders." };
     if (locations.length !== 1 || !input.targetExplicit || (!plan.rooms.length && !plan.locationNames?.length)) return { needs: "room", clarification: es ? "¿En qué habitación ocurrió?" : "Which room is this for?" };
-    if (!askText(plan.actionValue)) return { needs: "issue", clarification: es ? "¿Qué problema hay en ese lugar?" : "What problem should the work order describe?" };
+    const issue = askCreationIssue(plan.actionValue, locations);
+    if (!issue) return { needs: "issue", clarification: es ? "¿Qué problema hay en ese lugar?" : "What problem should the work order describe?" };
     if (isFrontDesk(principal.profile.role) && !validFirstName(staffName)) return { needs: "staffName", clarification: es ? "¿Qué nombre de pila debe aparecer en la orden?" : "What first name should appear on the work order?" };
     const attachments = [...new Map((input.attachments || []).filter(file => file.sha256 && isSupportedWorkOrderMedia(file.name, file.type)).map(file => [file.uploadId, file])).values()].slice(0, 8);
     const hasPhoto = attachments.some(file => isSupportedWorkOrderMedia(file.name, file.type)?.startsWith("image/"));
@@ -156,7 +181,7 @@ export function beginAskAction(input: {
     const location = locations[0];
     action.id = location.id;
     action.room = location.room_number || location.name;
-    action.value = askText(plan.actionValue, 1000);
+    action.value = issue;
     action.priority = (canSetFrontDeskWorkOrderPriority(principal) || allows(principal, "edit_tickets") || allows(principal, "review_tickets")) ? pickValue(priorities, plan.requestedPriority) || "" : "";
     action.attachments = attachments;
     label = es ? "Crear orden de trabajo" : "Create work order";

@@ -80,6 +80,24 @@
 .ask-staff-view:not([hidden]) { display: flex; height: 100%; flex-direction: column; }
 .ask-search-view { min-height: 100%; }
 .ask-search-view:has(.ask-welcome) { display: grid; }
+
+@keyframes cmpri-ask-tab-in {
+  from { opacity: .45; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .cmpri-ask :is(
+    #ask-cmpri-search-view,
+    #ask-cmpri-staff-view,
+    #ask-cmpri-history-view,
+    #ask-cmpri-files-view
+  ):not([hidden]),
+  .cmpri-ask > .ask-footer {
+    animation: cmpri-ask-tab-in 180ms ease-out;
+  }
+}
+
 .ask-welcome { display: grid; align-content: center; justify-items: center; padding: 6px 0 12px; text-align: center; }
 .ask-welcome > .ask-gemini-mark { width: 36px; height: 36px; margin-block-end: 8px; }
 .ask-welcome h3, .ask-answer h3, .ask-history-view h3 { line-height: 1.25; margin-block-end: 3px; }

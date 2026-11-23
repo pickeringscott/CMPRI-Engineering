@@ -194,3 +194,34 @@ test("an edit committed without a fresh row is confirmed without showing stale w
   assert.equal((await route.confirm(proposal.token, { recover: true })).status, 200);
   assert.equal(route.saves(), 1);
 });
+
+test("a room-only creation command cannot become a confirmable maintenance issue", () => {
+  const route = fixture("Chief Engineer");
+  const room = { ...location, name: "Room 319", room_number: "319" };
+  for (const value of [
+    "Create a work order for room 319.", "Please open an urgent ticket for Room #319!",
+    "I need you to create a work order for room 319 with high priority.",
+    "Room319", "319", "Crea una orden de trabajo para la habitación 319.",
+  ]) {
+    const result = route.action({ plan: { ...create, rooms: ["319"], actionValue: value }, locations: [room] });
+    assert.equal(result.needs, "issue", value);
+    assert.equal(result.proposal, undefined, value);
+  }
+  const boiler = { ...location, name: "Boiler Room", room_number: null };
+  assert.equal(route.action({ plan: { ...create, rooms: [], locationNames: ["Boiler Room"],
+    actionValue: "Please create a work order for the Boiler Room." }, locations: [boiler] }).needs, "issue");
+  assert.equal(route.saves(), 0);
+});
+
+test("creation validation preserves actual issue wording and never submits before confirmation", () => {
+  const route = fixture("Chief Engineer");
+  for (const value of [
+    "The toilet will not flush.", "Create a work order for room 212: the toilet will not flush.",
+    "La ducha no tiene agua caliente.", "Work order printer is broken.", "Room 212 door is stuck open.",
+  ]) {
+    const result = route.action({ plan: { ...create, actionValue: value } });
+    assert.ok(result.proposal, value);
+    assert.equal(route.actions.verifyAskConfirmation(result.proposal.token, route.auth.principal).value, value);
+  }
+  assert.equal(route.saves(), 0);
+});

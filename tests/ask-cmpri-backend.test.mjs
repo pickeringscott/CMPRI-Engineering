@@ -207,3 +207,122 @@ test("a formatter always rerenders previously selected result rows and keeps lin
   assert.match(csv.downloads[0].content, /Sink is leaking/);
   assert.doesNotMatch(csv.downloads[0].content, /Out of context/);
 });
+
+test("a priority-only table plan retains identifiable tickets, issues, rooms and exact links", async () => {
+  let fields = ["Priority", "Ticket status", "Source"];
+  const principal = {
+    identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
+    membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
+  };
+  const records = [
+    { id: "order:light", title: "Room 212 · WO#261026007", text: "Reading light", source: "CMPRI · Work orders", sourceType: "internal",
+      record: { kind: "order", id: "light", label: "WO#261026007" }, facts: [{ label: "Room", value: "212" }, { label: "Priority", value: "Low" }, { label: "Ticket status", value: "Open" }] },
+    { id: "order:ac", title: "Room 212 · WO#261012111", text: "AC not cooling", source: "CMPRI · Work orders", sourceType: "internal",
+      record: { kind: "order", id: "ac", label: "WO#261012111" }, facts: [{ label: "Room", value: "212" }, { label: "Priority", value: "Medium" }, { label: "Ticket status", value: "Open" }] },
+  ];
+  const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
+    "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
+    "@/lib/server/ask-cmpri-data": { ...data, readAskSources: async () => ({ items: records, orders: [], locations: [], assets: [], missing: [] }) },
+    "@/lib/server/ask-cmpri-gemini": { ...gemini, askGeminiKey: () => true,
+      planAsk: async () => ({ ...basePlan, sources: ["orders"], rooms: ["212"], format: "table", fields, sortBy: "Priority", sortDirection: "desc" }),
+      answerAsk: async () => ({ title: "Room 212", summary: "Two open tickets.", itemIds: records.map(({ id }) => id) }) },
+    "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}), beginAskAction: () => ({}) },
+  }, { AbortSignal, TextDecoder, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-only" } } });
+  const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question: "Show Room 212 tickets in a table sorted by priority, highest first, with links." }) }));
+  assert.equal(response.status, 200);
+  const result = await response.json();
+  assert.deepEqual(result.table.rows.map(({ id }) => id), ["order:ac", "order:light"]);
+  assert.equal(result.table.rows[0].cells["Work order"].text, "WO#261012111");
+  assert.equal(result.table.rows[0].cells["Work order"].record.id, "ac");
+  assert.equal(result.table.rows[1].cells["Work order"].record.id, "light");
+  assert.equal(result.table.rows[0].cells.Room, "212");
+  assert.equal(result.table.rows[0].cells["Reported issue"], "AC not cooling");
+  for (const record of records) record.facts.push(...["Repair status", "Equipment", "Created", "Updated"].map(label => ({ label, value: "Fixture " + label })));
+  fields = ["Result", "Details", "Source", "Ticket status", "Repair status", "Equipment", "Created", "Updated"];
+  const wideResponse = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question: "Show Room 212 tickets with all those fields, sorted by priority highest first." }) }));
+  const wide = await wideResponse.json();
+  assert.equal(wide.table.columns.length, 10, "the requested sort and ticket identities fit the column cap");
+  assert.ok(wide.table.columns.some(({ id }) => id === "Priority"));
+  assert.deepEqual(wide.table.rows.map(({ id }) => id), ["order:ac", "order:light"]);
+  assert.equal(wide.table.rows[0].cells["Work order"].record.id, "ac");
+});
+
+test("Chief Engineer missing-details and review corrections preserve signed creation context without writing", async () => {
+  const principal = {
+    identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
+    membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
+  };
+  let planned = { ...basePlan, sources: ["orders"], rooms: ["319"], candidateAction: "create", actionValue: "" };
+  let summaryCalls = 0;
+  const reviews = [];
+  const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
+    "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
+    "@/lib/server/ask-cmpri-data": { ...data, readAskSources: async () => ({ items: [], orders: [], locations: [], assets: [], missing: [] }) },
+    "@/lib/server/ask-cmpri-gemini": { ...gemini, askGeminiKey: () => true, planAsk: async () => planned,
+      answerAsk: async () => { summaryCalls++; return { title: "Search", summary: "No matching records.", itemIds: [] }; } },
+    "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}), beginAskAction: ({ plan, targetExplicit }) => {
+      if (plan.candidateAction === "none") return {};
+      assert.equal(targetExplicit, true, "the retained or corrected target is explicitly authorized");
+      if (!plan.actionValue) return { needs: "issue", clarification: "What is the issue?" };
+      reviews.push(JSON.parse(JSON.stringify(plan)));
+      return { proposal: { token: "proposal-for-review-only", id: "review", field: "create", label: "Create work order", from: "", to: `${plan.rooms[0]} · ${plan.actionValue}` } };
+    } },
+  }, { AbortSignal, TextDecoder, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-only" } } });
+  const submit = async (question, previous) => {
+    const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question, previous }) }));
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const missing = await submit("Create a work order for room 319.");
+  assert.equal(missing.proposal, undefined);
+  assert.equal(missing.question, undefined, "Chief Engineer receives a statement, not a clarification question");
+  assert.equal(missing.context.pending.needs, "issue");
+  assert.equal(missing.context.pending.value, "");
+  assert.deepEqual(missing.context.rooms, ["319"]);
+  assert.ok(missing.context.contextProof);
+  assert.equal(summaryCalls, 0, "missing details do not become an unrelated search answer");
+
+  planned = { ...basePlan };
+  const filled = await submit("The toilet will not flush.", missing.context);
+  assert.equal(filled.context.pending.needs, "review");
+  assert.deepEqual(reviews[0].rooms, ["319"]);
+  assert.equal(reviews[0].actionValue, "The toilet will not flush.");
+
+  const corrected = await submit("The sink is leaking.", filled.context);
+  assert.equal(corrected.context.pending.value, "The sink is leaking.");
+  assert.deepEqual(reviews[1].rooms, ["319"]);
+
+  planned = { ...basePlan, candidateAction: "priority", actionValue: "Urgent", requestedPriority: "Urgent" };
+  const urgent = await submit("Make that urgent.", corrected.context);
+  assert.equal(reviews[2].actionValue, "The sink is leaking.");
+  assert.equal(reviews[2].requestedPriority, "Urgent");
+
+  planned = { ...basePlan, rooms: ["320"], candidateAction: "create", followUp: true };
+  const moved = await submit("Room 320 instead.", urgent.context);
+  assert.deepEqual(reviews[3].rooms, ["320"]);
+  assert.equal(reviews[3].actionValue, "The sink is leaking.");
+  assert.equal(moved.context.pending.priority, "Urgent");
+
+  planned = { ...basePlan };
+  const tampered = await submit("The toilet will not flush.", { ...missing.context, rooms: ["999"] });
+  assert.equal(tampered.proposal, undefined, "client-edited pending context cannot authorize a follow-up action");
+  assert.equal(reviews.length, 4);
+  const unrelated = await submit("Which rooms check out today?", corrected.context);
+  assert.equal(unrelated.context.pending, undefined);
+  assert.equal(reviews.length, 4);
+  for (const previous of [missing.context, corrected.context]) {
+    for (const question of ["Okay.", "Thank you.", "Go ahead.", "How many whips are in stock", "Is there a manual for the washer"]) {
+      const answer = await submit(question, previous);
+      assert.equal(answer.proposal, undefined, question + " is not an issue correction or confirmation");
+      assert.equal(answer.context.pending, undefined);
+    }
+  }
+  assert.equal(reviews.length, 4);
+  planned = { ...basePlan, candidateAction: "priority", actionValue: "Urgent", requestedPriority: "Urgent" };
+  const namedPriority = await submit("Make the sink leak urgent.", corrected.context);
+  assert.equal(namedPriority.context.pending.value, "The sink is leaking.");
+  assert.equal(namedPriority.context.pending.priority, "Urgent");
+  assert.deepEqual(reviews[4].rooms, ["319"]);
+});

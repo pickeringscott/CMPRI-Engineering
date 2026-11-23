@@ -171,7 +171,7 @@ async def inspect_role(browser, role, width):
             assert abs(button["x"] + button["width"] / 2 - buttons["x"] - buttons["width"] / 2) < 1
         assert await title.bounding_box() == before
         await expect(safety).to_have_attribute("aria-expanded", "true")
-        assert "blur(" in await group(page, "Safety & Logs").locator(".buttons").evaluate("element => getComputedStyle(element).filter")
+        await expect(group(page, "Safety & Logs").locator(".buttons")).to_have_css("filter", "blur(1.75px)")
     assert not errors, errors
     await context.close()
     print(f"{role} {width}px verified", flush=True)
@@ -304,13 +304,29 @@ async def check_wake_and_scroll(browser, width):
     await expect(daily_tab).to_have_attribute("aria-expanded", "true")
     await (rooms_tab.tap() if touch else rooms_tab.click())
     await expect(rooms).to_have_attribute("data-active", "true")
-    assert await daily.locator(".buttons").evaluate("node => getComputedStyle(node).filter") != "none"
+    await expect(daily.locator(".buttons")).to_have_css("filter", "blur(1.75px)")
     work = daily.get_by_role("button", name="Work Order List", exact=True)
     await (work.tap() if touch else work.click())
     await expect(daily).to_have_attribute("data-active", "true")
     assert await page.locator('[data-cmpri-desktop-window="work-order-list"]').count() == 0
     assert int(await daily.evaluate("node => node.style.zIndex")) > int(await rooms.evaluate("node => node.style.zIndex"))
 
+    desktop = page.locator(".cmpri-desktop").last
+    desktop_bounds = await desktop.bounding_box()
+    assert desktop_bounds
+    blank = {"x": desktop_bounds["width"] / 2, "y": desktop_bounds["height"] / 2}
+    await (desktop.tap(position=blank) if touch else desktop.click(position=blank))
+    await expect(daily).to_have_attribute("data-active", "true")
+    await expect(daily.locator(".buttons")).to_have_css("filter", "none")
+    await expect(rooms.locator(".buttons")).to_have_css("filter", "blur(1.75px)")
+
+    # An open inactive tab selects its row; only the selected tab closes it.
+    await (rooms_tab.tap() if touch else rooms_tab.click())
+    await expect(rooms_tab).to_have_attribute("aria-expanded", "true")
+    await expect(rooms).to_have_attribute("data-active", "true")
+    await expect(daily_tab).to_have_attribute("aria-expanded", "true")
+    await expect(rooms.locator(".buttons")).to_have_css("filter", "none")
+    assert int(await rooms.evaluate("node => node.style.zIndex")) > int(await daily.evaluate("node => node.style.zIndex"))
     await (rooms_tab.tap() if touch else rooms_tab.click())
     await expect(rooms_tab).to_have_attribute("aria-expanded", "false")
     await expect(daily).to_have_attribute("data-active", "true")

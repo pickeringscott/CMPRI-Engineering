@@ -1,8 +1,8 @@
 export type AskLanguage = "en" | "es";
-export type AskSource = "orders" | "assets" | "rooms" | "roomRank" | "staffNotes" | "personalNotes";
+export type AskSource = "orders" | "assets" | "inventory" | "rooms" | "roomRank" | "staffNotes" | "personalNotes";
 export type AskStatus = "all" | "active" | "in-progress" | "completed" | "closed";
 export type AskFormat = "brief" | "bullets" | "table";
-export type AskRecordReference = { kind: "order" | "asset" | "roomRank" | "staffNote" | "personalNote" | "file"; id: string; label?: string };
+export type AskRecordReference = { kind: "order" | "asset" | "roomRank" | "staffNote" | "personalNote" | "file"; id: string; label?: string; assetId?: string };
 export type AskResultItem = {
   id: string;
   title: string;
@@ -51,7 +51,7 @@ export type AskContext = {
   contextProof?: string;
   pending?: {
     field: AskProposal["field"];
-    needs: "room" | "issue" | "staffName" | "workOrder" | "value" | "photo";
+    needs: "room" | "issue" | "staffName" | "workOrder" | "value" | "photo" | "review";
     value?: string;
     priority?: "Low" | "Medium" | "High" | "Urgent";
     staffName?: string;

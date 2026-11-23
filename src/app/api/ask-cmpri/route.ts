@@ -55,7 +55,8 @@ async function requestBody(request: NextRequest) {
 
 const columnAliases: Record<string, string> = {
   room: "Room", "room number": "Room", availability: "Room availability", issue: "Reported issue", "reported issue": "Reported issue",
-  ticket: "Work order", "work order": "Work order", status: "Ticket status", "repair state": "Repair status", "repair status": "Repair status",
+  ticket: "Work order", "work order": "Work order", "ticket number": "Work order", "work order number": "Work order",
+  "ticket link": "Work order", "work order link": "Work order", status: "Ticket status", "repair state": "Repair status", "repair status": "Repair status",
   technician: "Assigned to", "checkout": "Checkout time", "time": "Checkout time",
   name: "Result", description: "Details", date: "Created", "created at": "Created", "updated at": "Updated", "room rank": "Room rank",
   habitacion: "Room", habitación: "Room", prioridad: "Priority", estado: "Ticket status", fecha: "Created", equipo: "Equipment", fuente: "Source",
@@ -78,9 +79,14 @@ function tableFor(items: AskResultItem[], plan: AskPlan, previous: AskContext | 
   const needsSource = items.some((item) => item.href) || items.some((item) => item.record?.kind === "order") && items.some((item) => item.record?.kind !== "order");
   const chosen = [...new Set([...ids, ...(sortBy ? [sortBy] : [])].map(canonicalField))]
     .flatMap((preferred) => knownFields.find((known) => known.toLowerCase() === preferred.toLowerCase()) || []).slice(0, 10);
-  const required = needsSource ? ["Result", "Details", "Source"] : [];
-  if (!chosen.some((label) => label === "Work order" || label === "Result" || label === "Source") && items.some((item) => item.record || item.links?.length)) required.push("Source");
-  const columns = [...chosen.filter((column) => !required.includes(column)).slice(0, 10 - required.length), ...required];
+  // A formatting request must not turn distinct tickets into indistinguishable
+  // rows, even when the planner returns only the requested sort/status fields.
+  const identity = items.some((item) => item.record?.kind === "order")
+    ? ["Room", "Reported issue", "Work order"].filter((field) => knownFields.includes(field))
+    : items.some((item) => item.record || item.href || item.links?.length) ? ["Result"] : [];
+  const knownSort = knownFields.find((field) => field.toLowerCase() === sortBy.toLowerCase());
+  const required = [...new Set([...identity, ...(needsSource ? ["Result", "Details", "Source"] : []), ...(knownSort ? [knownSort] : [])])];
+  const columns = [...required, ...chosen.filter((column) => !required.includes(column)).slice(0, 10 - required.length)];
   if (!columns.length) columns.push("Result", "Details", "Source");
   const columnRows = items.map(({ id, title, text, source, record, href, facts, links }) => {
     const cells = Object.fromEntries(columns.map((field): [string, AskTableCell] => {
@@ -221,6 +227,9 @@ function continueAction(input: SearchInput, plan: AskPlan) {
   const staffName = input.staffName || previous.staffName || "";
   const answer = (amend: Partial<AskPlan>, name = staffName) => ({ plan: { ...continuing, ...amend }, staffName: name, continued: true });
   const otherTask = asksToReformat(reply) || /^(?:(?:please|por favor)\s+)*(?:find|where|what|which|show|search|can you|look up|busca|d[oó]nde|cu[aá]l|qu[eé]|muestra|encuentra|hello|goodbye|thanks|gracias)\b/i.test(reply);
+  const acknowledgement = /^(?:yes|yeah|yep|ok(?:ay)?|sure|go ahead|do it|proceed|sounds good|looks good|thank you|no(?:pe)?|cancel|stop|never\s?mind|s[ií]|vale|bien|correcto|adelante|hazlo|de acuerdo)[.!]*$/i.test(reply);
+  const inquiry = /^(?:(?:please|por favor)\s+)*(?:how|when|why|is|are|do|does|did|has|have|will|would|could|should|tell me|cu[aá]nt[oa]s?|cu[aá]ndo|c[oó]mo|por qu[eé]|hay|est[aá]n?|es|son)\b/i.test(reply);
+  if (["issue", "value", "review"].includes(previous.needs) && (acknowledgement || inquiry)) return result;
   const proposedName = reply.replace(/^(?:i(?:['’]m| am)|my (?:first )?name is|me llamo|mi nombre es|soy)\s+/i, "");
   if (previous.needs === "staffName" && !otherTask && validFirstName(proposedName)
     && !/^(?:front\s*desk|staff|admin|skip|no(?:pe)?|yes|pass|salt|filters?|filtros?|microwaves?|microondas)$/i.test(proposedName) && proposedName.split(/\s+/).length <= 3) {
@@ -240,6 +249,31 @@ function continueAction(input: SearchInput, plan: AskPlan) {
   }
   if (previous.needs === "photo" && input.attachments?.length && !otherTask) {
     return answer({});
+  }
+  if (previous.needs === "review" && reply && !reply.endsWith("?") && !otherTask) {
+    // Retain the signed draft target while the user corrects the proposed
+    // details. An explicitly different action remains a separate request.
+    if (previous.field === "create") {
+      if (plan.workOrders.length || !["none", "create", "priority"].includes(plan.candidateAction)) return result;
+      const priority = reply.match(/\b(urgent|urgente|high|alta|medium|media|low|baja)\b/i)?.[1];
+      if (priority && /\b(?:priority|prioridad|make|mark|set|change|pon|marca|cambia)\b/i.test(reply)
+        && (plan.candidateAction === "priority" || /\b(?:urgent|urgente|high|alta|medium|media|low|baja)(?:\s+(?:priority|prioridad))?[.!]*$/i.test(reply))) {
+        const levels: Record<string, AskPlan["requestedPriority"]> = {
+          urgent: "Urgent", urgente: "Urgent", high: "High", alta: "High", medium: "Medium", media: "Medium", low: "Low", baja: "Low",
+        };
+        return answer({ requestedPriority: levels[priority.toLowerCase()], actionValue: previous.value || "" });
+      }
+      if (plan.candidateAction === "priority") return result;
+      const correctedRoom = reply.replace(/^(?:use|make (?:that|it)|actually|no[, ]*|usa|en realidad)\s*/i, "").replace(/\s+(?:instead|en su lugar)[.!]*$/i, "").replace(/[.!]$/, "");
+      const room = validAskRoom(correctedRoom);
+      if (room) return answer({ rooms: [room], workOrders: [], locationNames: [], actionValue: previous.value || "" });
+      return answer({ actionValue: plan.actionValue || reply });
+    }
+    if (plan.candidateAction !== "none" && plan.candidateAction !== previous.field) return result;
+    const value = plan.actionValue || reply;
+    if (previous.field === "priority" && !/^(?:urgent|urgente|high|alta|medium|media|low|baja)$/i.test(value)) return result;
+    if (previous.field === "status" && !/^(?:pending verification|open|in progress|completed|closed|will not do|abiert[oa]|en curso|completad[oa]|cerrad[oa])$/i.test(value)) return result;
+    return answer({ actionValue: value });
   }
   return result;
 }
@@ -343,7 +377,7 @@ export async function POST(request: NextRequest) {
         plan.errorCode = input.question.trim().replace(/[.?!]$/, "");
       } else if (reformat && previous.webIntent === "error-code") plan.errorCode ||= retained.errorCode || "";
     }
-    if (plan.workOrders.length && (!plan.sources.length || explicitAskOrders(input.question).length) && !plan.sources.includes("orders")) plan.sources = (["orders", ...plan.sources] as AskSource[]).slice(0, 6);
+    if (plan.workOrders.length && (!plan.sources.length || explicitAskOrders(input.question).length) && !plan.sources.includes("orders")) plan.sources = (["orders", ...plan.sources] as AskSource[]).slice(0, 7);
     if (!reformat && actionAllowed && !plan.workOrders.length && previous?.contextProof && plan.followUp && /\b(?:that ticket|that work order|that one|esa orden|ese ticket)\b/i.test(input.question)) {
       const ids = previous.evidence?.filter((id) => id.startsWith("order:")) || [];
       if (ids.length === 1) {
@@ -364,14 +398,36 @@ export async function POST(request: NextRequest) {
       staffName: initial.staffName, attachments: input.attachments || [], photoRequested,
       targetExplicit: confirmedTarget(plan, input, initial.continued),
     });
+    const pendingAction = (needs: NonNullable<AskContext["pending"]>["needs"]): AskContext["pending"] => plan.candidateAction === "none" ? undefined : {
+      field: plan.candidateAction, needs, value: needs === "issue" ? "" : plan.actionValue,
+      ...(plan.requestedPriority !== "default" ? { priority: plan.requestedPriority } : {}),
+      ...(initial.staffName ? { staffName: initial.staffName } : {}),
+      ...(photoRequested ? { photoRequired: true } : {}),
+    };
     if (action.proposal || action.unavailable) {
       const result: AskResponse = {
         title: action.proposal ? es ? "Revisa el cambio" : "Review proposed change" : es ? "Cambio no disponible" : "Change unavailable",
         summary: action.proposal ? action.proposal.label : action.unavailable || "",
         ...(action.proposal ? { proposal: action.proposal } : {}),
-        context: attest(createContext(input, plan, responseLanguage), auth.principal),
+        context: attest(createContext(input, plan, responseLanguage, undefined, action.proposal ? pendingAction("review") : undefined), auth.principal),
       };
       return NextResponse.json(result, { headers });
+    }
+    if (action.needs && plan.candidateAction !== "none") {
+      const details = {
+        room: ["Select the room or location for this work order.", "Selecciona la habitación o ubicación para esta orden."],
+        issue: ["Add the issue description to prepare this work order.", "Añade la descripción del problema para preparar esta orden."],
+        staffName: ["Add your first name to prepare this request.", "Añade tu nombre para preparar esta solicitud."],
+        workOrder: ["Include the exact work-order number for this change.", "Incluye el número exacto de la orden para este cambio."],
+        value: ["Add the new value or note text for this change.", "Añade el nuevo valor o el texto de la nota para este cambio."],
+        photo: ["Attach the requested photo before reviewing this work order.", "Adjunta la foto solicitada antes de revisar esta orden."],
+      };
+      const summary = chief ? details[action.needs][es ? 1 : 0] : action.clarification || details[action.needs][es ? 1 : 0];
+      return NextResponse.json({
+        title: es ? "Faltan detalles del cambio" : "Change needs details", summary,
+        ...(!chief ? { question: summary } : {}),
+        context: attest(createContext(input, plan, responseLanguage, undefined, pendingAction(action.needs)), auth.principal),
+      } satisfies AskResponse, { headers });
     }
 
     const qualifiedAssets = assets.filter((asset) => asset.manufacturer && asset.model_number &&
@@ -431,7 +487,6 @@ export async function POST(request: NextRequest) {
       items = previous.evidence.flatMap((id) => available.get(id) || []);
       if (items.length !== previous.evidence.length) missing.push(es ? "Algunas fuentes anteriores ya no están disponibles." : "Some earlier sources are no longer available.");
     }
-    if (action.clarification && chief) missing.push("The requested change is missing details and was not prepared.");
     const needsCode = plan.webIntent === "error-code" && !plan.errorCode;
     const needsEquipment = ["manual", "manufacturer", "error-code"].includes(plan.webIntent) && !publicEquipment && !queries.size;
     const focus = needsCode ? "error-code" as const : needsEquipment ? "equipment" as const : undefined;
@@ -451,12 +506,7 @@ export async function POST(request: NextRequest) {
         title: es ? "Un detalle más" : "One more detail",
         summary: clarity,
         question: clarity,
-        context: contextFor(undefined, action.needs && plan.candidateAction !== "none" ? {
-          field: plan.candidateAction, needs: action.needs, value: plan.actionValue,
-          ...(plan.requestedPriority !== "default" ? { priority: plan.requestedPriority } : {}),
-          ...(initial.staffName ? { staffName: initial.staffName } : {}),
-          ...(photoRequested ? { photoRequired: true } : {}),
-        } : undefined),
+        context: contextFor(),
       } satisfies AskResponse, { headers });
     }
     if (/\b(?:download|export|descarga(?:r)?|exporta(?:r)?)\b/i.test(input.question) && /\b(?:csv|table|tabla)\b/i.test(input.question)) plan.format = "table";

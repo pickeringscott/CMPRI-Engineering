@@ -23,6 +23,7 @@ type SourceResult = { items: AskResultItem[]; missing?: string };
 export type AskAsset = Data & {
   id: string; location_id: string | null; name: string; manufacturer: string | null; model_number: string | null;
   documentation_verified?: boolean;
+  manuals?: { id: string; name: string }[];
 };
 export type AskOrder = Data & {
   id: string; display_id: string; hotel_id: string; room: string; issue: string;
@@ -30,12 +31,12 @@ export type AskOrder = Data & {
 };
 export type AskLocation = Data & { id: string; name: string; room_number: string | null };
 
-const sources: AskSource[] = ["orders", "assets", "rooms", "roomRank", "staffNotes", "personalNotes"];
+const sources: AskSource[] = ["orders", "assets", "inventory", "rooms", "roomRank", "staffNotes", "personalNotes"];
 const statusScope = ["all", "active", "in-progress", "completed", "closed"] as const;
 export const askContextSchema = z.object({
   question: z.string().max(650).optional(),
   language: z.enum(["en", "es"]).optional(),
-  sources: z.array(z.enum(sources)).max(6).optional(),
+  sources: z.array(z.enum(sources)).max(7).optional(),
   rooms: z.array(z.string().max(20)).max(8).optional(),
   workOrders: z.array(z.string().max(45)).max(8).optional(),
   terms: z.array(z.string().max(80)).max(8).optional(),
@@ -62,7 +63,7 @@ export const askContextSchema = z.object({
   contextProof: z.string().max(90).optional(),
   pending: z.object({
     field: z.enum(["create", "status", "priority", "comment", "staff-note"]),
-    needs: z.enum(["room", "issue", "staffName", "workOrder", "value", "photo"]),
+    needs: z.enum(["room", "issue", "staffName", "workOrder", "value", "photo", "review"]),
     value: z.string().max(1000).optional(),
     priority: z.enum(["Low", "Medium", "High", "Urgent"]).optional(),
     staffName: z.string().max(80).optional(),
@@ -98,6 +99,7 @@ export function askPermittedSources(principal: Principal): AskSource[] {
   return [
     ...(allows(principal, "view_work_orders") ? ["orders", "roomRank"] as const : []),
     ...(canReadAskAssets(principal) ? ["assets"] as const : []),
+    ...(allows(principal, "manage_assets") || canReadChiefModuleData(principal) ? ["inventory"] as const : []),
     ...(allows(principal, "submit") || allows(principal, "view_locations") || canOpenRoomOperations(principal.profile) ? ["rooms"] as const : []),
     "staffNotes", "personalNotes",
   ];
@@ -161,15 +163,20 @@ export function applyAskContext(plan: AskPlan, question: string, previous?: AskC
   const rank = question.match(/\b(?:rank(?:ed|ing)?|grado)\s*([abc])\b/i)?.[1]?.toUpperCase() as AskPlan["rank"];
   const after = question.match(/\b(?:after|past|despu[eé]s de(?: las)?)\s+(\d{1,2}(?::\d{2})?\s*(?:[ap]\.?m\.?)?)\b/i)?.[1];
   const additionalField = question.match(/\badd (?:a |the )?(priority|room|status|source|work order|date|due date|technician)\b/i)?.[1];
-  const translatedTerms = equipmentTerms(question);
+  const selectedSources = replacementFollowUp ? [...new Set<AskSource>(["orders", "assets", ...plan.sources])]
+    : formatting && previous?.sources?.length ? previous.sources : plan.sources.length ? plan.sources : assignedOnly ? ["orders"] as AskSource[] : followUp ? previous?.sources || [] : [];
+  const stockQuestion = plan.candidateAction === "none" && /\b(?:in stock|on hand|stock levels?|stock count|existencias|en inventario|en stock)\b/i.test(question);
+  const inventoryOnly = stockQuestion && !/\b(?:installed|equipment records|asset records|manuals?|tickets?|work orders?)\b/i.test(question);
+  const selected: AskSource[] = inventoryOnly ? [...new Set<AskSource>(["inventory", ...selectedSources.filter((source) => source !== "assets")])] : selectedSources;
+  const stockItem = inventoryOnly ? question.match(/\bhow (?:many|much)\s+(.+?)(?=\s+(?:are|is)\s+(?:in stock|on hand|available)|\s+(?:do we have|have we got)\b)/i)?.[1] : undefined;
+  const translatedTerms = selected.includes("inventory") ? [] : equipmentTerms(question);
   return {
     ...plan,
     followUp,
-    sources: replacementFollowUp ? [...new Set<AskSource>(["orders", "assets", ...plan.sources])]
-      : formatting && previous?.sources?.length ? previous.sources : plan.sources.length ? plan.sources : assignedOnly ? ["orders"] : followUp ? previous?.sources || [] : [],
+    sources: selected,
     rooms: [...new Set((copyTarget ? previous?.rooms || [] : rooms).map(validAskRoom).filter(Boolean))].slice(0, 8),
     workOrders: [...new Set((copyTarget ? previous?.workOrders || [] : workOrders).map((value) => isUuid(value) ? value : workOrderNumber(value) || "").filter(Boolean))].slice(0, 8),
-    terms: askTerms((formatting || replacementFollowUp) && previous?.terms?.length ? previous.terms
+    terms: askTerms(stockItem ? [stockItem] : (formatting || replacementFollowUp) && previous?.terms?.length ? previous.terms
       : translatedTerms.length ? [...translatedTerms, ...plan.terms.filter((term) => !/^(?:broken|issues?|problem|out|repair|maintenance)$/i.test(term))]
         : plan.terms.length ? plan.terms : inheritFilters ? previous?.terms || [] : []),
     status: inheritFilters && !mentionsAll && plan.status === "all" ? previous?.status || "all" : plan.status,
@@ -361,11 +368,13 @@ export async function askAssets(auth: Authorized, selection: { rooms: AskLocatio
 }
 
 async function verifyAskAsset(auth: Authorized, asset: AskAsset, listManuals: boolean): Promise<AskAsset> {
-  if (asset.documentation_revision_id) return { ...asset, documentation_verified: false };
+  if (asset.documentation_revision_id && !listManuals) return { ...asset, documentation_verified: false };
   if (asset.documentation_verified_at && !listManuals) return { ...asset, documentation_verified: true };
   const { data, error } = await listRegisteredAssetFiles(auth.admin, asset.id);
-  const verified = Boolean(asset.documentation_verified_at) || !error && data.some(({ name }) => name === "_cmpri-verification.json");
-  const manuals = listManuals && verified && !error ? data.filter(({ name }) => /\.pdf$/i.test(name)).slice(0, 12).map(({ name }) => name) : [];
+  if (error) throw new Error("Equipment documentation unavailable");
+  const verified = !asset.documentation_revision_id && (Boolean(asset.documentation_verified_at) || data.some(({ name }) => name === "_cmpri-verification.json"));
+  const manuals = listManuals ? data.filter(({ id, name }) => isUuid(id) && /\.pdf$/i.test(name)).slice(0, 12)
+    .map(({ id, name }) => ({ id, name: askText(name, 180) })) : [];
   return { ...asset, documentation_verified: verified, manuals };
 }
 
@@ -374,13 +383,14 @@ function assetItem(asset: AskAsset, locations: AskLocation[]): AskResultItem {
   return {
     id: "asset:" + asset.id, title: name || asset.name, text: askText(asset.name, 180), source: "CMPRI · Assets", sourceType: "internal",
     record: { kind: "asset", id: asset.id, label: "Open equipment" },
+    ...(asset.manuals?.length ? { links: asset.manuals.map(({ id, name }) => ({ kind: "file" as const, id, assetId: asset.id, label: name })) } : {}),
     facts: [
       ...fact("Equipment", asset.name),
       ...fact("Location", locations.find(({ id }) => id === asset.location_id)?.name),
       ...fact("Manufacturer", asset.manufacturer), ...fact("Model", asset.model_number),
       ...fact("Asset status", asset.active === false ? "Retired" : "Active"),
-      ...fact("Documentation", asset.documentation_verified ? "Verified equipment documentation" : ""),
-      ...fact("CMPRI manual files", Array.isArray(asset.manuals) ? asset.manuals.join(", ") : ""),
+      ...fact("Documentation", asset.documentation_verified ? "Verified equipment documentation" : asset.manuals?.length ? "Attached documents; model applicability is unverified" : ""),
+      ...fact("CMPRI manual files", asset.manuals?.map(({ name }) => name).join(", ")),
     ],
   };
 }
@@ -478,6 +488,57 @@ function nativeGet(request: NextRequest, pathname: string) {
   return new NextRequest(new URL(pathname, request.nextUrl.origin), { method: "GET", headers: { Authorization: bearer } });
 }
 
+function inventoryTokens(value: string) {
+  const normalized = value.normalize("NFKC").toLowerCase().replace(/⁄/g, "/")
+    .replace(/\bsku[\s#:-]*(?=\d)/g, "").replace(/(\d)\s*["″]/g, "$1 inch")
+    .replace(/\b(?:inches|inch)\b/g, "in").replace(/[^\p{L}\p{N}/]+/gu, " ");
+  const filler = new Set(["a", "an", "the", "of", "in", "on", "hand", "stock", "inventory", "available", "how", "many", "much", "are", "is", "do", "we", "have", "read", "only", "right", "now"]);
+  return normalized.split(/\s+/).filter((word) => word && !filler.has(word))
+    .map((word) => word.length > 3 && word.endsWith("s") && !word.endsWith("ss") ? word.slice(0, -1) : word);
+}
+
+function inventoryQuantity(value: unknown) {
+  if (typeof value !== "number" && (typeof value !== "string" || !value.trim())) return null;
+  const quantity = Number(value);
+  return Number.isFinite(quantity) ? quantity : null;
+}
+
+async function inventorySource(request: NextRequest, plan: AskPlan, ids: string[] = []): Promise<SourceResult> {
+  const { GET } = await import("@/app/api/engineering/catalog/route");
+  const response = await GET(nativeGet(request, "/api/engineering/catalog?v=2&stock=1"));
+  if (!response.ok) throw new Error("Inventory unavailable");
+  const snapshot = await response.json();
+  if (!Array.isArray(snapshot.inventory)) throw new Error("Inventory snapshot incomplete");
+  const terms = [...new Set(inventoryTokens(plan.terms.join(" ")))];
+  const matching = (snapshot.inventory as Data[]).filter((item) => {
+    if (!isUuid(askText(item.id, 50))) return false;
+    if (ids.length) return ids.includes(String(item.id));
+    const words = new Set(inventoryTokens([item.item_name, item.item_type, item.manufacturer, item.vendor_sku, item.description]
+      .map((value) => askText(value, 2000)).join(" ")));
+    return terms.every((term) => words.has(term));
+  });
+  return {
+    items: matching.slice(0, maxItems).map((item) => {
+      const onHand = inventoryQuantity(item.quantity_on_hand), reserved = inventoryQuantity(item.quantity_reserved);
+      const unit = askText(item.unit_of_measure, 20).toUpperCase().replace(/^EACH$/, "EA");
+      const quantity = (value: number | null) => value === null ? "" : [String(value), unit].filter(Boolean).join(" ");
+      return {
+        id: "inventory:" + item.id, title: askText(item.item_name, 180), source: "CMPRI · Inventory", sourceType: "internal" as const,
+        href: new URL("/engineering/parts", request.nextUrl.origin).href, hrefLabel: "Open Inventory",
+        facts: [
+          ...fact("Inventory item", item.item_name), ...fact("SKU", item.vendor_sku),
+          ...fact("On hand", quantity(onHand)), ...fact("Reserved", quantity(reserved)),
+          ...fact("Available", quantity(onHand !== null && reserved !== null ? onHand - reserved : null)),
+          ...fact("Unit", unit), ...fact("Storage location", item.storage_location),
+          ...fact("Stock as of", snapshot.as_of),
+        ],
+      };
+    }),
+    missing: !matching.length ? "No matching items were found in the current authorized inventory snapshot."
+      : matching.length > maxItems ? "Inventory results are limited. Filter by item name or SKU for more detail." : undefined,
+  };
+}
+
 async function rankingSource(request: NextRequest, plan: AskPlan, ids: string[] = []): Promise<SourceResult> {
   const { GET } = await import("@/app/api/ticket-room-ranker/route");
   const response = await GET(nativeGet(request, "/api/ticket-room-ranker"));
@@ -556,9 +617,10 @@ export async function readAskSources(request: NextRequest, auth: Authorized, pla
     assetIds.length && canReadAskAssets(auth.principal) ? settle(askAssets(auth, { rooms: [], terms: [], ids: assetIds }), "Linked CMPRI equipment", []) : [],
   ]);
   const uniqueAssets = [...new Map([...associatedAssets, ...assetMatches].map((asset) => [asset.id, asset])).values()];
-  const assets = await Promise.all(uniqueAssets.map((asset) => settle(verifyAskAsset(auth, asset, plan.webIntent === "manual" && uniqueAssets.length <= 2), "Equipment document verification", asset)));
+  const assets = await Promise.all(uniqueAssets.map((asset) => settle(verifyAskAsset(auth, asset, plan.webIntent === "manual"), "Equipment document verification", asset)));
   const linkedAssets = new Map(assets.map((item) => [item.id, item]));
   const independent = await Promise.all(requested.flatMap((name) => {
+    if (name === "inventory") return [settle(inventorySource(request, plan, ids("inventory")), "CMPRI inventory", { items: [] })];
     if (name === "rooms") return [settle(roomSource(auth, plan, locations), "CMPRI room status", { items: [] })];
     if (name === "roomRank") return [settle(rankingSource(request, plan, ids("rank")), "CMPRI Room Ranker", { items: [] })];
     if (name === "staffNotes" || name === "personalNotes") return [settle(notesSource(auth, plan, name === "personalNotes", ids(name === "personalNotes" ? "note" : "staff")), name === "personalNotes" ? "Personal Notepad" : "Staff Notes", { items: [] })];
