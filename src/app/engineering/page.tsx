@@ -13,7 +13,7 @@ import {mergeConfirmedWorkOrder,reconcileWorkOrderList,workOrderListSnapshot} fr
 import { formatWorkOrder } from "@/lib/work-order-reference.js";
 import { claimWorkOrder, releaseWorkOrder } from "@/lib/open-work-orders";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { getValidSession, signOutDevice } from "@/lib/supabase/client";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
@@ -44,8 +44,10 @@ import {
   type WindowRect,
   type WindowSize,
 } from "@/lib/ui/desktop-windows";
+import { animateWindowTelescope, captureWindowLauncher, clearWindowTelescope, currentWindowLauncher, type WindowLauncher } from "@/lib/ui/window-telescope";
 import { profileCanReopenPool, profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
 import PoolStatus from "@/components/desktop/PoolStatus";
+import WeatherUtilities from "@/components/desktop/WeatherUtilities";
 import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
@@ -76,6 +78,7 @@ type DesktopWindowEntry = {
   src?: string;
   accent: string;
   preferred: WindowSize;
+  launcher?: WindowLauncher;
   // Weather keeps its iframe and loaded data in page memory while closed.
   weatherCached?: boolean;
 };
@@ -99,7 +102,7 @@ function DashboardLauncherButton({
 }: {
   launcher: Launcher;
   open: boolean;
-  onLaunch: (launcher: Launcher, clickedAt: number) => void;
+  onLaunch: (launcher: Launcher, clickedAt: number, opener: HTMLElement) => void;
   className?: string;
 }) {
   const { t, tt } = useUiLanguage();
@@ -109,7 +112,7 @@ function DashboardLauncherButton({
       data-cmpri-desktop-launch={launcher.key}
       data-open={open ? "true" : "false"}
       title={tt(launcher.label)}
-      onClick={() => onLaunch(launcher, Date.now())}
+      onClick={event => onLaunch(launcher, Date.now(), event.currentTarget)}
       className={className || `cmpri-desktop-launch shrink-0 whitespace-nowrap rounded border px-1 py-0.5 font-semibold shadow-sm shadow-black/20 ${launcher.tone}`}
     >
       {t(launcher.label)}
@@ -181,6 +184,8 @@ export default function EngineeringDashboardPage() {
   const layoutsRef = useRef<Record<string, WindowRect>>({});
   const frameRefs = useRef(new Map<string, HTMLIFrameElement>());
   const windowOpenedAtRef = useRef(new Map<string, number>());
+  const openingWindows = useRef(new Set<string>());
+  const closingWindows = useRef(new Set<string>());
   const pendingFocusRef = useRef("");
   const ordersRef = useRef<DesktopWorkOrder[]>([]);
 
@@ -463,10 +468,12 @@ export default function EngineeringDashboardPage() {
   }, [zOrder, windows]);
 
   const openWindow = useCallback((entry: DesktopWindowEntry) => {
+    if (closingWindows.current.has(entry.key)) return;
     const existing = windowsRef.current.find((item) => item.key === entry.key);
     if (existing) {
       if (entry.key === WEATHER_PREVIEW_PATH && existing.weatherCached) {
-        windowsRef.current = windowsRef.current.map(item => item.key === entry.key ? { ...item, weatherCached: false } : item);
+        windowsRef.current = windowsRef.current.map(item => item.key === entry.key ? { ...item, launcher: entry.launcher, weatherCached: false } : item);
+        if (entry.launcher) openingWindows.current.add(entry.key);
         windowOpenedAtRef.current.set(entry.key, Date.now());
         setWindows(windowsRef.current);
       }
@@ -484,13 +491,27 @@ export default function EngineeringDashboardPage() {
     const saved = layoutsRef.current[windowLayoutKey(entry.key)];
     const rect = saved || defaultWindowRect(boundsRef.current, entry.preferred, windowsRef.current.length);
     windowsRef.current = [...windowsRef.current, entry];
+    if (entry.launcher) openingWindows.current.add(entry.key);
     windowOpenedAtRef.current.set(entry.key, Date.now());
     setWindows(windowsRef.current);
     setRects((current) => ({ ...current, [entry.key]: rect }));
     raise(entry.key, true);
   }, [raise]);
 
-  const closeWindow = useCallback((key: string) => {
+  const windowPanel = useCallback((key: string) => desktopRef.current?.querySelector<HTMLElement>(
+    `[data-cmpri-desktop-window="${CSS.escape(key)}"]`
+  ) ?? null, []);
+
+  useLayoutEffect(() => {
+    for (const entry of windows) {
+      const panel = windowPanel(entry.key);
+      if (!panel) continue;
+      if (entry.weatherCached) clearWindowTelescope(panel);
+      if (openingWindows.current.delete(entry.key)) animateWindowTelescope(panel, entry.launcher, "open");
+    }
+  }, [windows, rects, windowPanel]);
+
+  const removeWindow = useCallback((key: string) => {
     if (key === WEATHER_PREVIEW_PATH) {
       windowsRef.current = windowsRef.current.map(entry => entry.key === key ? { ...entry, weatherCached: true } : entry);
       windowOpenedAtRef.current.delete(key);
@@ -510,6 +531,20 @@ export default function EngineeringDashboardPage() {
     setZOrder((current) => current.filter((entry) => entry !== key));
     frameRefs.current.delete(key);
   }, []);
+
+  const closeWindow = useCallback((key: string) => {
+    if (closingWindows.current.has(key)) return;
+    const launcher = windowsRef.current.find(entry => entry.key === key)?.launcher;
+    const panel = windowPanel(key);
+    const motion = animateWindowTelescope(panel, launcher, "close");
+    if (!motion) { removeWindow(key); return; }
+    closingWindows.current.add(key);
+    void motion.finished.then(() => {
+      const returnFocus = launcher && panel?.contains(document.activeElement);
+      removeWindow(key);
+      if (returnFocus) currentWindowLauncher(launcher)?.focus({ preventScroll: true });
+    }).catch(() => undefined).finally(() => closingWindows.current.delete(key));
+  }, [removeWindow, windowPanel]);
 
   useEffect(() => () => {
     const owner = workOrderRegistryOwner.current;
@@ -539,7 +574,7 @@ export default function EngineeringDashboardPage() {
     }
   }
 
-  const openRoute = useCallback((href: string, titleHint?: string, launcher?: Pick<Launcher, "accent" | "preferred" | "label">) => {
+  const openRoute = useCallback((href: string, titleHint?: string, launcher?: Pick<Launcher, "accent" | "preferred" | "label">, originLauncher?: WindowLauncher) => {
     const origin = window.location.origin;
     if (!isDesktopRoute(href, origin)) return;
     const key = desktopWindowKeyForHref(href, origin);
@@ -561,6 +596,7 @@ export default function EngineeringDashboardPage() {
       src: desktopFrameHref(href, crypto.randomUUID(), origin),
       accent: launcher?.accent || known?.accent || (workOrderId ? "bg-amber-400" : "bg-slate-400"),
       preferred: launcher?.preferred || known?.preferred || (workOrderId ? { width: 960, height: 780 } : DEFAULT_WINDOW_SIZE),
+      launcher: originLauncher,
     });
   }, [openWindow]);
 
@@ -568,8 +604,8 @@ export default function EngineeringDashboardPage() {
     openRoute(`/work-orders/${encodeURIComponent(workOrderId)}`);
   }, [openRoute]);
 
-  const openWorkOrderList = useCallback(() => {
-    openWindow({ key: WORK_ORDER_LIST_KEY, title: "Work Order List", kind: "list", accent: "bg-slate-300", preferred: { width: 1100, height: 640 } });
+  const openWorkOrderList = useCallback((launcher?: WindowLauncher) => {
+    openWindow({ key: WORK_ORDER_LIST_KEY, title: "Work Order List", kind: "list", accent: "bg-slate-300", preferred: { width: 1100, height: 640 }, launcher });
   }, [openWindow]);
 
   const openDraft = useCallback((draftId: string) => {
@@ -687,7 +723,7 @@ export default function EngineeringDashboardPage() {
     router.replace("/");
   }
 
-  function openApprovals() {
+  function openApprovals(event: ReactMouseEvent<HTMLButtonElement>) {
     const canReviewTickets = hasCapability(cmpriSession, "review_tickets");
     inbox.forEach((notification) => {
       if (!notification.is_read) void markNotificationRead(notification);
@@ -698,6 +734,7 @@ export default function EngineeringDashboardPage() {
       kind: "approvals",
       accent: canReviewTickets ? "bg-purple-400" : "bg-sky-400",
       preferred: { width: 780, height: 540 },
+      launcher: captureWindowLauncher(event.currentTarget),
     });
   }
 
@@ -751,11 +788,13 @@ export default function EngineeringDashboardPage() {
     open();
   }
 
-  function openPoolStatus() { openWindow({key:"pool-status",title:"Pool",kind:"pool-status",accent:"bg-green-400",preferred:{width:360,height:frontDeskLayout?230:300}}); }
+  function openPoolStatus(opener?: HTMLElement) {
+    openWindow({key:"pool-status",title:"Pool",kind:"pool-status",accent:"bg-green-400",preferred:{width:360,height:frontDeskLayout?230:300},launcher:captureWindowLauncher(opener)});
+  }
 
-  function launch(launcher: Launcher, clickedAt: number) {
-    if (launcher.key === "pool-status") openPoolStatus();
-    else if (launcher.action === "work-order-list") launchWindow(WORK_ORDER_LIST_KEY, clickedAt, openWorkOrderList);
+  function launch(launcher: Launcher, clickedAt: number, opener?: HTMLElement) {
+    if (launcher.key === "pool-status") openPoolStatus(opener);
+    else if (launcher.action === "work-order-list") launchWindow(WORK_ORDER_LIST_KEY, clickedAt, () => openWorkOrderList(captureWindowLauncher(opener)));
     else if (launcher.action === "sign-out") void signOut();
     else if (launcher.href) {
       const href = launcher.href;
@@ -763,7 +802,7 @@ export default function EngineeringDashboardPage() {
       // asynchronously arriving NWS warning can play on mobile browsers too.
       if (href.split(/[?#]/)[0] === WEATHER_PREVIEW_PATH) void armWeatherWarningSound();
       const key = desktopWindowKeyForHref(href, window.location.origin);
-      launchWindow(key, clickedAt, () => openRoute(href, launcher.label, { ...launcher, label: launcher.label.replace(/ \(\d+\)$/, "") }));
+      launchWindow(key, clickedAt, () => openRoute(href, launcher.label, { ...launcher, label: launcher.label.replace(/ \(\d+\)$/, "") }, captureWindowLauncher(opener)));
     }
   }
 
@@ -796,6 +835,10 @@ export default function EngineeringDashboardPage() {
     ? t("Work order approvals for {name} ({role}): {count} unread, {approvals} awaiting approval", { name: displayName, role: t(displayRole), count: unreadCount, approvals: approvalTotal })
     : t("Notifications for {name} ({role}): {count} unread", { name: displayName, role: t(displayRole), count: unreadCount });
   const createWorkOrderLauncher = availableLaunchers.find(launcher => launcher.key === "/work-orders");
+  const weatherLauncher = availableLaunchers.find(launcher => launcher.key === WEATHER_PREVIEW_PATH);
+  function openDashboardWeather(event: React.MouseEvent<HTMLButtonElement>) {
+    if (weatherLauncher) launch(weatherLauncher, Date.now(), event.currentTarget);
+  }
 
   return (
     <main data-cmpri-modal-ignore="true" data-cmpri-seasonal-theme={SITE_SEASONAL_THEME} className="cmpri-desktop-root flex h-svh w-full min-w-0 flex-col overflow-hidden bg-slate-950 text-white lg:h-dvh" data-dashboard-responsive={(chiefHeaderPresentation || threeTabLayout) ? "true" : undefined} data-chief-engineer-mobile={chiefHeaderPresentation ? "true" : undefined}>
@@ -836,16 +879,18 @@ export default function EngineeringDashboardPage() {
               <p data-dashboard-role data-cmpri-chief-engineer={displayRole === "Chief Engineer" ? "true" : "false"} className="mt-1 text-[9pt] font-medium text-sky-200/90">{t(displayRole)}</p>
             </div>
           </div>
-          <div className="cmpri-header-utilities" data-front-desk={frontDeskLayout}>
-            <PoolStatus controlOnly onOpen={openPoolStatus} />
-            {createWorkOrderLauncher && <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch} className="cmpri-header-create" />}
-          </div>
+          <WeatherUtilities onOpen={weatherLauncher ? openDashboardWeather : undefined}>
+            <div className="cmpri-header-utilities" data-front-desk={frontDeskLayout}>
+              <PoolStatus controlOnly onOpen={event => openPoolStatus(event.currentTarget)} />
+              {createWorkOrderLauncher && <DashboardLauncherButton launcher={createWorkOrderLauncher} open={openKeys.has(createWorkOrderLauncher.key)} onLaunch={launch} className="cmpri-header-create" />}
+            </div>
+          </WeatherUtilities>
         </div>
         <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
-          <ApprovedDashboardMenus anchored restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
+          <ApprovedDashboardMenus anchored askEnabled restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
         </nav>
 
-        {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={openPoolStatus}/></div>}
+        {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={event => openPoolStatus(event.currentTarget)}/></div>}
       </header>
 
       <div className="flex shrink-0 flex-col items-start gap-0.5 px-0.5 empty:hidden">

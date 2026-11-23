@@ -146,6 +146,7 @@ class OfficialFeedFixtures:
     def __init__(self):
         self.now = datetime.now(timezone.utc).replace(microsecond=0)
         self.forecast_calls = 0
+        self.dashboard_calls = 0
         self.observation_calls = 0
         self.history_calls = 0
         self.alert_calls = 0
@@ -637,6 +638,13 @@ class OfficialFeedFixtures:
             return
         if parsed.path == "/api/weather-preview":
             part = parse_qs(parsed.query).get("part", [None])[0]
+            if part == "dashboard":
+                self.dashboard_calls += 1
+                await route.fulfill(json={"dashboard": {"current": 46, "high": 59, "low": 38,
+                    "precipitation": 10, "wind": 13, "bearing": 290, "condition": "Partly cloudy",
+                    "icon": None, "isDaytime": True, "observationTime": iso(self.now),
+                    "forecastTime": iso(self.now), "moonAngle": 42}})
+                return
             require(part in [None, "observation", "history", "alerts", "forecast"], "Unknown partial NWS fixture request")
             if part == "observation":
                 self.observation_calls += 1

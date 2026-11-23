@@ -18,6 +18,7 @@ import { canResumeWorkspaceView } from '@/lib/ui/workspace-route-access';
 import { clearWorkspace, normalizeWorkspaceHref, readWorkspace, saveWorkspace, workspaceIdentity, workspaceResumeHref,
   type WorkspaceIdentity, type WorkspaceOptions, type WorkspaceView } from '@/lib/ui/workspace-resume';
 import { defaultWindowRect, type DesktopBounds, type WindowRect } from '@/lib/ui/desktop-windows';
+import { animateWindowTelescope, captureWindowLauncher, clearWindowTelescope, currentWindowLauncher, type WindowLauncher } from '@/lib/ui/window-telescope';
 
 type ModalEntry = {
   guest?: Record<string,unknown>;
@@ -26,6 +27,7 @@ type ModalEntry = {
   title: string;
   modalToken?: string;
   returnFocus?: HTMLElement | null;
+  launcher?: WindowLauncher;
   kind?: "work-order-list";
   rect?: WindowRect;
   openedAt?: number;
@@ -208,6 +210,8 @@ export default function GlobalModalHost() {
   const suspendedCustomRef = useRef<Array<{ element: HTMLElement; value: string; priority: string }>>([]);
   const activeIdRef = useRef<string | null>(null);
   const requestCloseRef = useRef<(entryId: string) => void>(() => {});
+  const openingWindows = useRef(new Set<string>());
+  const closingWindows = useRef(new Set<string>());
   const resumeScreensRef = useRef<() => void>(() => {});
   useLayoutEffect(() => { stackRef.current = stack; }, [stack]);
   const modalRootRef = useRef<HTMLDivElement>(null);
@@ -337,6 +341,7 @@ export default function GlobalModalHost() {
       const key = desktopEntryKey(entry);
       const existing = stackRef.current.find(item => desktopEntryKey(item) === key);
       if (existing) {
+        if (closingWindows.current.has(existing.id)) return;
         if (clickedAt !== undefined && existing.openedAt !== undefined && !existing.weatherCached
           && (entry.kind !== "work-order-list" || activeIdRef.current === existing.id)
           && clickedAt - existing.openedAt <= TECHNICIAN_LAUNCHER_CLOSE_MS) {
@@ -345,7 +350,8 @@ export default function GlobalModalHost() {
         }
         if (existing.weatherCached) {
           const reopen = (item: ModalEntry) => item.id === existing.id
-            ? { ...item, weatherCached: false, openedAt: clickedAt ?? Date.now() } : item;
+            ? { ...item, launcher: entry.launcher, weatherCached: false, openedAt: clickedAt ?? Date.now() } : item;
+          if (entry.launcher) openingWindows.current.add(existing.id);
           stackRef.current = stackRef.current.map(reopen);
           setStack(current => current.map(reopen));
         }
@@ -413,12 +419,13 @@ export default function GlobalModalHost() {
       setNativeShell(shell);
       setNativeObscuresStack(false);
     }
+    if (entry.launcher) openingWindows.current.add(entry.id);
     stackRef.current = [...stackRef.current, entry];
     setStack(current => [...current, entry]);
     setActiveId(entry.id);
   }, [owner]);
 
-  const openWorkOrderList = useCallback((clickedAt?: number) => {
+  const openWorkOrderList = useCallback((clickedAt?: number, opener?: HTMLElement) => {
     if (workspaceBlockedRef.current) return;
     if (nativeShellRef.current && nativeObscuresStack) {
       nativeShellRef.current.close();
@@ -427,7 +434,7 @@ export default function GlobalModalHost() {
     }
     const existing = stackRef.current.find(item => item.kind === "work-order-list");
     if (existing && !technicianDesktopRef.current) setActiveId(existing.id);
-    else openEntry({ id: crypto.randomUUID(), href: WORK_ORDER_LIST_PATH, title: "Work Order List", kind: "work-order-list", returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null }, clickedAt);
+    else openEntry({ id: crypto.randomUUID(), href: WORK_ORDER_LIST_PATH, title: "Work Order List", kind: "work-order-list", returnFocus: opener || (document.activeElement instanceof HTMLElement ? document.activeElement : null), launcher: captureWindowLauncher(opener) }, clickedAt);
   }, [nativeObscuresStack, openEntry]);
 
   const resumeScreens = useCallback(() => {
@@ -453,7 +460,23 @@ export default function GlobalModalHost() {
     } catch {}
   }, []);
 
-  const closeModal = useCallback((entryId: string) => {
+  const windowPanel = useCallback((entry: ModalEntry) => {
+    const selector = entry.rect
+      ? `[data-cmpri-desktop-window="${CSS.escape(desktopEntryKey(entry))}"]`
+      : `[data-modal-entry="${CSS.escape(entry.id)}"]`;
+    return modalRootRef.current?.querySelector<HTMLElement>(selector) ?? null;
+  }, []);
+
+  useLayoutEffect(() => {
+    for (const entry of stack) {
+      const panel = windowPanel(entry);
+      if (!panel) continue;
+      if (entry.weatherCached) clearWindowTelescope(panel);
+      if (openingWindows.current.delete(entry.id)) animateWindowTelescope(panel, entry.launcher, "open");
+    }
+  }, [stack, technicianDesktop, windowPanel]);
+
+  const removeModal = useCallback((entryId: string) => {
     setLimitMessage("");
     const closing = stackRef.current.find(entry => entry.id === entryId);
     if (closing?.rect && desktopEntryKey(closing) === WEATHER_PATH) {
@@ -476,6 +499,16 @@ export default function GlobalModalHost() {
     setStack(current => current.filter(entry => entry.id !== entryId));
     setActiveId(current => current === entryId ? remaining.filter(entry => !entry.weatherCached).at(-1)?.id ?? null : current);
   }, [owner]);
+
+  const closeModal = useCallback((entryId: string) => {
+    if (closingWindows.current.has(entryId)) return;
+    const entry = stackRef.current.find(item => item.id === entryId);
+    const motion = entry ? animateWindowTelescope(windowPanel(entry), entry.launcher, "close") : null;
+    if (!motion) { removeModal(entryId); return; }
+    closingWindows.current.add(entryId);
+    void motion.finished.then(() => removeModal(entryId)).catch(() => undefined)
+      .finally(() => closingWindows.current.delete(entryId));
+  }, [removeModal, windowPanel]);
 
   const requestModalClose = useCallback((entryId: string) => {
     const frameDocument = frameRefs.current.get(entryId)?.contentDocument;
@@ -816,7 +849,7 @@ export default function GlobalModalHost() {
 
   useEffect(() => {
     const openFromEvent = (event: Event) => {
-      const detail = (event as CustomEvent<{ href?: string; title?: string; clickedAt?: number }>).detail;
+      const detail = (event as CustomEvent<{ href?: string; title?: string; clickedAt?: number; opener?: HTMLElement }>).detail;
       if (!detail?.href || !isSameOriginInternal(detail.href)) return;
       if (window.parent !== window) {
         window.parent.postMessage({
@@ -829,8 +862,9 @@ export default function GlobalModalHost() {
       }
       const desktop = technicianDesktopRef.current;
       const clickedAt = Number.isFinite(detail.clickedAt) ? detail.clickedAt : undefined;
+      const opener = detail.opener instanceof HTMLElement ? detail.opener : undefined;
       if (detail.href === WORK_ORDER_LIST_PATH) {
-        if (desktop?.anchor.dataset.canViewWorkOrders === "true") openWorkOrderList(clickedAt);
+        if (desktop?.anchor.dataset.canViewWorkOrders === "true") openWorkOrderList(clickedAt, opener);
         return;
       }
       const modal = modalHref(detail.href);
@@ -838,7 +872,8 @@ export default function GlobalModalHost() {
           id: crypto.randomUUID(),
           ...modal,
           title: detail.title?.trim() || "Open screen",
-          returnFocus: document.activeElement instanceof HTMLElement ? document.activeElement : null,
+          returnFocus: opener || (document.activeElement instanceof HTMLElement ? document.activeElement : null),
+          launcher: captureWindowLauncher(opener),
       }, clickedAt);
     };
 
@@ -1024,7 +1059,10 @@ export default function GlobalModalHost() {
         else if (technicianDesktopRef.current) modalRootRef.current?.querySelector<HTMLElement>('[data-cmpri-desktop-window][data-active="true"] [data-cmpri-window-close]')?.focus({ preventScroll: true });
         else modalRootRef.current?.querySelector<HTMLElement>(`[data-modal-entry="${CSS.escape(currentTop.id)}"] nav button`)?.focus();
       }
-      else previousTop?.returnFocus?.focus();
+      else if (previousTop) {
+        const trigger = previousTop.launcher ? currentWindowLauncher(previousTop.launcher) : previousTop.returnFocus;
+        trigger?.focus({ preventScroll: true });
+      }
     }
     previousStackRef.current = stack;
     previousActiveRef.current = activeId;

@@ -229,7 +229,8 @@ export default function ManageEquipmentPage() {
     try {
       const access = await token();
       if (!access) throw new Error("Sign in again to load equipment.");
-      const response = await fetch("/api/assets?include_documentation=false", { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
+      const scope = new URLSearchParams(window.location.search).has("asset") ? "&scope=property" : "";
+      const response = await fetch("/api/assets?include_documentation=false" + scope, { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !Array.isArray(payload.assets)) {
         throw new Error(payload.error || "Could not load equipment.");
@@ -288,7 +289,8 @@ export default function ManageEquipmentPage() {
     (async () => {
       const allowed = await enforceSessionPreference();
       if (!allowed) { window.location.replace("/"); return; }
-      await loadAssets();
+      const requestedAsset = new URLSearchParams(window.location.search).get("asset");
+      await loadAssets(requestedAsset || undefined);
       try {
         const access = await token();
         const response = await fetch("/api/rooms?mode=create", { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });

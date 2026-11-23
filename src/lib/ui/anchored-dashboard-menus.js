@@ -36,7 +36,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   railScroll.oninput = () => { root.scrollLeft = railScroll.valueAsNumber; };
   root.after(railScroll);
   const label = group => group.dataset.layoutLabel || group.querySelector('legend').textContent;
-  const fields = () => Array.from(bar.children);
+  const fields = () => Array.from(bar.children).filter(field => !field.hasAttribute('data-ask-launcher-tab'));
   const isOpen = field => !field.classList.contains('collapsed');
   const emit = () => onSave({
     groups: fields().map(label),
@@ -51,9 +51,11 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     if (active === field)
       return;
     active?.removeAttribute('data-active');
+    active?.querySelector('legend').removeAttribute('aria-current');
     active = field;
     if (active) {
       active.dataset.active = 'true';
+      active.querySelector('legend').setAttribute('aria-current', 'true');
       active.style.zIndex = String(++zIndex);
     }
   };
@@ -260,7 +262,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       last = e;
       window.clearTimeout(timer);
       cancelAnimationFrame(frame);
-      let changed = false, movedTo = null;
+      let changed = false, movedTo = null, droppedOn = null;
       if (active) {
         suppressFor(captureTarget);
         const next = cancel ? null : destination();
@@ -272,6 +274,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
           host.scrollTop = start.hostTop;
         }
         else if (moved) {
+          droppedOn = next.tab || next.field !== origin ? next.field : null;
           if (next.field !== origin) {
             const target = next.tab ? null : insertion(next.row);
             if (target)
@@ -304,6 +307,12 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
         refitButtonRow(origin);
         refitButtonRow(movedTo);
         place();
+      }
+      if (droppedOn) {
+        changed ||= active !== droppedOn || !isOpen(droppedOn);
+        openField(droppedOn);
+        stageHeight();
+        droppedOn.querySelector('legend').focus({ preventScroll: true });
       }
       if (changed)
         emit();
@@ -424,6 +433,16 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     };
     return edge;
   }
+  function openField(field) {
+    field.classList.remove('collapsed');
+    field.querySelector('legend').setAttribute('aria-expanded', 'true');
+    setActive(field);
+    if (field.positionX < root.scrollLeft)
+      root.scrollLeft = field.positionX;
+    else if (field.positionX + field.minimumWidth > root.scrollLeft + root.clientWidth - 3)
+      root.scrollLeft = field.positionX + field.minimumWidth - root.clientWidth + 3;
+    fitWidth(field);
+  }
   function activate(field) {
     if (isOpen(field) && active === field) {
       field.classList.add('collapsed');
@@ -431,17 +450,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       const remaining = fields().filter(isOpen).sort((a, b) => Number(b.style.zIndex) - Number(a.style.zIndex));
       setActive(remaining[0] || null);
     }
-    else {
-      field.classList.remove('collapsed');
-      field.querySelector('legend').setAttribute('aria-expanded', 'true');
-      setActive(field);
-      if (field.positionX < root.scrollLeft)
-        root.scrollLeft = field.positionX;
-      else if (field.positionX + field.minimumWidth > root.scrollLeft + root.clientWidth - 3) {
-        root.scrollLeft = field.positionX + field.minimumWidth - root.clientWidth + 3;
-      }
-      fitWidth(field);
-    }
+    else openField(field);
     stageHeight();
     emit();
   }
@@ -720,6 +729,11 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   const leave = e => {
     if (!active || cancelGesture || root.contains(e.target) || railScroll.contains(e.target))
       return;
+    // Launching a screen moves focus into its window while the menu stays
+    // selected. Clicking the desktop itself still clears menu selection.
+    if (e.target instanceof Element && e.target.closest(
+      '[data-cmpri-desktop-window], [data-modal-entry], [data-cmpri-ask-root], dialog[open]'
+    )) return;
     setActive(null);
     emit();
   };

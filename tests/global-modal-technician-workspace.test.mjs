@@ -7,6 +7,7 @@ import ts from 'typescript';
 import { JSDOM } from 'jsdom';
 import * as registry from '../src/lib/open-work-orders.ts';
 import * as workspace from '../src/lib/ui/workspace-resume.ts';
+import * as windowTelescope from '../src/lib/ui/window-telescope.ts';
 import { uiLanguageDependency } from './helpers/ui-language.mjs';
 import { defaultWindowRect } from '../src/lib/ui/desktop-windows.ts';
 
@@ -35,6 +36,7 @@ const globals = {
     if (name === 'next/navigation') return { usePathname: () => '/technician', useRouter: () => router, useSearchParams: () => new URLSearchParams() };
     if (name === '@/lib/open-work-orders') return registry;
     if (name === '@/lib/ui/workspace-resume') return workspace;
+    if (name === '@/lib/ui/window-telescope') return windowTelescope;
     if (name === '@/lib/ui/workspace-route-access') return { canResumeWorkspaceView: () => true };
     if (name === '@/lib/ui/desktop-windows') return { defaultWindowRect };
     if (name === '@/lib/auth/client-session') return { loadCmpriSession: async () => { reads++; return session; } };

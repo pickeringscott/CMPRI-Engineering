@@ -143,6 +143,17 @@
   background: var(--guide-action);
 }
 .cmpri-guide-handoff li p { color: var(--guide-muted); font-size: .94em; line-height: 1.38; }
+.cmpri-guide-handoff .cmpri-guide-ask-handoff { grid-column: 1 / -1; padding-inline-start: 1.28rem; }
+.cmpri-guide-handoff .cmpri-guide-ask-handoff::before { content: none; }
+.cmpri-guide-gemini-star {
+  position: absolute;
+  inset-inline-start: 0;
+  top: .12em;
+  width: 1rem;
+  height: 1rem;
+  background: conic-gradient(from -20deg, #3185ff, #4d63ff 24%, #aa53fc 46%, #ed4f9d 57%, #f9ab36 71%, #31c288 85%, #3185ff);
+  clip-path: polygon(50% 0,57% 21%,63% 35%,79% 43%,100% 50%,79% 57%,63% 65%,57% 79%,50% 100%,43% 79%,37% 65%,21% 57%,0 50%,21% 43%,37% 35%,43% 21%);
+}
 .cmpri-guide-example-ticket {
   width: fit-content;
   margin-top: .65rem;

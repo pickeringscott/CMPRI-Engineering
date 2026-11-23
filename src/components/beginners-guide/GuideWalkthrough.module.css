@@ -116,6 +116,8 @@
   transform: translateX(-50%) rotate(180deg);
 }
 
+.capture[data-short-capture] :is(.arrowAbove, .arrowBelow) { height: 1rem; }
+
 .hotspot {
   position: absolute;
   top: 50%;
@@ -179,6 +181,27 @@
 .instruction h3 {
   margin-bottom: 0.25rem;
 }
+
+.directions {
+  list-style: decimal;
+  margin-block-start: .65rem;
+  padding-inline-start: 1.35rem;
+}
+
+.directions li + li { margin-block-start: .38rem; }
+.directions strong, .directions li::marker { color: var(--guide-accent); }
+.directions li::marker { font-weight: 700; }
+
+.result {
+  display: grid;
+  gap: .2rem;
+  margin-block-start: .75rem;
+  padding-block-start: .55rem;
+  border-block-start: 1px solid var(--guide-border);
+  color: var(--guide-muted);
+}
+
+.result > strong { color: var(--guide-text); }
 
 .context,
 .hint {

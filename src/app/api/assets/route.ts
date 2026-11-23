@@ -58,7 +58,8 @@ function optionalText(value: unknown, label: string, maximum = 500) {
 }
 
 export async function GET(request: NextRequest) {
-  const staged = await dispatchConsolidation(request, baseline.GET);
+  const propertyScoped = request.nextUrl.searchParams.get("scope") === "property";
+  const staged = propertyScoped ? undefined : await dispatchConsolidation(request, baseline.GET);
   if (staged) return staged;
   const auth = await requireUserAttempt(request);
   if (!auth.ok) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -92,7 +93,7 @@ export async function GET(request: NextRequest) {
   for (let offset = 0; ; offset += ASSET_PAGE_SIZE) {
     const query = auth.admin.from("assets")
       .select("id, location_id, asset_type, name, asset_tag, binder_tag, quantity, active, status, manufacturer, model_family, model_number, serial_number, generation, install_year, documentation_key, documentation_verified_at, documentation_verified_by, documentation_revision_id, updated_at");
-    const { data, error } = await (legacyEquipmentAccess ? query : query.eq("hotel_id", auth.principal.hotelId))
+    const { data, error } = await (legacyEquipmentAccess && !propertyScoped ? query : query.eq("hotel_id", auth.principal.hotelId))
       .range(offset, offset + ASSET_PAGE_SIZE - 1)
       .order("name", { ascending: true });
     if (error) return NextResponse.json({ error: "Equipment could not be loaded." }, { status: 503 });

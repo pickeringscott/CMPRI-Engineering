@@ -1,11 +1,19 @@
 import asyncio
 
-from cmpri_fixture import BASE, CAPS, UID, async_playwright, expect, install
+from cmpri_fixture import BASE, CAPS, UID, async_playwright, expect, install as install_fixture
 
 
 ROLE_TABS = ["Daily Work", "Rooms & Reports", "Safety & Logs", "Assets & Inventory", "Account", "Admin"]
 LIMITED_ROLES = {"front_desk", "housekeeping"}
 CHIEF_MENU_ROLES = {"chief_engineer", "system_admin", "engineer", "senior_management"}
+
+async def install(context, *args, **kwargs):
+    # These tests start at the dashboard after the user has dismissed the guide.
+    await install_fixture(context, *args, **kwargs)
+    await context.add_init_script(f"""try {{
+        localStorage.setItem("cmpri:beginners-guide:opened:{UID}", "1");
+        sessionStorage.setItem("cmpri:beginners-guide:session:{UID}", "1");
+    }} catch {{}}""")
 
 
 def group(page, name):
@@ -125,8 +133,10 @@ async def inspect_role(browser, role, width):
         tabs = ["Rooms & Reports", "Safety & Logs", "Account"]
     else:
         tabs = [tab for tab in ROLE_TABS if tab != "Admin" or role not in {"manager", "technician"}]
-    assert await page.locator(".cmpri-header-v23 legend").all_text_contents() == tabs, role
-    assert await page.locator(".cmpri-header-v23 legend[aria-expanded=true]").count() == 0
+    native_tabs = page.locator(".cmpri-header-v23 fieldset.group:not([data-ask-launcher-tab]) > legend")
+    assert await native_tabs.all_text_contents() == tabs, role
+    assert await native_tabs.and_(page.locator("[aria-expanded=true]")).count() == 0
+    await expect(page.locator("[data-cmpri-ask-launcher=mobile]" if width < 640 else "#desktop-ask-query")).to_be_visible()
 
     rooms = await actions(page, "Rooms & Reports")
     pool = await actions(page, "Safety & Logs")
@@ -261,6 +271,8 @@ async def check_drag_and_save(browser, width):
     await drag_between(page, context, touch, (x, y), (to_x, to_y))
     assert "Work Order List" not in await actions(page, "Daily Work")
     assert "Work Order List" in await actions(page, "Rooms & Reports")
+    await expect(target).to_be_focused()
+    await expect(target).to_have_attribute("aria-current", "true")
     assert await page.get_by_role("dialog").count() == 0
     assert await title.bounding_box() == pinned
     for _ in range(30):
@@ -305,6 +317,12 @@ async def check_wake_and_scroll(browser, width):
         edge = rooms.locator(".resize-edge")
         bounds = await edge.bounding_box()
         x, y = bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2
+        # Ask floats above the expanded button row. Move it aside when its
+        # pill is directly covering the existing row-resize handle.
+        if await page.evaluate("([x,y]) => Boolean(document.elementFromPoint(x,y)?.closest('#desktop-ask-search'))", [x, y]):
+            ask = await page.locator("#desktop-ask-tab").bounding_box()
+            center = (ask["x"] + ask["width"] / 2, ask["y"] + ask["height"] / 2)
+            await drag_between(page, context, False, center, (width - 5, center[1]))
         await drag_between(page, context, False, (x, y), (x - 350, y))
     scrollbar = rooms.get_by_role("slider", name="Scroll Rooms & Reports buttons")
     await expect(scrollbar).to_be_visible()
@@ -440,6 +458,64 @@ async def check_mobile_window_clearance(browser):
     print("mobile window close remains reachable when a tab is open", flush=True)
 
 
+async def check_telescope_to_moved_launcher(browser):
+    context = await browser.new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
+    await install(context, "chief_engineer", connected=False)
+    await context.add_init_script("""{
+      window.telescopeEndpoints = [];
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function(frames, options) {
+        if (options?.id?.startsWith('cmpri-window-telescope-')) {
+          const box = this.getBoundingClientRect();
+          const opening = options.id.endsWith('-open');
+          const transform = new DOMMatrix(frames[opening ? 0 : frames.length - 1].transform);
+          window.telescopeEndpoints.push({
+            direction: opening ? 'open' : 'close',
+            x: box.left + box.width / 2 + transform.e,
+            y: box.top + box.height / 2 + transform.f,
+            width: box.width * transform.a, height: box.height * transform.d,
+          });
+        }
+        return animate.call(this, frames, options);
+      };
+    }""")
+    page = await context.new_page()
+    await page.goto(BASE + "/engineering", wait_until="domcontentloaded")
+    daily = group(page, "Daily Work")
+    await daily.locator("legend").click()
+    opener = page.locator('button[data-key="work-order-list"]')
+    panel = page.locator('[data-cmpri-desktop-window="work-order-list"]')
+
+    async def assert_endpoint(direction, target):
+        endpoint = await page.wait_for_function(
+            "direction => window.telescopeEndpoints.find(item => item.direction === direction)", arg=direction
+        )
+        recorded = await endpoint.json_value()
+        assert abs(recorded["x"] - target["x"] - target["width"] / 2) < 1, (recorded, target)
+        assert abs(recorded["y"] - target["y"] - target["height"] / 2) < 1, (recorded, target)
+        assert abs(recorded["width"] - target["width"]) < 1, (recorded, target)
+        assert abs(recorded["height"] - target["height"]) < 1, (recorded, target)
+
+    original = await opener.bounding_box()
+    await opener.click()
+    await expect(panel).to_be_visible()
+    await expect(daily.locator("legend")).to_have_attribute("aria-current", "true")
+    await assert_endpoint("open", original)
+    destination = group(page, "Rooms & Reports").locator("legend")
+    drop = await destination.bounding_box()
+    await drag_between(page, context, False,
+                       (original["x"] + original["width"] / 2, original["y"] + original["height"] / 2),
+                       (drop["x"] + drop["width"] / 2, drop["y"] + drop["height"] / 2))
+    await expect(destination).to_be_focused()
+    moved = await opener.bounding_box()
+    assert abs(moved["x"] - original["x"]) > 10
+    await panel.locator("[data-cmpri-window-close]").click()
+    await assert_endpoint("close", moved)
+    await expect(panel).to_have_count(0)
+    await context.close()
+    print("windows telescope to the exact same launcher after a cross-tab move", flush=True)
+
+
 async def main():
     CAPS["engineer"] = CAPS["chief_engineer"].copy()
     async with async_playwright() as playwright:
@@ -455,6 +531,7 @@ async def main():
         await check_resize_and_retry(browser)
         await check_housekeeping_profile(browser)
         await check_mobile_window_clearance(browser)
+        await check_telescope_to_moved_launcher(browser)
         await browser.close()
 
 

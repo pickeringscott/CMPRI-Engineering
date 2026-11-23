@@ -1,19 +1,24 @@
 "use client";
 
 import Image from "next/image";
-import { useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import styles from "./GuideWalkthrough.module.css";
 
-export type GuideAction = {
+type GuideStep = {
   title: string;
   text: string;
+  directions?: [label: string, detail: string][];
+  result?: string;
   hint?: string;
   context?: string;
   sourceUrl?: string;
   screenshot?: { src: string; width: number; height: number; alt: string };
   target?: [number, number, number, number];
+  fitToWidth?: boolean;
 };
+
+export type GuideAction = GuideStep & { mobile?: Partial<GuideStep> };
 
 type Props = {
   title: string;
@@ -22,6 +27,22 @@ type Props = {
   action: GuideAction;
   onTry?: () => void;
 };
+
+const COMPACT_GUIDE = "(max-width: 700px), (hover: none) and (pointer: coarse)";
+
+function subscribeToDevice(change: () => void) {
+  const media = window.matchMedia(COMPACT_GUIDE);
+  media.addEventListener("change", change);
+  return () => media.removeEventListener("change", change);
+}
+
+function readCompactDevice() {
+  return window.matchMedia(COMPACT_GUIDE).matches;
+}
+
+function readServerDevice() {
+  return false;
+}
 
 function highlightPosition(screenshot: GuideAction["screenshot"], target: GuideAction["target"]) {
   if (!screenshot || !target) return;
@@ -47,14 +68,16 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
   const highlightRef = useRef<HTMLSpanElement>(null);
   const arrowRef = useRef<HTMLSpanElement>(null);
   const [sizePreference, setSizePreference] = useState<boolean>();
-  const { screenshot, target } = action;
+  const compact = useSyncExternalStore(subscribeToDevice, readCompactDevice, readServerDevice);
+  const step = compact && action.mobile ? { ...action, ...action.mobile } : action;
+  const { screenshot, target } = step;
   const position = highlightPosition(screenshot, target);
   // Fitting a wide strip makes its controls too small to read.
   const isWideStrip = Boolean(target && screenshot && screenshot.width >= screenshot.height * 5);
-  const actualSize = sizePreference ?? isWideStrip;
+  const actualSize = sizePreference ?? (isWideStrip && !step.fitToWidth);
   const arrowBelow = target && screenshot && target[1] < (screenshot.height - target[3]) / 2;
   const hotspotLabel = t("Try {step} in the sample", "Practicar {step} en el ejemplo", {
-    step: t(action.title),
+    step: t(step.title),
   });
   const about = (purpose || when) && <dl className={styles.about}>
     {purpose && <div>
@@ -71,7 +94,7 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
     const walkthrough = walkthroughRef.current;
     if (walkthrough) walkthrough.scrollTop = 0;
     if (aboutRef.current) aboutRef.current.open = false;
-  }, [action]);
+  }, [action, compact]);
 
   useLayoutEffect(() => {
     const walkthrough = walkthroughRef.current;
@@ -114,7 +137,7 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
     observer.observe(walkthrough);
     observer.observe(header);
     return () => observer.disconnect();
-  }, [action, actualSize]);
+  }, [action, actualSize, compact]);
 
   return (
     <div className={`${styles.walkthrough}${screenshot ? ` ${styles.withExample}` : ""}`} ref={walkthroughRef}
@@ -124,17 +147,26 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
           <h2 id={headingId}>{t(title)}</h2>
           {about && <div className={styles.desktopAbout}>{about}</div>}
           <div className={styles.instruction}>
-            {action.context && <p className={styles.context}>{t(action.context)}</p>}
+            {step.context && <p className={styles.context}>{t(step.context)}</p>}
             <div aria-live="polite" aria-atomic="true">
-              <h3 id={actionId}>{t(action.title)}</h3>
-              <p>{t(action.text)}</p>
+              <h3 id={actionId}>{t(step.title)}</h3>
+              <p>{t(step.text)}</p>
+              {!!step.directions?.length && <ol className={styles.directions} aria-label={t("Step-by-step directions", "Instrucciones paso a paso")}>
+                {step.directions.map(([label, detail]) => <li key={label}>
+                  <strong>{t(label)}</strong> · {t(detail)}
+                </li>)}
+              </ol>}
+              {step.result && <p className={styles.result}>
+                <strong>{t("What you’ll see", "Lo que verás")}</strong>
+                <span>{t(step.result)}</span>
+              </p>}
             </div>
-            {action.hint && <p className={styles.hint}>{t(action.hint)}</p>}
-            {(onTry || action.sourceUrl) && <div className={styles.actionLinks}>
+            {step.hint && <p className={styles.hint}>{t(step.hint)}</p>}
+            {(onTry || step.sourceUrl) && <div className={styles.actionLinks}>
               {onTry && <button type="button" className={styles.tryButton} aria-describedby={actionId} onClick={onTry}>
                 {t("Try in sample", "Practicar en el ejemplo")}
               </button>}
-              {action.sourceUrl && <a href={action.sourceUrl} target="_blank" rel="noreferrer"
+              {step.sourceUrl && <a href={step.sourceUrl} target="_blank" rel="noreferrer"
                 aria-label={t("Open reference in a new tab", "Abrir referencia en una pestaña nueva")}>
                 {t("Open reference", "Abrir referencia")}
               </a>}
@@ -168,6 +200,7 @@ export default function GuideWalkthrough({ title, purpose, when, action, onTry }
       {screenshot && <div className={styles.exampleViewport} id={viewportId} ref={viewportRef} role="region" tabIndex={0}
         aria-label={t("Scrollable sample screen", "Pantalla de ejemplo desplazable")}>
         <div className={`${styles.capture}${actualSize ? "" : ` ${styles.fit}`}`}
+          data-short-capture={screenshot.height < 85 ? "" : undefined}
           style={{ "--capture-width": `${screenshot.width}px` } as CSSProperties}>
           <Image key={screenshot.src} src={screenshot.src} width={screenshot.width} height={screenshot.height} alt={t(screenshot.alt)} unoptimized />
           {position && <span className={styles.highlight} ref={highlightRef} style={position}>

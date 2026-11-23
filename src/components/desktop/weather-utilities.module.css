@@ -1,0 +1,100 @@
+.utilities {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1 / 3;
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.utilities > :global(.cmpri-header-utilities) {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+.dial {
+  position: relative;
+  display: none;
+  aspect-ratio: 1;
+  min-inline-size: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: #000;
+  color-scheme: only dark;
+  color: #fff;
+  cursor: pointer;
+}
+
+@media (min-width: 64rem) {
+  .dial { display: block; }
+}
+
+.dial:focus-visible {
+  outline: 1px solid var(--cmpri-gold, #fbbf24);
+  outline-offset: 1px;
+}
+
+.artboard {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+  font-family: system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-anchor: middle;
+}
+
+.ring {
+  position: absolute;
+  inset: 3% auto auto 5.6%;
+  inline-size: 92%;
+  aspect-ratio: 1;
+  mask-image: radial-gradient(circle closest-side, transparent 83.5%, #000 85%, #000 99%, transparent 100%);
+}
+
+.marker {
+  fill: #fff;
+  stroke: #15151b;
+  stroke-width: 2.4;
+  paint-order: stroke;
+  font-size: 6px;
+  font-weight: 800;
+}
+
+.temperature { fill: #fff; font-size: 24px; font-weight: 720; letter-spacing: -.7px; }
+.rule { stroke: #b1b1b8; stroke-width: .55; }
+.now { fill: #e5e5ea; font-size: 6.8px; text-transform: lowercase; }
+.drops { fill: #78baff; }
+.precipitation { fill: #a9d6ff; font-size: 8.2px; font-weight: 650; }
+.wind { fill: #fff; font-size: 8.8px; font-weight: 680; }
+.windUnit { fill: #e5e5ea; font-size: 4.9px; }
+.windCircle { fill: #17171d; stroke: #a9a9b5; stroke-width: .55; }
+.windArrow { fill: none; stroke: #fff; stroke-width: .7; stroke-linecap: round; stroke-linejoin: round; }
+.calm { fill: #fff; }
+.lozenge { fill: #262631; stroke: #616170; stroke-width: .5; }
+.extreme { fill: #fff; font-size: 7.2px; font-weight: 610; }
+.moon { fill: #282930; stroke: #656575; stroke-width: .3; }
+.moonLight { fill: #ececf5; }
+
+.condition {
+  position: absolute;
+  inline-size: 26%;
+  inset: 49.5% auto auto 38.6%;
+}
+
+.condition svg { display: block; inline-size: 100%; }
+.condition :global(.wv-sun) { fill: #f4ce68; stroke: #f9df9b; stroke-width: 1.6; }
+.condition :global(.wv-sun-rays) { fill: none; stroke: #d7b85e; stroke-width: 1.8; }
+.condition :global(.wv-moon) { fill: #e9d496; stroke: #f5e4b6; stroke-width: 1.7; }
+.condition :global(.wv-star) { fill: none; stroke: #f5e4b6; stroke-width: 1.7; }
+.condition :global(.wv-cloud) { fill: #c4d0dc; stroke: #e7edf3; stroke-width: 1.6; }
+.condition :global(.wv-rain) { fill: none; stroke: #81c9f3; stroke-width: 3; }
+.condition :global(.wv-snow) { fill: none; stroke: #e3f5ff; stroke-width: 1.6; }
+.condition :global(.wv-lightning) { fill: #f5d35b; stroke: #16140d; stroke-width: .8; }
+.condition :global(.wv-fog) { fill: none; stroke: #b9c7cc; stroke-width: 2.3; }
+.condition :global(.wv-wind-lines) { fill: none; stroke: #bccdd1; stroke-width: 2.4; }
+.condition :global(.wv-unknown-ring) { fill: #191a19; stroke: #777e82; stroke-width: 1.5; }
+.condition :global(.wv-unknown-mark) { fill: none; stroke: #c9ced0; stroke-width: 2.5; }

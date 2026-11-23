@@ -29,7 +29,13 @@ function fixture(body,config={}) {
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
         if(name==='next/server')return {NextResponse:{json:(body,init={})=>({body,status:init.status??200})}};
         if(name==='@supabase/supabase-js')return {createClient:(url,key,options)=>{clients.push({url,key,options});return db;}};
-        if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>config.unauthorized?null:{user:{id:'shared-id',email:'desk@example.invalid'},profile}};if(name==='server-only')return {};
+        if(name==='@/lib/server/request-auth')return {authenticatedUser:async()=>config.unauthorized?null:{
+          user:{id:'shared-id',email:'desk@example.invalid'},profile,
+          ...(config.propertyPrincipal?{principal:{
+            identity:{id:'shared-id'},profile:{...profile,id:'shared-id'},hotelId:'test-hotel',
+            membership:{hotel_id:'test-hotel',user_id:'shared-id',active:true},permissions:[],
+          }}:{}),
+        }};if(name==='server-only')return {};
         if(name==='@/lib/supabase/config')return {SUPABASE_URL:'https://test.invalid'};
         if(name==='@/lib/server/room-ranker')return {processRoomRankerSyncForWorkOrder:async()=>({processed:true})};
         let target=name.startsWith('@/')?path.join(root,name.slice(2)):path.resolve(path.dirname(file),name);if(!existsSync(target))target+='.ts';return load(target);
@@ -122,6 +128,13 @@ for(const config of [{duplicateError:true},{existing:Array.from({length:1000},()
 test('front desk supplied equipment, category and priority cannot override server guesses',async()=>{
   const f=fixture({orders:[{...order,asset_id:'spoof',asset_name:'Fake TV',category:'Safety',priority:'Urgent'}],staff_first_name:'Scott'});
   assert.equal((await f.handler(f.request)).status,200);assert.equal(f.writes[0].asset_id,'asset');assert.equal(f.writes[0].asset_name,'Verified sink');assert.equal(f.writes[0].category,'Plumbing');assert.equal(f.writes[0].priority,'Medium');
+});
+test('authorized Front Desk chooses priority at submission without overriding equipment and category',async()=>{
+  const f=fixture({orders:[{...order,asset_id:'spoof',asset_name:'Fake TV',category:'Safety',priority:'Urgent'}],staff_first_name:'Scott'},{propertyPrincipal:true});
+  assert.equal((await f.handler(f.request)).status,200);
+  assert.equal(f.writes[0].priority,'Urgent');
+  assert.equal(f.writes[0].asset_name,'Verified sink');
+  assert.equal(f.writes[0].category,'Plumbing');
 });
 test('front desk HVAC defaults to High based on location equipment and issue',async()=>{
   const f=fixture({orders:[{...order,issue:'not cooling',priority:'Low'}],staff_first_name:'Scott'},{assets:[{id:'vtac',location_id:'location-409',name:'VTAC – Room 409',asset_type:'VTAC',active:true}]});

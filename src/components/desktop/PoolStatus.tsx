@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type MouseEventHandler } from "react";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { usePoolState, updatePoolState } from "@/lib/events/pool-store";
 import { authorizationHeaders } from "@/lib/auth/client-session";
@@ -17,7 +17,7 @@ export default function PoolStatus({ canReopen = false, noticeOnly = false, cont
   canReopen?: boolean;
   noticeOnly?: boolean;
   controlOnly?: boolean;
-  onOpen?: () => void;
+  onOpen?: MouseEventHandler<HTMLButtonElement>;
 }) {
   const { t } = useUiLanguage();
   const { state, error: loadError } = usePoolState();

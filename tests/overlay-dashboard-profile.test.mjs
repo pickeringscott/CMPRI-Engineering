@@ -152,7 +152,7 @@ test('dashboard title bars keep CMPRI Engineering and place account controls ben
   assert.ok(launchers.indexOf('label: "Manage Profile"') < launchers.indexOf('label: "Connect ChatGPT"'));
   assert.match(styles, /\.cmpri-desktop-topbar button \{\s*font-size: 9pt !important/);
   assert.match(engineering, /rounded border px-1 py-0\.5 font-semibold/);
-  assert.match(engineering, /onLaunch\(launcher, Date\.now\(\)\)/);
+  assert.match(engineering, /onLaunch\(launcher, Date\.now\(\), event\.currentTarget\)/);
   assert.match(engineering, /const LAUNCHER_CLOSE_WINDOW_MS = 5_000/);
   assert.match(engineering, /windowOpenedAtRef\.current\.set\(entry\.key, Date\.now\(\)\)/);
   assert.match(engineering, /clickedAt - openedAt <= LAUNCHER_CLOSE_WINDOW_MS\)\s*\{\s*requestCloseWindow\(key\)/);

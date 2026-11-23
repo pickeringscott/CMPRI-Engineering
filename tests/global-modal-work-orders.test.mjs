@@ -7,6 +7,7 @@ import ts from 'typescript';
 import {JSDOM} from 'jsdom';
 import * as registry from '../src/lib/open-work-orders.ts';
 import * as workspace from '../src/lib/ui/workspace-resume.ts';
+import * as windowTelescope from '../src/lib/ui/window-telescope.ts';
 import {defaultWindowRect} from '../src/lib/ui/desktop-windows.ts';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {url:'https://cmpri.test/notes', pretendToBeVisual:true});
@@ -31,6 +32,7 @@ const globals = {exports:{}, window, document, URL, URLSearchParams, HTMLElement
     if (name === 'next/navigation') return {usePathname:()=>pathname,useRouter:()=>router,useSearchParams:()=>new URLSearchParams(window.location.search)};
     if (name === '@/lib/open-work-orders') return registry;
     if (name === '@/lib/ui/workspace-resume') return workspace;
+    if (name === '@/lib/ui/window-telescope') return windowTelescope;
     if (name === '@/lib/ui/workspace-route-access') return {canResumeWorkspaceView:()=>false};
     if (name === '@/lib/ui/desktop-windows') return {defaultWindowRect};
     if (['./desktop/DesktopWindow','./desktop/WeatherPreviewWindow'].includes(name)) return {default:empty};

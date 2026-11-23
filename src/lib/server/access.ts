@@ -90,6 +90,12 @@ function matchesPropertyMembership(principal: Principal): boolean {
     && membership.user_id === identity.id && membership.hotel_id === hotelId);
 }
 
+/** Front Desk can change priority without receiving other ticket-edit capabilities. */
+export function canSetFrontDeskWorkOrderPriority(principal: Principal): boolean {
+  return principal.profile.active === true && principal.membership.active === true
+    && matchesPropertyMembership(principal) && profileHasRole(principal.profile, "front_desk");
+}
+
 /**
  * Submit and read-dashboard access are hard application policy for active property members.
  * Location management and Chief Engineer work-order controls are granted by role.
