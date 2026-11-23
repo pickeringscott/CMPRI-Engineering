@@ -27,7 +27,7 @@ function fixture() {
     images: [{ id: savedName, name: filename, type: "image/png", url: workUrl }],
     notes: [{ id: note, author_user_id: author, attachments: [{ id: fileId, name: filename, type: "image/png", size: png.length, url: staffUrl }] }],
     parents: [], hotelId: hotel,
-    workNative: undefined, staffNative: undefined,
+    workNative: undefined, staffNative: undefined, notepadAllowed: true, signedIn: true,
     source: () => new Response(png, { headers: { "Content-Type": "image/png", "Content-Length": String(png.length) } }),
   };
   const reader = loadTs("src/lib/server/ask-cmpri-saved-attachments.ts", {
@@ -35,6 +35,19 @@ function fixture() {
     "@/lib/constants": { HOTEL_ID: hotel }, "@/lib/supabase/config": { SUPABASE_URL: origin },
     "@/lib/staff-note-media": { STAFF_FILE_BUCKET: "staff-note-files", STAFF_FILE_LIMIT: 100 * 1024 * 1024 },
     "@/lib/uuid": loadTs("src/lib/uuid.ts"),
+    "@/lib/server/auth": { requireUser: async incoming => {
+      assert.equal(incoming.headers.get("authorization"), "Bearer native-current-user");
+      calls.push({ kind: "notepad-auth" });
+      return state.signedIn ? { principal: { hotelId: hotel, identity: { id: other } }, admin: { storage: { from: bucket => ({
+        createSignedUrl: async (path, expires) => { assert.equal(bucket, "staff-note-files"); assert.equal(path, `${hotel}/${author}/${fileId}`); assert.equal(expires, 60); return { data: { signedUrl: staffUrl } }; },
+      }) } } } : null;
+    } },
+    "@/lib/server/notepad-store": { resolveNotepadAttachment: async (_admin, property, actor, noteId, attachmentId) => {
+      assert.equal(property, hotel); assert.equal(actor, other, "the current reader can differ from the attachment author");
+      calls.push({ kind: "notepad-note" });
+      if (!state.notepadAllowed || noteId !== note || attachmentId !== fileId) return null;
+      return { id: fileId, name: filename, type: "image/png", size: png.length, path: `${hotel}/${author}/${fileId}`, bucket: "staff-note-files" };
+    } },
     "@/app/api/work-orders/[id]/attachments/route": { GET: async (incoming, context) => {
       calls.push({ kind: "work-list", incoming, params: await context.params });
       assert.equal(incoming.headers.get("authorization"), "Bearer native-current-user");
@@ -78,7 +91,7 @@ test("catalog reads fetch the exact authorized original bytes with private trans
   });
   for (const [key, incoming, params, expectedUrl] of [
     ["work_order_attachments.read", f.workRequest(), { id: ticket }, f.workUrl],
-    ["staff_notes.attachment_read", f.staffRequest(), {}, f.staffUrl],
+    ["notepad.attachment_read", f.staffRequest(), {}, f.staffUrl],
   ]) {
     const operation = catalog.askNativeOperation(key);
     assert.equal(operation.writes, false); assert.equal(operation.responseKind, "mixed");
@@ -96,7 +109,7 @@ test("catalog reads fetch the exact authorized original bytes with private trans
     assert.equal(fetch.options.credentials, "omit"); assert.equal(fetch.options.referrerPolicy, "no-referrer");
     assert.equal(fetch.options.redirect, "error"); assert.equal(fetch.options.cache, "no-store");
   }
-  assert.deepEqual(f.calls.map(call => call.kind), ["work-list", "storage", "staff-note", "storage"]);
+  assert.deepEqual(f.calls.map(call => call.kind), ["work-list", "storage", "notepad-auth", "notepad-note", "storage"]);
 });
 
 test("unknown attachment IDs, another note's files and caller-supplied paths or URLs never fetch storage", async () => {
@@ -194,4 +207,17 @@ test("unbounded storage streams are stopped at the native file limit and incompl
   assert.equal(JSON.stringify(await response.json()).includes("private-storage-token"), false);
   const oversizedMetadata = fixture(); oversizedMetadata.state.notes[0].attachments[0].size = 104857601;
   assert.equal((await oversizedMetadata.staff()).status, 413); assert.equal(oversizedMetadata.calls.length, 1, "oversized native metadata stops before storage");
+});
+
+
+test("Notepad original attachments require a current session and visible note membership before storage", async () => {
+  const denied = fixture(); denied.state.signedIn = false;
+  assert.equal((await denied.reader.readAskNotepadAttachment(denied.staffRequest())).status, 401);
+  assert.deepEqual(denied.calls.map(call => call.kind), ["notepad-auth"]);
+  const hidden = fixture(); hidden.state.notepadAllowed = false;
+  assert.equal((await hidden.reader.readAskNotepadAttachment(hidden.staffRequest())).status, 404);
+  assert.deepEqual(hidden.calls.map(call => call.kind), ["notepad-auth", "notepad-note"]);
+  const forged = fixture();
+  assert.equal((await forged.reader.readAskNotepadAttachment(forged.staffRequest(`noteId=${note}&attachmentId=${fileId}&url=https://attacker.invalid/secret`))).status, 400);
+  assert.equal(forged.calls.length, 0);
 });

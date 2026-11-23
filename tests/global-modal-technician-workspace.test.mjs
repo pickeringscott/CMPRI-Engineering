@@ -1,3 +1,4 @@
+import * as notepadNavigation from "../src/lib/ui/notepad-navigation.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -31,6 +32,7 @@ const globals = {
   ResizeObserver: class { observe() {} disconnect() {} }, getComputedStyle: dom.window.getComputedStyle,
   CSS: { escape: value => value }, crypto: { randomUUID: () => `technician-modal-${++nextId}` },
   require(name) {
+    if (name === "@/lib/ui/notepad-navigation") return notepadNavigation;
     if (name === '@/components/UiLanguageProvider') return uiLanguageDependency;
     if (['react', 'react/jsx-runtime', 'react-dom'].includes(name)) return require(name);
     if (name === 'next/navigation') return { usePathname: () => '/technician', useRouter: () => router, useSearchParams: () => new URLSearchParams() };

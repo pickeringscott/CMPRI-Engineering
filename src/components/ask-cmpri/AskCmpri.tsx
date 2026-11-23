@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
 import { usePathname } from "next/navigation";
-import StaffNotes from "@/components/StaffNotes";
+import Notepad from "@/components/Notepad";
+import { requestNotepadClose } from "@/lib/ui/notepad-close";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { authorizationHeaders, type CmpriClientSession } from "@/lib/auth/client-session";
 import { SESSION_KEY } from "@/lib/auth/session-storage";
@@ -37,12 +38,13 @@ const examples = [
 ];
 const views = [
   { id: "search", label: "Search", panel: "ask-cmpri-search-view" },
-  { id: "staff", label: "Staff Notes", panel: "ask-cmpri-staff-view" },
+  { id: "staff", label: "Notepad", panel: "ask-cmpri-staff-view" },
   { id: "history", label: "History", panel: "ask-cmpri-history-view" },
   { id: "files", label: "Files", panel: "ask-cmpri-files-view" },
 ] as const;
 type View = typeof views[number]["id"];
-type OpenDetail = { query?: string; voice?: boolean; opener?: HTMLElement; tab?: View; noteId?: string; practice?: boolean; prompts?: string[] };
+type OpenDetail = { query?: string; voice?: boolean; opener?: HTMLElement; tab?: View | "notepad"; noteId?: string; practice?: boolean; prompts?: string[] };
+type NormalizedOpenDetail = Omit<OpenDetail, "tab"> & { tab?: View };
 type Authorized = { headers: Record<string, string>; scope: string };
 type Attachments = NonNullable<AskTurn["attachments"]>;
 type Call = { id: string; active: boolean; origin: "launcher" | "modal"; disclose: boolean; scope?: string; ready?: Promise<Authorized> };
@@ -82,7 +84,7 @@ function recordPath(record: AskRecordReference) {
   if (record.kind === "order") return "/work-orders/" + encodeURIComponent(record.id);
   if (record.kind === "asset") return "/management/equipment?asset=" + encodeURIComponent(record.id);
   if (record.kind === "roomRank") return "/engineering/room-ranking?room=" + encodeURIComponent(record.id);
-  if (record.kind === "personalNote") return "/notes?note=" + encodeURIComponent(record.id);
+  if (record.kind === "personalNote") return "/notepad?note=" + encodeURIComponent(record.id);
   return null;
 }
 
@@ -347,7 +349,7 @@ export default function AskCmpri() {
   }
 
   function pickSample(hasStaff = viewRef.current === "staff") {
-    const available = hasStaff ? ["What are the latest Staff Notes?", "Where are the spare filters?"] : examples;
+    const available = hasStaff ? ["What are the latest Notepad updates?", "Where are the spare filters?"] : examples;
     setSample(current => {
       const choices = available.filter(example => example !== current);
       return choices[Math.floor(Math.random() * choices.length)];
@@ -636,7 +638,7 @@ export default function AskCmpri() {
     pickSample();
   }
 
-  function openVerified(detail: OpenDetail, carry: boolean) {
+  function openVerified(detail: NormalizedOpenDetail, carry: boolean) {
     const ticket = ++opening.current;
     const expected = carry ? callRef.current?.scope : authRef.current?.scope;
     void authorize(undefined, expected).then(async auth => {
@@ -658,7 +660,9 @@ export default function AskCmpri() {
     }).catch(sessionProblem);
   }
 
-  function showModal(detail: OpenDetail) {
+  function showModal(request: OpenDetail) {
+    // Keep historical Staff Notes launch events compatible with the Notepad tab.
+    const detail: NormalizedOpenDetail = { ...request, tab: request.tab === "notepad" ? "staff" : request.tab };
     if (closing.current || confirmation.current) return;
     if (detail.voice && !detail.practice && !openRef.current) {
       startVoice("launcher");
@@ -709,12 +713,14 @@ export default function AskCmpri() {
     void voice.refreshMicrophone();
   }
 
-  function dismiss({ focus = true, animate = true, force = false } = {}) {
+  function dismiss({ focus = true, animate = true, force = false, notepadReady = false } = {}) {
     if (!openRef.current || closing.current) return;
     if (confirmation.current && !force) {
       setAlert(t("Wait for the confirmed change to finish saving."));
       return;
     }
+    if (!force && !notepadReady && !practiceRef.current
+      && !requestNotepadClose(dialog.current, () => dismiss({ focus, animate, notepadReady: true }))) return;
     closing.current = true;
     const origin = launcher.current;
     const wasPractice = practiceRef.current;
@@ -930,7 +936,7 @@ export default function AskCmpri() {
         }
         return;
       }
-      if (record.kind === "staffNote") {
+      if (record.kind === "staffNote" || record.kind === "personalNote") {
         setStaffNoteId(record.id);
         activeTab("staff");
         return;
@@ -947,9 +953,11 @@ export default function AskCmpri() {
     } catch (error) { manualWindow?.close(); sessionProblem(error); }
   }
 
-  function openStaffWorkOrder(href: string, opener: HTMLElement) {
-    if (!verified || confirmation.current || !/^\/work-orders\/[^/?#]+$/.test(href)) return;
-    const openerRect = opener.getBoundingClientRect();
+  function openStaffWorkOrder(id: string) {
+    if (!verified || confirmation.current || !/^[a-z0-9][a-z0-9_-]{0,199}$/i.test(id)) return;
+    const href = "/work-orders/" + encodeURIComponent(id);
+    const opener = document.querySelector<HTMLElement>("#ask-cmpri-staff-view iframe") || undefined;
+    const openerRect = opener?.getBoundingClientRect();
     void authorize(undefined, scope).then(() => {
       if (!openRef.current) return;
       dismiss({ focus: false, animate: false });
@@ -1210,7 +1218,7 @@ export default function AskCmpri() {
         </div>}
       </div>
       <div id="ask-cmpri-staff-view" className="ask-staff-view" role="tabpanel" aria-labelledby="ask-cmpri-staff-tab" hidden={view !== "staff" || !verified}>
-        {!practice && scope && staffScope === scope && <StaffNotes key={scope} targetNoteId={staffNoteId} onOpenWorkOrder={openStaffWorkOrder} />}
+        {!practice && scope && staffScope === scope && <Notepad key={scope} targetNoteId={staffNoteId} onOpenWorkOrder={openStaffWorkOrder} />}
       </div>
       <div id="ask-cmpri-history-view" className="ask-history-view" role="tabpanel" aria-labelledby="ask-cmpri-history-tab" hidden={view !== "history"}>
         <h3>{t("Saved searches")}</h3>

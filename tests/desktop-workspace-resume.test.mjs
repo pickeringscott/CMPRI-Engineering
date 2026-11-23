@@ -1,3 +1,4 @@
+import * as notepadNavigation from "../src/lib/ui/notepad-navigation.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -16,6 +17,7 @@ const {createRoot}=await import('react-dom/client');
 let verifySession, authorizationChecks=0;
 const require=createRequire(import.meta.url), globals={exports:{},window,document,URL,Promise};
 globals.require=name=>{
+  if(name==='@/lib/ui/notepad-navigation')return notepadNavigation;
   if(['react','react/jsx-runtime'].includes(name))return require(name);
   if(name==='@/lib/auth/client-session')return {loadCmpriSession:()=>{authorizationChecks++;return verifySession();}};
   if(name==='@/lib/ui/workspace-resume')return workspace;

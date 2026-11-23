@@ -1,4 +1,5 @@
 "use client";
+import { isNotepadPath, notepadTargetId } from "@/lib/ui/notepad-navigation";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 
@@ -70,8 +71,8 @@ function needsNonmodalDashboardShell() {
 
 function openDashboardStaffNotes(href: string, opener?: HTMLElement) {
   const url = new URL(href, window.location.origin);
-  if (url.pathname !== "/staff-notes" || !document.querySelector("header.cmpri-dashboard-titlebar [data-cmpri-ask-launcher]")) return false;
-  window.dispatchEvent(new CustomEvent("cmpri-ask-open", { detail: { tab: "staff", noteId: url.searchParams.get("note") || undefined, opener } }));
+  if (url.origin !== window.location.origin || !isNotepadPath(url.pathname) || !document.querySelector("header.cmpri-dashboard-titlebar [data-cmpri-ask-launcher]")) return false;
+  window.dispatchEvent(new CustomEvent("cmpri-ask-open", { detail: { tab: "notepad", noteId: notepadTargetId(url), opener } }));
   return true;
 }
 
@@ -87,6 +88,7 @@ function modalHref(href: string, forceEmbedded = false) {
   const modalRoutes = new Set([
     "/staff-notes",
     "/notes",
+    "/notepad",
     "/work-orders",
     "/management/equipment",
     "/management/rooms",
@@ -187,7 +189,7 @@ function restoredModalTitle(href: string) {
   const path = new URL(href, window.location.origin).pathname;
   if (/^\/work-orders\/[^/]+$/.test(path)) return "Work Order";
   const titles: Record<string, string> = { "/work-orders": "Create Work Order", "/profile": "Manage Profile",
-    "/profile/ai-connection": "ChatGPT Connection", "/staff-notes": "Staff Notes", "/notes": "Notes",
+    "/profile/ai-connection": "ChatGPT Connection", "/staff-notes": "Notepad", "/notes": "Notepad", "/notepad": "Notepad",
     "/management/equipment": "Assets", "/management/rooms": "Manage Locations", "/management/users": "Manage Users",
     "/engineering/preventive-maintenance": "Preventative Maintenance", "/engineering/purchasing": "PO",
     "/engineering/parts": "Inventory", "/engineering/pool-log": "Pool Log", "/pool": "Pool",

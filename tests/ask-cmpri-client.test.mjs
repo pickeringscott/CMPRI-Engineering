@@ -1,3 +1,4 @@
+import * as notepadClose from "../src/lib/ui/notepad-close.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -110,7 +111,8 @@ async function fixture({ actualUploads = false } = {}) {
   };
   const component = loadTs("src/components/ask-cmpri/AskCmpri.tsx", {
     react: React, "react/jsx-runtime": jsx, "next/navigation": { usePathname: () => "/engineering" },
-    "@/components/StaffNotes": { default: empty },
+    "@/lib/ui/notepad-close": notepadClose,
+    "@/components/Notepad": { default: props => React.createElement("div", { className: "cmpri-notepad-host", "data-notepad-target": props.targetNoteId || "" }, "Notepad test surface") },
     "@/components/UiLanguageProvider": { useUiLanguage: () => ({ language: "en", t: value => value }) },
     "@/lib/auth/client-session": { authorizationHeaders: async () => ({ Authorization: "Bearer fixture" }) },
     "@/lib/auth/session-storage": { SESSION_KEY: "fixture-session" },
@@ -499,5 +501,40 @@ test("a missing document closes the pending tab and a blocked popup gives a usab
     await h.click("Service manual.pdf");
     assert.equal(h.container.querySelector('a[href="https://files.example/manual.pdf"]')?.target, "_blank");
     assert.equal(h.navigated.length, 0);
+  } finally { await h.close(); }
+});
+
+test("Notepad and legacy Staff Notes open requests use the same Ask tab and exact note", async () => {
+  const h = await fixture();
+  try {
+    assert.equal(h.button("Staff Notes"), undefined);
+    assert.ok(h.button("Notepad"));
+    for (const tab of ["notepad", "staff"]) {
+      const noteId = tab === "notepad" ? "shared-project" : "legacy-staff-note";
+      await h.reopen({ tab, noteId });
+      assert.equal(h.container.querySelector("#ask-cmpri-staff-tab").getAttribute("aria-selected"), "true");
+      assert.equal(h.container.querySelector("[data-notepad-target]").getAttribute("data-notepad-target"), noteId);
+    }
+    h.queue({ title: "Personal note", summary: "Your saved note", items: [{ id: "note:private", title: "Private title", source: "CMPRI · Notepad", sourceType: "internal", record: { kind: "personalNote", id: "private", label: "Open Notepad note" } }] });
+    await h.reopen();
+    await h.submit("Find my personal note.");
+    await h.click("Open Notepad note");
+    assert.equal(h.container.querySelector("[data-notepad-target]").getAttribute("data-notepad-target"), "private");
+    assert.equal(h.openedModules.length, 0, "private notes also open in Ask's same Notepad tab");
+  } finally { await h.close(); }
+});
+
+
+test("Ask waits for its own Notepad input flush before closing the dialog", async () => {
+  const h = await fixture();
+  try {
+    await h.reopen({ tab: "notepad", noteId: "project" });
+    const host = h.container.querySelector(".cmpri-notepad-host");
+    let pending;
+    host.addEventListener(notepadClose.NOTEPAD_CLOSE_REQUEST, event => { event.preventDefault(); pending = event.detail; });
+    await act(async () => { h.container.querySelector('[aria-label="Close Ask CMPRI"]').click(); await flush(); });
+    assert.ok(pending); assert.equal(h.container.querySelector("#ask-cmpri").open, true);
+    await act(async () => { pending.onReady(); await flush(); });
+    assert.equal(h.container.querySelector("#ask-cmpri").open, false);
   } finally { await h.close(); }
 });

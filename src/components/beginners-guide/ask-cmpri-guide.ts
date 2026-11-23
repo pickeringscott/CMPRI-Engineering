@@ -247,7 +247,7 @@ export const ASK_CMPRI_GUIDE: { key: string; title: string; actions: GuideAction
     },
     {
       title: "Use the Ask CMPRI tabs",
-      context: "Ask CMPRI · Search, Staff Notes, History, and Files",
+      context: "Ask CMPRI · Search, Notepad, History, and Files",
       text: "Use the highlighted tabs to move between four parts of Ask CMPRI.",
       directions: [
         [
@@ -255,8 +255,8 @@ export const ASK_CMPRI_GUIDE: { key: string; title: string; actions: GuideAction
           "Ask a question, read the results above the pill, use voice, or add an attachment."
         ],
         [
-          "Select Staff Notes",
-          "Read shift handoffs and use Reply to keep a follow-up with the original post. Select Post to share an update with coworkers at your property. Use GIPHY to add a GIF."
+          "Select Notepad",
+          "Choose a titled note from the sidebar or use + inside Search Notes to create one. New notes default to Just me; use Shared with… for roles, departments or individuals. Shared lists keep replies and completion names with each item. The paperclip opens GIF and file choices."
         ],
         [
           "Select History",

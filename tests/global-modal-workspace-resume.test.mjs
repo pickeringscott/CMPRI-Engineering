@@ -1,3 +1,4 @@
+import * as notepadNavigation from "../src/lib/ui/notepad-navigation.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -34,6 +35,7 @@ const globals = {
   Event: dom.window.Event, MutationObserver: dom.window.MutationObserver,
   CSS: { escape: value => value }, crypto: { randomUUID: () => `new-modal-${++nextId}` },
   require(name) {
+    if (name === "@/lib/ui/notepad-navigation") return notepadNavigation;
     if (['react', 'react/jsx-runtime', 'react-dom'].includes(name)) return require(name);
     if (name === '@/components/UiLanguageProvider') return {useUiLanguage:()=>({language:'en', locale:'en-US', t:(text,values={})=>text.replace(/\{(\w+)\}/g,(token,key)=>Object.hasOwn(values,key)?String(values[key]):token), tt:text=>text})};
     if (name === 'next/navigation') return { usePathname: () => pathname, useRouter: () => router, useSearchParams: () => new URLSearchParams(window.location.search) };
@@ -246,7 +248,7 @@ test('same-path draft-query resume completes without another redirect or losing 
     assert.deepEqual(navigated, [topHref]);
     route(topHref); await React.act(async () => root.render(React.createElement(Component)));
     assert.deepEqual(navigated, [topHref]);
-    assert.ok(document.querySelector('iframe[title="Notes"]'));
+    assert.ok(document.querySelector('iframe[title="Notepad"]'));
     assert.equal(workspace.readWorkspace(window.localStorage, principalIdentity, principalOptions).topHref, topHref);
   } finally { await unmount(root); }
 });

@@ -1,3 +1,4 @@
+import * as notepadNavigation from "../src/lib/ui/notepad-navigation.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import React, { act } from "react";
@@ -27,7 +28,7 @@ async function fixture() {
     return dispose;
   };
   const Component = loadTs("src/components/desktop/ApprovedDashboardMenus.tsx", {
-    react: React, "react/jsx-runtime": jsx,
+    react: React, "react/jsx-runtime": jsx, "@/lib/ui/notepad-navigation": notepadNavigation,
     "@/components/UiLanguageProvider": { useUiLanguage: () => ({ t: translator, tt: translator }) },
     "@/lib/ui/approved-header-menus": { mountApprovedMenus: mount }, "@/lib/ui/anchored-dashboard-menus": { mountAnchoredMenus: mount },
     "@/lib/ui/ask-dashboard-launcher": {}, "@/lib/ui/header-palette": { modalLauncherStyle: () => ({}) },

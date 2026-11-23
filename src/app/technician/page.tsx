@@ -248,8 +248,7 @@ export default function TechnicianDashboard() {
   const menuActions = account ? [
     ...(canViewWorkOrders ? [{key:"work-order-list", label:"Work Order List"}] : []),
     {key:"/technician", label:"Technician Dashboard"},
-    {key:"/staff-notes", label:"Staff Notes"},
-    {key:"/notes", label:"Notes"},
+    {key:"/notepad", label:"Notepad"},
     {key:"/engineering/room-ranking", label:"Room Ranker"},
     ...(hasCapability(menuSession, "view_pool_log") ? [{key:"/engineering/pool-log", label:"Pool Log"}] : []),
     ...(hasCapability(menuSession, "view_pm") ? [{key:"/engineering/preventive-maintenance", label:"Preventive Maintenance"}] : []),

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src blob: https:; connect-src 'none'; font-src 'self' data:; base-uri 'none'; form-action 'none'; object-src 'none'">
+<title>CMPRI Notepad</title>
+<link rel="stylesheet" href="/notepad/notepad.css">
+<link rel="stylesheet" href="/notepad/host.css">
+</head>
+<body>
+<main class="stage">
+<div class="window-wrap" id="window-wrap">
+<section class="notepad-modal" id="notepad-modal" aria-label="Notepad">
+<div class="layout-body" id="layout-body"><p class="editor-empty" role="status">Loading Notepad…</p></div>
+</section>
+</div>
+</main>
+<div id="popover-layer"></div><div id="mention-layer"></div>
+<div class="preview-toast" id="preview-toast" role="status" aria-live="polite"></div>
+<div id="reorder-status" class="sr-only" role="status" aria-live="polite"></div>
+<script src="/notepad/ink.js"></script><script src="/notepad/formatting.js"></script><script src="/notepad/attachments.js"></script><script src="/notepad/app.js"></script>
+</body>
+</html>

@@ -155,6 +155,7 @@ export async function POST(request: NextRequest) {
     }
     const result = await auth.admin.rpc("cmpri_post_staff_note_with_mentions", { p_hotel: auth.principal.hotelId, p_author: auth.principal.identity.id,
       p_name: author, p_body: trimmed, p_parent: input.parentId || null, p_request: input.requestId, p_recipients: recipients, p_uploads:uploads, p_hashtags:staffHashtags(input.body), p_gifs:gifs, p_mentions:mentions, p_name_id:nameId });
+    if (result.error?.code==='40001') return NextResponse.json({error:'This note has moved to Notepad. Your draft is retained; open Notepad to continue.'},{status:409,headers});
     if (result.error) throw new Error("Post failed");
     // Durable delivery intents are committed by the same transaction as the post.
     // The existing scheduled dispatcher retries any provider failures.
