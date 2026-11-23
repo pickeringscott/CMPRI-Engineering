@@ -1,3 +1,5 @@
+import { placeDashboardTitleTabs, titleTabOutline, titleTabRailWidth } from './dashboard-title-tabs.js';
+
 /**
  * The approved launcher DOM and gestures, anchored to the title line.
  * @template {{key:string, label:string, style?:Record<string,string>}} Action
@@ -36,8 +38,9 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   railScroll.oninput = () => { root.scrollLeft = railScroll.valueAsNumber; };
   root.after(railScroll);
   const label = group => group.dataset.layoutLabel || group.querySelector('legend').textContent;
-  const fields = () => Array.from(bar.children);
+  const fields = () => Array.from(bar.children).filter(field => !field.hasAttribute('data-ask-launcher-tab'));
   const isOpen = field => !field.classList.contains('collapsed');
+  const displayedX = field => Number.parseFloat(field.style.left) || 0;
   const emit = () => onSave({
     groups: fields().map(label),
     buttons: Object.fromEntries(fields().map(g => [label(g), [...g.querySelectorAll('.buttons>.action')].map(b => b.dataset.layoutKey)])),
@@ -51,9 +54,11 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     if (active === field)
       return;
     active?.removeAttribute('data-active');
+    active?.querySelector('legend').removeAttribute('aria-current');
     active = field;
     if (active) {
       active.dataset.active = 'true';
+      active.querySelector('legend').setAttribute('aria-current', 'true');
       active.style.zIndex = String(++zIndex);
     }
   };
@@ -137,14 +142,18 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     // after the previous drag. Keyboard activation must never be suppressed.
     suppressedClick = undefined;
     const initial = [...container.children], origin = container.closest('fieldset'), host = root;
+    const initialActive = active;
+    const initialOpen = new Set(fields().filter(isOpen));
+    const initialLayers = new Map(fields().map(field => [field, field.style.zIndex]));
+    const touchedFields = new Set([origin]);
     const start = { x: event.clientX, y: event.clientY, scroll: container.scrollLeft, hostLeft: host.scrollLeft, hostTop: host.scrollTop };
     const rect = item.getBoundingClientRect(), grab = { x: start.x - rect.left, y: start.y - rect.top };
     const position = e => event.pointerType === 'mouse' ? { x: e.clientX - grab.x, y: e.clientY - grab.y } : { x: e.clientX + 8, y: e.clientY + 8 };
-    let last = event, active = false, moved = false, swipe = false, ghost, frame, slideUntil = 0, highlight = null;
+    let last = event, dragging = false, moved = false, swipe = false, ghost, frame, slideUntil = 0, highlight = null;
     const destination = () => {
       const hit = document.elementFromPoint(last.clientX, last.clientY);
       const field = hit?.closest('fieldset.group');
-      if (!field || field.parentElement !== bar || !canDrop(item.dataset.key, label(field)))
+      if (!field || field.parentElement !== bar || field.hasAttribute('data-ask-launcher-tab') || !canDrop(item.dataset.key, label(field)))
         return null;
       const tab = hit.closest('legend') === field.querySelector('legend');
       if (!tab && !isOpen(field))
@@ -165,24 +174,40 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       if (highlight)
         highlight.dataset.buttonDrop = next.tab ? 'tab' : 'row';
     };
-    const arrange = (next = destination()) => {
+    const arrange = (next = destination(), settle = false) => {
       const valid = Boolean(next);
       document.body.classList.toggle('drag-invalid', !valid);
       ghost.style.setProperty('visibility', valid ? 'visible' : 'hidden', 'important');
       item.style.visibility = valid ? 'visible' : 'hidden';
       markDrop(next);
-      if (!moved || !valid || next.field !== origin || next.tab || performance.now() < slideUntil)
+      if (!moved || !valid)
         return;
-      const peers = [...container.children].filter(n => n !== item);
-      const target = insertion(container);
-      if (target ? item.nextElementSibling === target : container.lastElementChild === item)
+      if (active !== next.field || !isOpen(next.field)) {
+        openField(next.field);
+        next.field.querySelector('legend').focus({ preventScroll: true });
+      }
+      const previousField = item.closest('fieldset');
+      const sameRow = previousField === next.field;
+      if (!settle && sameRow && !next.tab && performance.now() < slideUntil)
         return;
-      slide(peers, () => target ? target.before(item) : container.append(item));
+      const target = next.tab ? null : insertion(next.row);
+      if (sameRow && (target ? item.nextElementSibling === target : next.row.lastElementChild === item))
+        return;
+      const peers = [...new Set([...item.parentElement.children, ...next.row.children])].filter(n => n !== item);
+      // The real button is the faint landing preview. No layout is saved until
+      // pointer-up; cancellation puts it back in its exact original order.
+      slide(peers, () => target ? target.before(item) : next.row.append(item));
+      touchedFields.add(next.field);
+      refitButtonRow(previousField);
+      refitButtonRow(next.field);
+      place(true);
+      if (next.tab)
+        next.row.scrollLeft = next.row.scrollWidth;
       captureTarget.setPointerCapture(event.pointerId);
       slideUntil = performance.now() + SLIDE_MS;
     };
     const edgeScroll = () => {
-      if (!active)
+      if (!dragging)
         return;
       if (moved) {
         const bounds = host.getBoundingClientRect();
@@ -208,7 +233,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     };
     const startedAt = performance.now();
     const activate = () => {
-      active = true;
+      dragging = true;
       root.dataset.buttonDragging = 'true';
       document.body.classList.add('drag-active', 'menu-reordering');
       window.getSelection()?.removeAllRanges();
@@ -227,7 +252,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       const dx = e.clientX - start.x, dy = e.clientY - start.y;
       if (Math.hypot(dx, dy) > (event.pointerType === 'mouse' ? MOUSE_DRAG_PX : TOUCH_DRAG_PX))
         moved = true;
-      if (!active) {
+      if (!dragging) {
         if (event.pointerType === 'mouse') {
           if (!moved)
             return;
@@ -251,39 +276,48 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       ghost.style.setProperty('top', p.y + 'px', 'important');
       arrange();
     };
-    const stopTouchScroll = e => { if (active && e.cancelable)
+    const stopTouchScroll = e => { if (dragging && e.cancelable)
       e.preventDefault(); };
     captureTarget.addEventListener('touchmove', stopTouchScroll, { passive: false });
     const finish = (e, cancel = false) => {
       if (e.pointerId !== event.pointerId)
         return;
+      const releaseMoved = last.clientX !== e.clientX || last.clientY !== e.clientY;
       last = e;
       window.clearTimeout(timer);
       cancelAnimationFrame(frame);
-      let changed = false, movedTo = null;
-      if (active) {
+      let changed = false, movedTo = null, droppedOn = null;
+      if (dragging) {
         suppressFor(captureTarget);
         const next = cancel ? null : destination();
         if (!next) {
-          clearMotion(initial);
+          clearMotion([...touchedFields].flatMap(field => [...field.querySelector('.buttons').children]));
           initial.forEach(n => container.append(n));
           container.scrollLeft = start.scroll;
           host.scrollLeft = start.hostLeft;
           host.scrollTop = start.hostTop;
         }
         else if (moved) {
-          if (next.field !== origin) {
-            const target = next.tab ? null : insertion(next.row);
-            if (target)
-              target.before(item);
-            else
-              next.row.append(item);
-            movedTo = next.field;
-          }
-          else if (next.tab) {
-            container.append(item);
-          }
+          // Commit the visible slot. A neighbor's unfinished slide must not
+          // pick a different slot when the pointer is released in place.
+          if (releaseMoved || item.closest('fieldset') !== next.field)
+            arrange(next, true);
+          droppedOn = next.field;
+          movedTo = next.field !== origin ? next.field : null;
           changed = Boolean(movedTo) || initial.some((n, i) => container.children[i] !== n);
+        }
+        // Tabs opened only to preview a destination do not stay open after
+        // cancellation or a drop elsewhere.
+        for (const field of fields()) {
+          if (!initialOpen.has(field) && field !== droppedOn) {
+            field.classList.add('collapsed');
+            field.querySelector('legend').setAttribute('aria-expanded', 'false');
+          }
+        }
+        if (!next) {
+          setActive(initialActive);
+          for (const [field, layer] of initialLayers) field.style.zIndex = layer;
+          initialActive?.querySelector('legend').focus({ preventScroll: true });
         }
         ghost.remove();
         ghosts.delete(ghost);
@@ -300,10 +334,15 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering');
       off.forEach(fn => fn());
       cancelGesture = undefined;
-      if (movedTo) {
-        refitButtonRow(origin);
-        refitButtonRow(movedTo);
+      if (dragging) {
+        for (const field of touchedFields) refitButtonRow(field);
         place();
+      }
+      if (droppedOn) {
+        changed ||= initialActive !== droppedOn || !initialOpen.has(droppedOn);
+        openField(droppedOn);
+        stageHeight();
+        droppedOn.querySelector('legend').focus({ preventScroll: true });
       }
       if (changed)
         emit();
@@ -347,8 +386,10 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     field.querySelector('.tab-resize-edge').style.left = `${title.offsetLeft + width - 3}px`;
   }
   const widthLimit = field => {
-    const available = root.scrollLeft + root.clientWidth - field.positionX - 3;
-    return Math.max(1, Math.min(field.fittedWidth, root.clientWidth - 3, bar.clientWidth - field.positionX, Math.max(field.minimumWidth, available)));
+    const left = displayedX(field);
+    const available = root.scrollLeft + root.clientWidth - left - 3;
+    const extent = Math.max(bar.clientWidth - left, field.minimumWidth);
+    return Math.max(1, Math.min(field.fittedWidth, root.clientWidth - 3, extent, Math.max(field.minimumWidth, available)));
   };
   const fitWidth = field => {
     const max = widthLimit(field);
@@ -358,22 +399,25 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     field.style.width = width + 'px';
     field.drawOutline();
   };
-  const setPosition = (field, x) => {
-    field.positionX = Math.round(Math.max(0, Math.min(x, bar.clientWidth - field.tabWidth - 26)));
-    field.style.left = field.positionX + 'px';
-    fitWidth(field);
+  const renderPositions = () => {
+    placeDashboardTitleTabs(root, bar);
+    fields().forEach(fitWidth);
+    stageHeight();
   };
-  const place = () => {
+  const boundPosition = (field, x) => Math.round(Math.max(0, Math.min(x, titleTabRailWidth(root, bar) - field.tabWidth - 26)));
+  const setPosition = (field, x) => {
+    field.positionX = boundPosition(field, x);
+    renderPositions();
+  };
+  const place = (preserveGesture = false) => {
     const items = fields();
     items.forEach(fitTab);
-    const fittedTabs = items.reduce((size, field) => size + field.tabWidth + TAB_GAP, 0);
-    bar.style.minWidth = Math.max(root.clientWidth, fittedTabs + TAB_INSET + 9) + 'px';
     let x = 0;
     for (const field of items) {
-      setPosition(field, field.requestedX ?? x);
+      field.positionX = boundPosition(field, preserveGesture ? field.positionX ?? field.requestedX ?? x : field.requestedX ?? x);
       x += field.tabWidth + TAB_GAP;
     }
-    stageHeight();
+    renderPositions();
   };
   function resizeHandle(className, title, measure, setSize, snapshot, restore) {
     const edge = document.createElement('span');
@@ -424,25 +468,29 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     };
     return edge;
   }
+  function openField(field) {
+    field.classList.remove('collapsed');
+    field.querySelector('legend').setAttribute('aria-expanded', 'true');
+    setActive(field);
+    place(Boolean(cancelGesture));
+    const left = displayedX(field);
+    if (left < root.scrollLeft)
+      root.scrollLeft = left;
+    else if (left + field.minimumWidth > root.scrollLeft + root.clientWidth - 3)
+      root.scrollLeft = left + field.minimumWidth - root.clientWidth + 3;
+    fitWidth(field);
+  }
   function activate(field) {
     if (isOpen(field) && active === field) {
       field.classList.add('collapsed');
       field.querySelector('legend').setAttribute('aria-expanded', 'false');
-      const remaining = fields().filter(isOpen).sort((a, b) => Number(b.style.zIndex) - Number(a.style.zIndex));
-      setActive(remaining[0] || null);
-    }
-    else {
-      field.classList.remove('collapsed');
-      field.querySelector('legend').setAttribute('aria-expanded', 'true');
-      setActive(field);
-      if (field.positionX < root.scrollLeft)
-        root.scrollLeft = field.positionX;
-      else if (field.positionX + field.minimumWidth > root.scrollLeft + root.clientWidth - 3) {
-        root.scrollLeft = field.positionX + field.minimumWidth - root.clientWidth + 3;
+      if (active === field) {
+        const remaining = fields().filter(isOpen).sort((a, b) => Number(b.style.zIndex) - Number(a.style.zIndex));
+        setActive(remaining[0] || null);
       }
-      fitWidth(field);
     }
-    stageHeight();
+    else openField(field);
+    place(Boolean(cancelGesture));
     emit();
   }
   function startTabDrag(event, field, title) {
@@ -450,11 +498,11 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       return;
     suppressedClick = undefined;
     const touch = event.pointerType !== 'mouse';
-    const initialX = field.positionX, initialScroll = root.scrollLeft, initialZ = field.style.zIndex;
+    const initialX = field.positionX, initialDisplayX = displayedX(field), initialScroll = root.scrollLeft, initialZ = field.style.zIndex;
     let last = event, dragging = false, moved = false, swiping = false, frame;
     const within = () => { const { left, right, top } = root.getBoundingClientRect(); return last.clientX >= left && last.clientX <= right && last.clientY >= top - 1 && last.clientY <= top + TAB_HEIGHT + 1; };
-    const displace = () => { if (within())
-      setPosition(field, initialX + last.clientX - event.clientX + root.scrollLeft - initialScroll); };
+    const displace = () => { if (moved && within())
+      setPosition(field, initialDisplayX + last.clientX - event.clientX + root.scrollLeft - initialScroll); };
     const edgeScroll = () => {
       if (!dragging)
         return;
@@ -517,7 +565,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
         }
         else {
           displace();
-          if (field.positionX !== initialX) {
+          if (moved && field.positionX !== initialX) {
             field.requestedX = field.positionX;
             emit();
           }
@@ -621,7 +669,8 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
         scroll.hidden = true;
         return;
       }
-      const w = field.clientWidth + 2, h = field.clientHeight + 16, l = 11, r = l + title.offsetWidth + 6;
+      const w = field.clientWidth + 2, h = field.clientHeight + 16;
+      const { left: l, right: r } = titleTabOutline(title.offsetWidth);
       svg.innerHTML = `<path d="M 6 15 H ${l - 3} Q ${l} 15 ${l} 12 V 6 Q ${l} 1 ${l + 5} 1 H ${r - 5} Q ${r} 1 ${r} 6 V 12 Q ${r} 15 ${r + 3} 15 H ${w - 6} Q ${w - 1} 15 ${w - 1} 20 V ${h - 6} Q ${w - 1} ${h - 1} ${w - 6} ${h - 1} H 6 Q 1 ${h - 1} 1 ${h - 6} V 20 Q 1 15 6 15 Z" fill="none" stroke="#334155aa"/>`;
       scroll.max = Math.max(0, buttons.scrollWidth - buttons.clientWidth);
       scroll.hidden = Number(scroll.max) < 1;
@@ -696,8 +745,17 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   const preferred = fields().find(field => isOpen(field) && label(field) === layout.active);
   if (preferred || layout.active === null)
     setActive(preferred || null);
-  observer = new ResizeObserver(() => { if (!cancelGesture) place(); });
+  observer = new ResizeObserver(() => {
+    for (const field of fields()) {
+      const title = field.querySelector('legend'), previous = title.style.width;
+      if (previous !== 'max-content') title.style.width = 'max-content';
+      field.minimumTabWidth = title.offsetWidth;
+      if (previous !== 'max-content') title.style.width = previous;
+    }
+    place(Boolean(cancelGesture));
+  });
   observer.observe(root);
+  fields().forEach(field => observer.observe(field.querySelector('legend')));
   // A ticker changes the CSS row offset, not the menu's own border-box size.
   // Recompute the existing overlay height without altering saved tab layout.
   const bulletinHost = root.closest('header.cmpri-dashboard-titlebar')?.parentElement
@@ -713,17 +771,13 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     }
   };
   root.addEventListener('scroll', adjustToScroll, { passive: true });
-  cleanups.push(() => root.removeEventListener('scroll', adjustToScroll));
+  root.addEventListener('cmpri-menu-placement', adjustToScroll);
+  cleanups.push(() => root.removeEventListener('scroll', adjustToScroll),
+    () => root.removeEventListener('cmpri-menu-placement', adjustToScroll));
   const blur = () => cancelGesture?.();
   window.addEventListener('blur', blur);
   cleanups.push(() => window.removeEventListener('blur', blur));
-  const leave = e => {
-    if (!active || cancelGesture || root.contains(e.target) || railScroll.contains(e.target))
-      return;
-    setActive(null);
-    emit();
-  };
-  cleanups.push(listen('pointerdown', leave, true), listen('focusin', leave));
+  // Keep the selected row clear while focus moves to the desktop or a window.
   const unmount = () => { cancelGesture?.(); observer.disconnect(); bulletinObserver?.disconnect(); cleanups.forEach(fn => fn()); for (const ghost of ghosts)
     ghost.remove(); document.body.classList.remove('drag-active', 'drag-invalid', 'menu-reordering'); root.replaceChildren(); railScroll.remove(); };
   // Language changes preserve the canonical layout, controls and pending drag/save work.
@@ -738,7 +792,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       if (empty) empty.textContent = translate('No buttons for this role');
       refitButtonRow(field);
     }
-    if (!cancelGesture) place();
+    place(Boolean(cancelGesture));
   };
   return unmount;
 }

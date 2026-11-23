@@ -1,3 +1,5 @@
+import { workOrderMediaDigest } from "./work-order-media";
+
 export type WorkOrderAttachmentUploadResult =
   | { ok: true }
   | { ok: false; message: string; canReplace: boolean };
@@ -7,18 +9,19 @@ export async function uploadWorkOrderAttachment(
   photo: File,
   accessToken: string,
   uploadId: string,
+  options: { attachmentToken?: string; signal?: AbortSignal } = {},
 ): Promise<WorkOrderAttachmentUploadResult> {
   const failed = (message: string, canReplace = false): WorkOrderAttachmentUploadResult => ({ ok: false, message, canReplace });
   if (photo.size < 1 || photo.size > 100 * 1024 * 1024) return failed("Photos and videos must be 100 MB or smaller.", true);
   try {
-    const bytes = await photo.arrayBuffer();
-    const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    const sha256 = await workOrderMediaDigest(photo);
     const descriptor = { uploadId, name: photo.name, type: photo.type, size: photo.size, sha256 };
     const endpoint = `/api/work-orders/${encodeURIComponent(workOrderId)}/attachments`;
     async function handshake(action: "prepare" | "finalize") {
       const response = await fetch(endpoint, {
-        method: "PUT", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ ...descriptor, action }), cache: "no-store",
+        method: "PUT", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json",
+          ...(options.attachmentToken ? { "X-CMPRI-Ask-Attachment": options.attachmentToken } : {}) },
+        body: JSON.stringify({ ...descriptor, action }), cache: "no-store", signal: options.signal,
       });
       const payload = await response.json().catch(() => null) as {
         ok?: boolean; complete?: boolean; finalize?: boolean; signedUrl?: string; contentType?: string; error?: string;
@@ -38,7 +41,7 @@ export async function uploadWorkOrderAttachment(
         await fetch(prepared.payload.signedUrl, {
           method: "PUT", body: photo,
           headers: { "Content-Type": prepared.payload.contentType, "x-upsert": "false" },
-          credentials: "omit", referrerPolicy: "no-referrer", redirect: "error", cache: "no-store",
+          credentials: "omit", referrerPolicy: "no-referrer", redirect: "error", cache: "no-store", signal: options.signal,
         });
       } catch {
         // Storage may have accepted the bytes even if its response was lost.

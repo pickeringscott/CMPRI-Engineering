@@ -8,16 +8,25 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const pdfs = process.argv.slice(2).map(file => path.resolve(file));
-for (const route of ['maintenance-reference', 'work-orders/[id]/troubleshooting', 'assets/documentation', 'assets', 'engineering/po-pdf-review', 'engineering/po-scan-review', 'engineering/po-import-reviewed', 'integrations/drive-po/notify', 'integrations/drive-po/control', 'integrations/drive-po/maintenance']) {
+const guideMediaRoutes = ['maintenance-reference', 'work-orders/[id]/troubleshooting', 'ask-cmpri/troubleshooting', 'ask-cmpri', 'ask-cmpri/document-download', 'assets/documentation', 'assets'];
+for (const route of [...guideMediaRoutes, 'engineering/po-pdf-review', 'engineering/po-scan-review', 'engineering/po-import-reviewed', 'integrations/drive-po/notify', 'integrations/drive-po/control', 'integrations/drive-po/maintenance']) {
   const tracePath = path.resolve(`.next/server/app/api/${route}/route.js.nft.json`);
   const trace = JSON.parse(await readFile(tracePath, 'utf8'));
+  if (route === 'ask-cmpri' || route === 'ask-cmpri/document-download') {
+    assert(trace.files.some(file => /@tesseract\.js-data[\\/]eng[\\/]package\.json$/.test(file)), `${route}: OCR language-package locator missing`);
+    assert(trace.files.some(file => /eng[\\/]4\.0\.0_best_int[\\/].*\.gz$/.test(file)), `${route}: OCR language data missing`);
+  }
+  if (route === 'ask-cmpri') {
+    assert(trace.files.some(file => file.endsWith('Copy of Preventative Maintenance Tracking - CMPRI.xlsx')), 'Ask CMPRI: native PM export workbook missing');
+    assert(trace.files.some(file => file.endsWith('swimming-facility-daily-operational-report.pdf')), 'Ask CMPRI: official Pool Log report template missing');
+  }
   const runtimeFiles = trace.files.map(file => path.resolve(path.dirname(tracePath), file))
     .filter(file => /node_modules[\\/](pdfjs-dist|@napi-rs)[\\/]/.test(file));
   assert(runtimeFiles.some(file => /pdf\.mjs$/.test(file)), `${route}: PDF.js missing`);
   assert(runtimeFiles.some(file => /pdf\.worker\.mjs$/.test(file)), `${route}: worker missing`);
   assert(runtimeFiles.some(file => /canvas[\\/]index\.js$/.test(file)), `${route}: canvas loader missing`);
   assert(runtimeFiles.some(file => /\.node$/.test(file)), `${route}: canvas native binary missing`);
-  const guideMedia = ['maintenance-reference','work-orders/[id]/troubleshooting','assets/documentation','assets'].includes(route);
+  const guideMedia = guideMediaRoutes.includes(route);
   if (guideMedia) {
     assert(runtimeFiles.some(file => /standard_fonts[\\/].*\.pfb$/.test(file)), `${route}: local PDF fonts missing`);
     assert(runtimeFiles.some(file => /cmaps[\\/].*\.bcmap$/.test(file)), `${route}: local PDF character maps missing`);

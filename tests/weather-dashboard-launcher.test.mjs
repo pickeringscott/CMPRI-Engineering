@@ -4,6 +4,9 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import {loadTs} from './helpers/load-ts.mjs';
+import React, {act} from 'react';
+import * as jsx from 'react/jsx-runtime';
+import {JSDOM} from 'jsdom';
 
 const source=readFileSync(new URL('../src/app/engineering/page.tsx',import.meta.url),'utf8');
 const file=ts.createSourceFile('page.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
@@ -76,4 +79,41 @@ test('Weather uses the existing same-origin desktop frame route and host window 
   assert.equal(routes[path].title,'Weather');
   assert.equal(routes[path].preferred.width,action.preferred.width);
   assert.equal(routes[path].preferred.height,action.preferred.height);
+});
+
+test('the actual weather tile mounts on a desktop-sized touch device and tracks the mobile width boundary',async()=>{
+  const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:'https://fixture.invalid/engineering',pretendToBeVisual:true});
+  const prior=Object.fromEntries(['window','document','HTMLElement','IS_REACT_ACT_ENVIRONMENT'].map(key=>[key,globalThis[key]]));
+  Object.assign(globalThis,{window:dom.window,document:dom.window.document,HTMLElement:dom.window.HTMLElement,IS_REACT_ACT_ENVIRONMENT:true});
+  let width=1920,opened=0;
+  const queries=[],reads=[],listeners=new Set();
+  dom.window.matchMedia=value=>{
+    queries.push(value);
+    return {get matches(){return width>=Number(value.match(/min-width:\s*(\d+)px/)?.[1]||0)&&!value.includes('hover: hover');},
+      addEventListener:(_name,listener)=>listeners.add(listener),removeEventListener:(_name,listener)=>listeners.delete(listener)};
+  };
+  const Component=loadTs('src/components/desktop/WeatherUtilities.tsx',{
+    react:React,'react/jsx-runtime':jsx,'next/script':{default:()=>null},
+    '@/components/UiLanguageProvider':{useUiLanguage:()=>({t:value=>value})},
+    './weather-utilities.module.css':{default:new Proxy({},{get:(_target,key)=>String(key)})},
+  },{window:dom.window,document:dom.window.document,AbortController,
+    fetch:async url=>{reads.push(url);return Response.json({dashboard:{current:46,high:59,low:38,precipitation:10,wind:13,bearing:300,condition:'Cloudy',icon:null,isDaytime:false,moonAngle:42}});}}).default;
+  const {createRoot}=await import('react-dom/client');
+  const root=createRoot(dom.window.document.getElementById('root'));
+  const dial=()=>dom.window.document.querySelector('[data-cmpri-weather-dial]');
+  try {
+    await act(async()=>{root.render(React.createElement(Component,{onOpen:()=>opened++},'Utilities'));await new Promise(resolve=>setImmediate(resolve));});
+    assert.ok(dial(),'A 1920px touch device must mount the weather dial');
+    assert.match(dial().getAttribute('aria-label'),/46° · Cloudy/);
+    assert.deepEqual(reads,['/api/weather-preview?part=dashboard']);
+    assert.ok(queries.every(query=>!query.includes('hover')));
+    await act(async()=>dial().click());assert.equal(opened,1);
+    await act(async()=>{width=1024;for(const listener of listeners)listener();});assert.ok(dial());
+    await act(async()=>{width=700;for(const listener of listeners)listener();});assert.equal(dial(),null);
+    await act(async()=>{width=701;for(const listener of listeners)listener();await new Promise(resolve=>setImmediate(resolve));});assert.ok(dial());
+    await act(async()=>root.render(React.createElement(Component,null,'Utilities')));assert.equal(dial(),null,'Native role/launcher denial still omits the tile');
+  } finally {
+    await act(async()=>root.unmount());dom.window.close();
+    for(const [key,value] of Object.entries(prior))if(value===undefined)delete globalThis[key];else globalThis[key]=value;
+  }
 });

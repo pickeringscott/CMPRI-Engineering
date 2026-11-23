@@ -159,8 +159,19 @@ header.cmpri-dashboard-titlebar:has(~ [data-weather-desktop-bulletin-host] [data
   cursor: pointer;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .cmpri-header-v23.anchored-menu .preview .header fieldset.group .buttons {
+    transition: filter 180ms ease-out;
+  }
+}
+
 .cmpri-header-v23.anchored-menu fieldset.group[data-button-drop] > legend {
   outline: 1px solid var(--cmpri-palette-gold-light);
+  outline-offset: -1px;
+}
+
+.cmpri-header-v23.anchored-menu .buttons > .action.landing-copy {
+  outline: 1px dashed var(--cmpri-palette-gold-light);
   outline-offset: -1px;
 }
 

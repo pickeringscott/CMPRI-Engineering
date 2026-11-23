@@ -7,7 +7,7 @@ import { workOrderReader } from "@/lib/server/work-order-reader";
 import { accountRoleDisplayName } from "@/lib/account-display";
 import { NextRequest, NextResponse } from "next/server";
 import { HOTEL_ID } from "@/lib/constants";
-import { allows } from "@/lib/server/access";
+import { allows, canSetFrontDeskWorkOrderPriority } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { normalizeWorkOrderCategory } from "@/lib/work-order-categories";
 import { profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
@@ -15,7 +15,7 @@ import { isEngineeringWorkOrderActor, recordEngineeringWorkOrderView } from "@/l
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
 import { currentRoomOperation, currentRoomStatus, loadCurrentRoomStatuses } from "@/lib/server/room-availability";
 import { isUuid } from "@/lib/uuid";
-import { canCorrectReport as reportCorrectionAllowed, REPORT_CORRECTION_FIELDS, TECHNICAL_WORK_ORDER_FIELDS, workOrderEditableFields } from "@/lib/work-order-edit-policy";
+import { canCorrectReport as reportCorrectionAllowed, REPORT_CORRECTION_FIELDS, TECHNICAL_WORK_ORDER_FIELDS, workOrderEditableFields, workOrderStatusEffect } from "@/lib/work-order-edit-policy";
 
 const ALL_STATUSES = ["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"] as const;
 
@@ -165,6 +165,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const body = await readBody(request);
   if (!body) return NextResponse.json({ error: "A valid JSON object is required." }, { status: 400 });
+  const frontDeskPriorityOnly = Object.prototype.hasOwnProperty.call(body, "priority")
+    && Object.keys(body).every((key) => key === "priority" || key === "expected_revision")
+    && canSetFrontDeskWorkOrderPriority(auth.principal);
   if (!canEdit && !canReview && Object.prototype.hasOwnProperty.call(body, "notes")) {
     return NextResponse.json({ error: "Use the append-only notes action to add notes without replacing history." }, { status: 403 });
   }
@@ -181,12 +184,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!existing) return NextResponse.json({ error: "Work order not found." }, { status: 404 });
   const canCorrectReport = reportCorrectionAllowed(auth.principal.profile, existing.status, canReadWorkOrderForMutation(workOrderReader(auth.principal), existing));
   const correctionOnly = Object.keys(body).every(key => key === "expected_revision" || REPORT_CORRECTION_FIELDS.includes(key as typeof REPORT_CORRECTION_FIELDS[number]));
-  if (canAddNotes && !canEdit && !canReview && !correctionOnly && !["Open", "In Progress"].includes(String(existing.status || ""))) {
+  if (canAddNotes && !canEdit && !canReview && !correctionOnly && !frontDeskPriorityOnly && !["Open", "In Progress"].includes(String(existing.status || ""))) {
     return NextResponse.json({ error: "Notes may only be added to open work orders." }, { status: 403 });
   }
   const technicianEdit = !chief && roleKey(auth.principal.profile.role) === "technician";
   const assignmentAccess = canAccessWorkOrderByAssignment(chief ? "Chief Engineer" : auth.principal.profile.role, auth.principal.profile.full_name, existing);
-  if (!assignmentAccess && !(canCorrectReport && correctionOnly)) {
+  if (!assignmentAccess && !frontDeskPriorityOnly && !(canCorrectReport && correctionOnly)) {
     return NextResponse.json({ error: "This work order is not assigned to you." }, { status: 403 });
   }
   const technicianProfileName = auth.principal.profile.full_name?.trim() || "";
@@ -210,7 +213,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     canAddNotes,
     unassigned: unassignedWorkOrder,
     canClaimUnassigned,
-  }), ...(canCorrectReport ? REPORT_CORRECTION_FIELDS : [])];
+  }), ...(canCorrectReport ? REPORT_CORRECTION_FIELDS : []), ...(frontDeskPriorityOnly ? ["priority" as const] : [])];
   const allowedFieldSet = new Set(allowedFields);
   const update: Record<string, unknown> = {};
   for (const key of allowedFields) {
@@ -234,7 +237,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ error: "Technicians may set work only to Open, In Progress, or Completed." }, { status: 403 });
   }
 
-  if (!canEdit && canReview && !correctionOnly) {
+  if (!canEdit && canReview && !correctionOnly && !frontDeskPriorityOnly) {
     if (existing.status !== "Pending Verification") {
       return NextResponse.json({ error: "Management review is limited to pending requests." }, { status: 403 });
     }
@@ -333,18 +336,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
   }
 
-  const resultingStatus = String(update.status ?? existing.status ?? "Open");
-  if (
-    existing.status === "Closed" &&
-    resultingStatus === "In Progress" &&
-    !("technician_name" in update) &&
-    !String(existing.technician_name || "").trim() &&
-    String(existing.last_assigned_technician_name || "").trim()
-  ) {
-    update.technician_name = String(existing.last_assigned_technician_name).trim();
-  }
-  const resultingTechnician = String(update.technician_name ?? existing.technician_name ?? "").trim();
-  if (!chief && !correctionOnly && resultingStatus === "In Progress" && !resultingTechnician) {
+  const effect = workOrderStatusEffect(existing, update);
+  if (effect.restoredTechnician) update.technician_name = effect.restoredTechnician;
+  if (!chief && !correctionOnly && !frontDeskPriorityOnly && effect.status === "In Progress" && !effect.technician) {
     return NextResponse.json({ error: "A technician must be assigned while a work order is In Progress." }, { status: 400 });
   }
 
@@ -383,16 +377,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
     committed = current;
   }
+  let warning: string | undefined;
   if (isEngineeringWorkOrderActor(auth.principal.profile)) {
     try {
       await recordEngineeringWorkOrderView(auth.admin, { id, display_id: existing.display_id }, {
         id: auth.principal.identity.id,
       });
-    } catch (resolutionError) {
-      return NextResponse.json({ error: resolutionError instanceof Error ? resolutionError.message : "Technician notifications could not be resolved." }, { status: 503 });
+    } catch {
+      warning = "Technician notifications could not be refreshed.";
     }
   }
-  return NextResponse.json({ workOrder: { ...committed, can_correct_report: reportCorrectionAllowed(auth.principal.profile, committed.status, canReadWorkOrder(workOrderReader(auth.principal), committed)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, committed.room) } : {}) } });
+  return NextResponse.json({ workOrder: { ...committed, can_correct_report: reportCorrectionAllowed(auth.principal.profile, committed.status, canReadWorkOrder(workOrderReader(auth.principal), committed)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, committed.room) } : {}) }, ...(warning ? { warning } : {}) });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

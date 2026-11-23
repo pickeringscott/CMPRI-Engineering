@@ -1,0 +1,355 @@
+@font-face {
+  font-family: "Comic Neue";
+  src: url("/fonts/comic-neue-regular.ttf") format("truetype");
+  font-display: swap;
+}
+
+.desktop-ask-search [hidden] { display: none !important; }
+
+.desktop-ask-gemini {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background: conic-gradient(from -20deg, #3185ff, #4d63ff 24%, #aa53fc 46%, #ed4f9d 57%, #f9ab36 71%, #31c288 85%, #3185ff);
+  clip-path: polygon(50% 0,57% 21%,63% 35%,79% 43%,100% 50%,79% 57%,63% 65%,57% 79%,50% 100%,43% 79%,37% 65%,21% 57%,0 50%,21% 43%,37% 35%,43% 21%);
+}
+
+.desktop-ask-mic-icon {
+  position: relative;
+  display: block;
+  width: 13px;
+  height: 13px;
+  border: 1.5px solid currentColor;
+  border-top: 0;
+  border-radius: 0 0 9px 9px;
+}
+
+.desktop-ask-mic-icon::before,
+.desktop-ask-mic-icon::after {
+  content: '';
+  position: absolute;
+}
+
+.desktop-ask-mic-icon::before {
+  width: 5px;
+  height: 11px;
+  border: 1.5px solid currentColor;
+  border-radius: 4px;
+  left: 2.5px;
+  top: -4px;
+}
+
+.desktop-ask-mic-icon::after {
+  left: 4.5px;
+  top: 11px;
+  width: 1.5px;
+  height: 4px;
+  background: currentColor;
+}
+
+.cmpri-header-shelf:has(.cmpri-ask-mobile-launcher) { position: relative; }
+
+.cmpri-ask-mobile-launcher {
+  position: absolute;
+  top: 0;
+  right: max(156px, calc(10ch + 26px));
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 29px;
+  padding: 3px 10px;
+  border: 1px solid #a98020;
+  border-radius: 6px;
+  background: var(--cmpri-palette-desktop-tone-17);
+  color: var(--cmpri-palette-gold);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .cmpri-ask-mobile-launcher {
+    top: 30px;
+    right: 144px;
+    min-height: 27px;
+    padding-inline: 6px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 375px) {
+  .cmpri-ask-mobile-launcher {
+    position: static;
+    justify-self: start;
+    grid-column: 1;
+    grid-row: 3;
+  }
+}
+
+.desktop-ask-tab,
+.desktop-ask-search {
+  display: none;
+}
+
+@media (min-width: 701px) {
+  .cmpri-ask-mobile-launcher {
+    display: none;
+  }
+
+  .cmpri-header-v23.anchored-menu .desktop-ask-tab {
+    display: block;
+  }
+
+  .cmpri-header-v23.anchored-menu .desktop-ask-tab > legend.group-title {
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .cmpri-header-v23.anchored-menu .desktop-ask-tab.dragging > legend.group-title {
+    cursor: grabbing;
+  }
+
+  .desktop-ask-search {
+    position: absolute;
+    top: calc(var(--cmpri-menu-tab-band, 14px) + 1px);
+    left: 15px;
+    z-index: 3;
+    isolation: isolate;
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    width: 130px;
+    padding: 0 4px 0 3px;
+    border: 1px solid var(--desktop-ask-border);
+    border-radius: var(--desktop-ask-pill-radius, 11px);
+    background: var(--desktop-ask-surface);
+    box-shadow: 0 3px 7px rgb(0 0 0 / 60%);
+    pointer-events: auto;
+    --desktop-ask-border: var(--cmpri-palette-desktop-tone-20);
+    --desktop-ask-surface: var(--cmpri-palette-desktop-tone-17);
+  }
+
+  .desktop-ask-search[data-tab-offscreen] {
+    display: none;
+  }
+
+  .desktop-ask-search[data-modal-open] { visibility: hidden; pointer-events: none; }
+
+  .desktop-ask-search[popover] {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    overflow: visible;
+    color: inherit;
+  }
+
+  .desktop-ask-search[popover]:not(:popover-open) { display: none; }
+
+  .desktop-ask-search[data-outline-joined] {
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .desktop-ask-outline {
+    display: none;
+    position: absolute;
+    z-index: -1;
+    pointer-events: none;
+    filter: drop-shadow(0 3px 5px rgb(0 0 0 / 55%));
+  }
+
+  .desktop-ask-search[data-outline-joined] .desktop-ask-outline {
+    display: block;
+  }
+
+  .desktop-ask-star,
+  .desktop-ask-mic {
+    display: grid;
+    flex: 0 0 20px;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  #desktop-ask-search :is(.desktop-ask-star, .desktop-ask-mic):hover {
+    background: transparent;
+    filter: none;
+  }
+
+  .desktop-ask-star { position: relative; }
+  #desktop-ask-search .desktop-ask-star:focus {
+    outline: none;
+    box-shadow: none;
+  }
+  .desktop-ask-star:focus-visible::after {
+    content: '';
+    position: absolute;
+    inset: auto 3px 0;
+    height: 1px;
+    background: var(--cmpri-palette-gold);
+  }
+  .desktop-ask-star .desktop-ask-gemini {
+    width: 15px;
+    height: 15px;
+    pointer-events: none;
+  }
+
+  .desktop-ask-mic,
+  .desktop-ask-mic:hover { color: #97866a; }
+  .desktop-ask-mic .desktop-ask-mic-icon { margin: 0; transform: translate(-1.5px, .6px) scale(.85); }
+  .desktop-ask-mic .desktop-ask-mic-icon::before { background: var(--desktop-ask-surface); }
+  .desktop-ask-stop {
+    display: grid;
+    flex: 0 0 18px;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: #e53835;
+    cursor: pointer;
+  }
+
+  .desktop-ask-stop::after {
+    content: '';
+    width: 7px;
+    height: 7px;
+    background: #0a0808;
+    pointer-events: none;
+  }
+
+  .desktop-ask-entry {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .desktop-ask-entry textarea {
+    display: block;
+    width: 100%;
+    min-height: 20px;
+    padding: 1px 0;
+    padding-inline: var(--desktop-ask-text-start, 0px) var(--desktop-ask-text-end, 0px);
+    border: 0;
+    outline: 0;
+    color: var(--cmpri-palette-desktop-tone-10);
+    caret-color: transparent;
+    background: transparent;
+    font-family: "Comic Sans MS", "Comic Neue", cursive;
+    font-size: 13px;
+    line-height: 18px;
+    overflow: auto;
+    white-space: pre;
+    overflow-wrap: normal;
+    resize: none;
+  }
+
+  .desktop-ask-entry textarea:focus-visible {
+    outline: 0;
+  }
+
+  .desktop-ask-entry textarea:focus {
+    caret-color: currentColor;
+  }
+
+  .desktop-ask-search[data-query-empty] .desktop-ask-entry textarea {
+    padding-inline-start: var(--desktop-ask-idle-caret-inset, 0px);
+  }
+
+  .desktop-ask-hint {
+    position: absolute;
+    inset: 0;
+    display: none;
+    overflow: hidden;
+    color: #a29068;
+    font-family: "Comic Sans MS", "Comic Neue", cursive;
+    font-size: 11px;
+    line-height: 18px;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  .desktop-ask-search[data-query-empty]:not([data-voice-active]) textarea:not(:focus) + .desktop-ask-hint {
+    display: block;
+  }
+
+  .desktop-ask-hint-line {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    height: 100%;
+    animation: desktop-ask-prompt 36s linear -18s infinite;
+  }
+
+  .desktop-ask-hint-incoming { animation-delay: 0s; }
+
+  .desktop-ask-voice-status:not(.sr-only) {
+    position: absolute;
+    left: 4px;
+    top: calc(100% + 3px);
+    max-width: max(100%, 176px);
+    padding: 3px 5px;
+    border: 1px solid var(--desktop-ask-border);
+    border-radius: 5px;
+    background: var(--desktop-ask-surface);
+    color: var(--cmpri-palette-desktop-tone-8);
+    font-size: 11px;
+    line-height: 1.35;
+    box-shadow: 0 3px 7px rgb(0 0 0 / 60%);
+  }
+
+  .desktop-ask-voice-draft {
+    position: absolute;
+    inset: 1px 0 0;
+    color: var(--cmpri-palette-desktop-tone-8);
+    font-size: 13px;
+    line-height: 18px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  body:has(.desktop-ask-search:not([data-modal-open], [data-tab-offscreen])) .cmpri-beginners-guide[open] {
+    --ask-available-guide-height: max(0px, calc(100dvh - var(--ask-launcher-clearance, 8px) - 8px));
+    inset: var(--ask-launcher-clearance, 8px) 0 8px;
+    min-height: min(18rem, var(--ask-available-guide-height));
+    max-height: var(--ask-available-guide-height);
+  }
+
+  body:has(.desktop-ask-search:not([data-modal-open], [data-tab-offscreen])) dialog:modal:not(#ask-cmpri)::backdrop {
+    clip-path: inset(var(--ask-launcher-clearance, 0px) 0 0);
+  }
+
+  body:has(.desktop-ask-search:not([data-modal-open], [data-tab-offscreen])) dialog[data-cmpri-global-modal-shell] .cmpri-modal-backdrop {
+    top: var(--ask-launcher-clearance, 0px);
+  }
+
+  body:has(.desktop-ask-search:not([data-modal-open], [data-tab-offscreen])) dialog[data-cmpri-global-modal-shell] .cmpri-modal-shell {
+    max-height: max(0px, calc(100dvh - var(--ask-launcher-clearance, 0px)));
+  }
+
+  @keyframes desktop-ask-prompt {
+    from { transform: translateY(-100%); }
+    to { transform: translateY(100%); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-ask-hint-line {
+    animation: none;
+  }
+  .desktop-ask-hint-incoming { visibility: hidden; }
+}

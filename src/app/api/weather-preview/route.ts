@@ -1,3 +1,5 @@
+import { dashboardWeather } from '../../../lib/weather/dashboard-weather';
+
 /** Foreground Weather reads from fixed official NWS sources; no application data. */
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -190,6 +192,26 @@ async function propertyResources(signal: AbortSignal, includeStations: boolean) 
   ]);
   return { points, forecast, hourly, grid, ...(includeStations ? { stations: stations || missing() } : {}) };
 }
+
+async function dashboardResource(signal: AbortSignal) {
+  const forecast = read(API + '/points/' + LOOKUP_POINT, signal).then(points => {
+    const property = object(points.data?.properties);
+    return Promise.all([
+      read(property?.forecastHourly, signal).then(value => dated(value, 'forecast')),
+      read(property?.forecastGridData, signal).then(value => dated(value, 'forecast')),
+    ]);
+  });
+  const [observation, [hourly, grid], astronomy] = await Promise.all([
+    observationResource(signal),
+    forecast,
+    import('astronomy-engine').catch(() => null),
+  ]);
+  const now = new Date();
+  const dayStart = Date.parse(centralMidnight(now));
+  const dayEnd = Date.parse(centralMidnight(new Date(dayStart + 26 * 3600000)));
+  return dashboardWeather(observation, hourly, grid, now, dayStart, dayEnd, astronomy?.MoonPhase(now) ?? null);
+}
+
 export async function GET(request: Request) {
   const headers = { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' };
   if (request.method !== 'GET') return Response.json({ error: 'Only GET is supported.' }, { status: 405, headers });
@@ -197,8 +219,11 @@ export async function GET(request: Request) {
   const part = query.get('part');
   // Sharing/connector query metadata is ignored and never forwarded. Only the
   // recognized partial-response selector affects these fixed official reads.
-  if (query.getAll('part').length > 1 || (part !== null && !['observation', 'history', 'alerts', 'forecast'].includes(part))) {
+  if (query.getAll('part').length > 1 || (part !== null && !['observation', 'history', 'alerts', 'forecast', 'dashboard'].includes(part))) {
     return Response.json({ error: 'Choose one supported weather response part.' }, { status: 400, headers });
+  }
+  if (part === 'dashboard') {
+    return Response.json({ dashboard: await dashboardResource(request.signal) }, { headers });
   }
   if (part === 'observation') {
     const observation = await observationResource(request.signal);

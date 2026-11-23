@@ -7,10 +7,12 @@ import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { loadCmpriSession } from "@/lib/auth/client-session";
 import { enforceSessionPreference } from "@/lib/auth/session-preference";
+import { useDeferredResourceRefresh } from "@/lib/events/use-deferred-resource-refresh";
 import useEmbeddedModal from "@/components/use-embedded-modal";
 import { isPmRoutineCellChecked } from "@/lib/pm/routine-responses";
 import { findReferencedPmTemplate } from "@/lib/pm/references";
 import { workOrderFormTarget } from "@/lib/pm/work-order-form-target";
+import { createPmWeeklyTransferCsv } from "@/lib/pm/weekly-transfer";
 import PmRecordedIssues from "@/components/PmRecordedIssues";
 import {
   findPmTemplate,
@@ -32,6 +34,7 @@ import { usePmTaskQueue, pmEntryTaskState } from "@/lib/pm/use-task-queue";
 import { hasPmFormRecovery, pmFormDraftKey, readPmFormDraft, samePmForm, type PmFormIdentity } from "@/lib/pm/form-workspace";
 import { usePmFormWorkspace } from "@/lib/pm/use-form-workspace";
 import "./pm-approved.css";
+const pmResourceTopics = ["reference", "rooms", "pool"] as const;
 
 type PmEntry = {
   task_states?: Record<string, PmTaskState>;
@@ -131,13 +134,6 @@ function periodLabel(template: PmTemplate, period: string, locale = "en-US") {
 
 function entryKey(templateId: string, periodStart: string, scopeKey = "property") {
   return `${templateId}|${periodStart}|${scopeKey}`;
-}
-
-function statusText(value: unknown) {
-  if (value === true || value === "complete") return "Complete";
-  if (value === "follow-up") return "Needs work";
-  if (value === "na") return "N/A";
-  return "Open";
 }
 
 function statusStyle(value: unknown) {
@@ -289,10 +285,12 @@ export default function PreventiveMaintenancePage() {
   const roomTemplate = findPmTemplate(PM_ROOM_TEMPLATE_ID);
   const currentQuarterPeriod = quarterPeriodForDate(weekStart);
 
-  const loadWeek = useCallback(async (week: string, isCurrent: () => boolean = () => true) => {
+  const loadWeek = useCallback(async (week: string, isCurrent: () => boolean = () => true, background = false) => {
     const sequence = ++requestSequence.current;
-    setLoading(true);
-    setError("");
+    if (!background) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const session = await getValidSession();
       if (!session?.access_token) throw new Error("Sign in again to open Preventive Maintenance.");
@@ -341,7 +339,7 @@ export default function PreventiveMaintenancePage() {
     } catch (cause) {
       if (sequence === requestSequence.current && isCurrent()) setError(cause instanceof Error ? cause.message : "PM records could not be loaded.");
     } finally {
-      if (sequence === requestSequence.current && isCurrent()) setLoading(false);
+      if (!background && sequence === requestSequence.current && isCurrent()) setLoading(false);
     }
   }, []);
 
@@ -361,6 +359,10 @@ export default function PreventiveMaintenancePage() {
     });
     return () => { current = false; };
   }, [loadWeek, weekStart]);
+
+  useDeferredResourceRefresh(pmResourceTopics,
+    loading || Boolean(activeForm || savingKey || reviewBusyId) || taskQueue.flushing || taskQueue.periods.length > 0,
+    isCurrent => loadWeek(weekStart, isCurrent, true), weekStart);
 
   const recordsByKey = useMemo(() => new Map(entries.map((entry) => [
     entryKey(entry.template_id, entry.period_start, entry.scope_key),
@@ -819,57 +821,7 @@ export default function PreventiveMaintenancePage() {
   }
 
   function downloadTransfer() {
-    const rows: string[][] = [["Date / period", "Cadence", "Form / task", "Scope", "Status", "Completion date", "Notes / deficiency", "Source", "Review status"]];
-    const routineTemplates = PM_TEMPLATES.filter((template) =>
-      template.id === PM_DAILY_TEMPLATE_ID || template.id === PM_WEEKLY_TEMPLATE_ID || monthTemplates.some((month) => month.id === template.id),
-    );
-    for (const template of routineTemplates) {
-      for (const period of templatePeriodsForWeek(template, weekStart)) {
-        const entry = entryFor(template, period);
-        for (const item of template.checklist) {
-          rows.push([
-            period,
-            template.cadence,
-            item.label,
-            item.category || "Property",
-            statusText(routineStatus(template, period, item.id)),
-            entry?.completed_on || "",
-            entry?.notes || "",
-            item.source || template.sourceReference,
-            entry?.task_states?.[item.id]?.status || (entry?.status === "pending" ? "Pending review" : spreadsheetSyncEnabled ? "Current workbook" : "CMPRI only; sheet sync disabled"),
-          ]);
-        }
-      }
-    }
-    for (const { template, periodStart } of formPeriods) {
-      const scoped = entries.filter((entry) => entry.template_id === template.id && entry.period_start === periodStart);
-      const records = scoped.length ? scoped : [undefined];
-      for (const entry of records) {
-        for (const item of template.checklist) {
-          rows.push([
-            periodStart,
-            template.cadence,
-            `${template.title}: ${item.label}`,
-            entry?.scope_key || template.scope,
-            statusText(entry?.responses?.[item.id]),
-            entry?.completed_on || "",
-            entry?.deficiency_notes || entry?.notes || "",
-            item.source || template.sourceReference,
-            entry?.status === "pending" ? "Pending review" : entry?.status === "approved" ? "Approved in CMPRI" : "Open",
-          ]);
-        }
-        if (!template.checklist.length) rows.push([periodStart, template.cadence, template.title, entry?.scope_key || template.scope, entry?.is_complete ? "Complete" : "Open", entry?.completed_on || "", entry?.deficiency_notes || entry?.notes || "", template.sourceReference, entry?.status === "pending" ? "Pending review" : entry?.status === "approved" ? "Approved in CMPRI" : "Open"]);
-      }
-    }
-    if (roomTemplate) {
-      for (const room of PM_ROOM_NUMBERS) {
-        const entry = entryFor(roomTemplate, currentQuarterPeriod, `room:${room}`);
-        const quarter = `Q${Math.floor((Number(currentQuarterPeriod.slice(5, 7)) - 1) / 3) + 1}`;
-        const sourceDate = liveWorkbook?.rooms.find((item) => item.room === room)?.quarters[quarter]?.value || "";
-        rows.push([currentQuarterPeriod, "quarterly", roomTemplate.title, `Room ${room}`, roomCompleted(room) ? "Complete" : "Open", entry?.completed_on || (spreadsheetSyncEnabled ? sourceDateIso(sourceDate) : ""), entry?.deficiency_notes || entry?.notes || "", roomTemplate.sourceReference, entry?.status === "pending" ? "Pending review" : spreadsheetSyncEnabled ? "Current workbook" : "CMPRI only; sheet sync disabled"]);
-      }
-    }
-    const csv = rows.map((row) => row.map((cell) => `"${String(cell || "").replaceAll('"', '""')}"`).join(",")).join("\r\n");
+    const csv = createPmWeeklyTransferCsv({ weekStart, entries, spreadsheetSyncEnabled, workbook: liveWorkbook, routineStatus, roomCompleted });
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");

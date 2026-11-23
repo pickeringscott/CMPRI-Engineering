@@ -25,6 +25,7 @@ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/lib/server/wo
 }).outputText,{exports:assignmentExports,require(name) { if(name === "@/lib/server/work-order-parts-status") return partsStatusDependency;if(name==='@/lib/server/work-order-mentions')return {persistMentionedWorkOrder:async()=>null};if(name === "@/lib/cmpri-location-groups") return commonAreas;
       if (name === "@/lib/account-display") return accountDisplay;if(name==='./roles')return roleExports;throw new Error(name);}});
 const { canAccessWorkOrderByAssignment }=assignmentExports;
+const access=loadTs('src/lib/server/access.ts',{'./roles':roleExports});
 const activitySource=readFileSync(new URL('../src/app/api/work-orders/[id]/activity/route.ts',import.meta.url),'utf8');
 const activityCode=ts.transpileModule(activitySource,{
   compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022},
@@ -154,7 +155,7 @@ function fixture(config={}){
       if(name==='server-only')return {};
       if(name==='@/lib/constants')return {HOTEL_ID:'c81ad01a-7a9f-4880-ac1c-5e849f30bad6'};
       if(name==='@/lib/supabase/config')return {SUPABASE_URL:'https://test.invalid',SUPABASE_PUBLISHABLE_KEY:'fake'};
-      if(name==='@/lib/server/access')return {allows};
+      if(name==='@/lib/server/access')return {allows,canSetFrontDeskWorkOrderPriority:access.canSetFrontDeskWorkOrderPriority};
       if(name==='@/lib/server/auth')return authModule;
       if(name==='@/lib/server/roles')return {
         profileIsChiefEngineer:roleExports.profileIsChiefEngineer, profileIsEstablishedHoursChief:roleExports.profileIsEstablishedHoursChief,
@@ -166,7 +167,7 @@ function fixture(config={}){
       };
       if(name==='@/lib/server/work-order-notification-resolution')return {
         isEngineeringWorkOrderActor:profile=>['Engineer','Chief Engineer','system_admin'].includes(profile?.role),
-        recordEngineeringWorkOrderView:async()=>{},
+        recordEngineeringWorkOrderView:async()=>{if(config.notificationError)throw new Error("Notification failure");},
       };
       if(name==='@/lib/server/work-order-assignment')return {canAccessWorkOrderByAssignment};
       if(name==='@/lib/work-order-edit-policy')return editPolicyExports;
@@ -195,6 +196,14 @@ function fixture(config={}){
 
 for(const config of [{profile:null},{profile:{active:false,role:'Engineer'}},{profile:{active:null,role:'Engineer'}},{profileError:true},{permissionError:true},{denied:true},{profile:{active:true,role:'Front Desk'}},{profile:{active:true,role:'Housekeeping'}}])test(`rejects unauthorized edit ${JSON.stringify(config)}`,async()=>{
   const f=fixture(config);assert.equal((await f.run()).status,403);assert.equal(f.writes(),0);
+});
+
+test("notification refresh failure after commit still acknowledges the saved work order", async () => {
+  const route = fixture({ body: { status: "Completed" }, notificationError: true });
+  const response = await route.run();
+  assert.equal(response.status, 200);
+  assert.equal(route.saved().status, "Completed");
+  assert.match(response.body.warning, /notifications could not be refreshed/i);
 });
 
 for(const config of [{badJson:true},{nullBody:true},{status:'Duplicate'},{status:'invented'}])test(`rejects invalid edit ${JSON.stringify(config)}`,async()=>{
@@ -227,10 +236,11 @@ test('note-only roles cannot replace history through the general ticket endpoint
   }
 });
 
-test('all note-only roles cannot change status, assignments, or engineering-owned fields',async()=>{
+test('note-only roles cannot change status, assignments, or engineering-owned fields',async()=>{
   for(const role of ['Front Desk','Housekeeping','General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager','Senior Management']){
     const profile={id:'actor',active:true,role};
     for(const field of ['status','technician_name','issue','asset_id','asset_name','category','priority','action_root_cause','parts','cost','hours','due_by']){
+      if(field==='priority'&&role==='Front Desk') continue;
       if(field==='issue'&&['General Manager','Assistant General Manager','Front Desk Manager','Assistant Manager'].includes(role)) continue;
       const f=fixture({profile,body:{[field]:field==='cost'||field==='hours'?1:'unauthorized'}});
       assert.equal((await f.run()).status,403,`${role}/${field}`);
@@ -240,6 +250,30 @@ test('all note-only roles cannot change status, assignments, or engineering-owne
     assert.equal((await combined.run()).status,403,`${role}/combined`);
     assert.equal(combined.writes(),0,`${role}/combined`);
   }
+});
+
+test('Front Desk can set only a valid priority on active or closed tickets in the signed-in property',async()=>{
+  const profile={id:'actor',active:true,role:'Front Desk'};
+  for (const existingStatus of ['Open','In Progress','Completed','Closed']) {
+    const allowed=fixture({profile,existingStatus,existingTechnician:'',body:{expected_revision:1,priority:'Urgent'}});
+    assert.equal((await allowed.run()).status,200,existingStatus);
+    assert.equal(allowed.saved().priority,'Urgent');
+    assert.equal(allowed.saved().status,undefined);
+  }
+  for (const [body,status] of [
+    [{expected_revision:1,priority:'Invented'},400],
+    [{expected_revision:1,priority:'Urgent',status:'Closed'},403],
+    [{expected_revision:1,priority:'Urgent',notes:'Do not save'},403],
+    [{expected_revision:2,priority:'Urgent'},409],
+  ]) {
+    const denied=fixture({profile,body});
+    assert.equal((await denied.run()).status,status);
+    assert.equal(denied.writes(),0);
+  }
+  const principal={ identity:{id:'actor'},profile,hotelId:'hotel',
+    membership:{user_id:'actor',hotel_id:'other-hotel',active:true},permissions:[] };
+  assert.equal(access.canSetFrontDeskWorkOrderPriority(principal),false);
+  assert.equal(access.canSetFrontDeskWorkOrderPriority({...principal,membership:{...principal.membership,hotel_id:'hotel',active:false}}),false);
 });
 
 test('note-only roles can read every same-hotel ticket state',async()=>{

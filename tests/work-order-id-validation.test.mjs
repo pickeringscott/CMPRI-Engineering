@@ -9,6 +9,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 
 const manualPreviewDependency=loadTs('src/lib/server/manual-preview.ts',{}, {process:{env:{}}});
+const workOrderMedia=loadTs('src/lib/work-order-media.ts');
 const uuidExports = {};
 vm.runInNewContext(ts.transpileModule(
   readFileSync(new URL('../src/lib/uuid.ts', import.meta.url), 'utf8'),
@@ -77,6 +78,8 @@ function routeFixture(relativePath, config = {}) {
         workOrderEditableFields: () => [],
       };
       if (name === '@/lib/uuid') return uuidExports;
+      if (name === '@/lib/server/ask-cmpri-actions') return { verifyAskAttachment: () => false };
+      if (name === '@/lib/work-order-media') return workOrderMedia;
       throw new Error(`Unexpected route dependency: ${name}`);
     },
   });
@@ -101,7 +104,7 @@ const paths = {
 
 test('all work-order ID routes reject malformed input before querying Supabase', async () => {
   for (const [kind, route] of Object.entries(paths)) {
-    const methods = kind === 'detail' ? ['GET', 'PATCH', 'DELETE'] : kind === 'activity' ? ['GET'] : ['GET', 'POST'];
+    const methods = kind === 'detail' ? ['GET', 'PATCH', 'DELETE'] : kind === 'activity' ? ['GET'] : ['GET', 'POST', 'PUT'];
     for (const method of methods) {
       const fixture = routeFixture(route);
       assert.equal((await fixture.invoke(method, 'test-id')).status, 400, `${kind} ${method}`);
@@ -123,6 +126,9 @@ test('valid but nonexistent work-order IDs keep the not-found response', async (
   const attachment = routeFixture(paths.attachments);
   assert.equal((await attachment.invoke('POST', id)).status, 404, 'attachments POST');
   assert.equal(attachment.calls.length, 1, 'attachments POST');
+  const direct = routeFixture(paths.attachments);
+  assert.equal((await direct.invoke('PUT', id)).status, 404, 'attachments PUT');
+  assert.equal(direct.calls.length, 1, 'attachments PUT');
 });
 
 test('work-order ID validation uses canonical UUID shape', () => {

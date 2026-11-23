@@ -28,6 +28,8 @@ export function dataCachePolicy(path: string, search?: URLSearchParams): CachePo
   return { topics: ['reference','orders','rooms'], ttl: 30*second, durable: true };
 }
 export function mutationTopics(path: string, method?: string): string[] | undefined {
+  // Ask uses POST for searches and speech. Its confirmation client invalidates after an actual save attempt.
+  if (/^\/api\/ask-cmpri(?:\/|$)/.test(path)) return [];
   if (path === '/api/work-orders/drafts' && method === 'PUT') return []; // Starting an inactivity clock saves no data.
   if (path === '/api/notes') return []; // Never refresh work orders/rooms for a private autosave.
   if (/\/(extract|preview|parse|export|suggestions)(\/|$)/.test(path) || /\/staff-notes\/uploads$/.test(path)) return [];

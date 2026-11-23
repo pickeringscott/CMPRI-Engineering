@@ -86,7 +86,7 @@ function fixture(initial = {}) {
         const row = { hotel_id: input.p_hotel, work_order_id: input.p_work_order, context_key: input.p_context_key, revision: (existing?.revision || 0) + 1, task_states: structuredClone(input.p_task_states), updated_by: input.p_actor };
         if (existing) Object.assign(existing, row); else state.ledger.push(row);
         state.writes.push(structuredClone(input));
-        state.events.push({ mutation_id: input.p_mutation_id, visit_id: input.p_visit_id, hotel_id: input.p_hotel, work_order_id: input.p_work_order, actor_id: input.p_actor, step_label: input.p_step_label, source: structuredClone(input.p_source), before_state: structuredClone(input.p_before_state), after_state: structuredClone(input.p_after_state), request: { context_key: input.p_context_key, expected_revision: input.p_expected_revision, item_id: input.p_item_id, action: input.p_action, visit_id: input.p_visit_id } });
+        state.events.push({ mutation_id: input.p_mutation_id, visit_id: input.p_visit_id, hotel_id: input.p_hotel, work_order_id: input.p_work_order, actor_id: input.p_actor, step_label: input.p_step_label, source: structuredClone(input.p_source), before_state: structuredClone(input.p_before_state), after_state: structuredClone(input.p_after_state), request: { context_key: input.p_context_key, expected_revision: input.p_expected_revision, item_id: input.p_item_id, action: input.p_action, visit_id: input.p_visit_id, source: structuredClone(input.p_source) } });
         visit.event_count++; visit.last_event_at = '2026-11-08T23:30:00Z';
         if (state.failPendingAfterSave) state.pendingReadFailure = true;
         return { data: structuredClone(row), error: null };
@@ -184,6 +184,30 @@ test('checklist role gate uses exact Chief identity and PM capabilities, with as
   assert.equal(policy.troubleshootingChecklistAccess(principal(), { ...originalTicket, hotel_id: otherHotel }).canEdit, false);
   const denied = principal(); denied.permissions = [];
   assert.equal(policy.troubleshootingChecklistAccess(denied, originalTicket).canEdit, false);
+});
+
+test('a tried step saves its own outcome and observation in the single troubleshooting visit note', async () => {
+  const h = fixture();
+  const opened = await h.get();
+  const { contextKey } = opened.body;
+  const itemId = 'step-1';
+  assert.equal((await h.patch({ contextKey, expectedRevision: 0, itemId, action: 'details', attempt: { outcome: 'No change', observation: '' } })).status, 403);
+  assert.equal((await h.patch({ contextKey, expectedRevision: 0, itemId })).status, 200);
+  const details = { contextKey, expectedRevision: 1, itemId, action: 'details', mutationId: h.uuid(), attempt: { outcome: 'No change', observation: 'Filter was clean' } };
+  const saved = await h.patch(details);
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.taskStates[itemId].outcome, 'No change');
+  assert.equal(saved.body.taskStates[itemId].observation, 'Filter was clean');
+  assert.equal((await h.patch(details)).body.replayed, true);
+  assert.equal((await h.patch({ ...details, attempt: { outcome: 'Fixed', observation: '' } })).status, 409);
+  h.state.principal = principal('Maintenance Technician', secondId, 'Second Technician');
+  assert.equal((await h.patch({ ...details, mutationId: h.uuid(), expectedRevision: 2 })).status, 403);
+  h.state.principal = principal();
+  assert.equal(h.state.ticket.notes, originalTicket.notes);
+  const closed = await h.exit();
+  assert.equal(closed.body.eventCount, 2);
+  assert.match(closed.body.notes, /Outcome: No change · Filter was clean/);
+  assert.equal(h.state.ticket.notes.split('\n').length, 2);
 });
 
 test('technician saves durable PM state, chief reviews it, and another technician cannot change its ownership', async () => {

@@ -13,6 +13,19 @@ export const UNASSIGNED_TECHNICIAN_WORK_ORDER_FIELDS = ["technician_name"] as co
 
 export const REPORT_CORRECTION_FIELDS = ["issue", "location_id"] as const;
 
+export function workOrderStatusEffect(
+  existing: { status?: unknown; technician_name?: unknown; last_assigned_technician_name?: unknown },
+  update: { status?: unknown; technician_name?: unknown },
+) {
+  const status = String(update.status ?? existing.status ?? "Open");
+  const restoredTechnician = existing.status === "Closed" && status === "In Progress"
+    && !Object.prototype.hasOwnProperty.call(update, "technician_name") && !String(existing.technician_name || "").trim()
+    ? String(existing.last_assigned_technician_name || "").trim()
+    : "";
+  const technician = restoredTechnician || String(update.technician_name ?? existing.technician_name ?? "").trim();
+  return { status, technician, restoredTechnician };
+}
+
 /** Correction eligibility is additive; callers must also enforce the existing row read policy. */
 export function canCorrectReport(profile: { id?: string; email?: string | null; role: unknown; secondary_roles?: readonly unknown[] }, status: unknown, canRead: boolean) {
   if (!canRead) return false;

@@ -31,6 +31,7 @@
 }
 
 .viewModes,
+.sampleModes,
 .actionLinks {
   display: flex;
   flex-wrap: wrap;
@@ -39,6 +40,7 @@
 }
 
 .viewModes button,
+.sampleModes button,
 .tryButton {
   min-height: 2.5rem;
   padding: 0.35rem 0.625rem;
@@ -50,13 +52,15 @@
 }
 
 .viewModes button[aria-pressed="true"],
+.sampleModes button[aria-pressed="true"],
 .tryButton {
   border-color: var(--guide-accent);
   background: var(--guide-accent);
   color: var(--guide-ink);
 }
 
-.viewModes button[aria-pressed="false"]:hover {
+.viewModes button[aria-pressed="false"]:hover,
+.sampleModes button:not([aria-pressed="true"]):hover {
   border-color: var(--guide-accent);
 }
 
@@ -115,6 +119,8 @@
   top: calc(100% + 0.125rem);
   transform: translateX(-50%) rotate(180deg);
 }
+
+.capture[data-short-capture] :is(.arrowAbove, .arrowBelow) { height: 1rem; }
 
 .hotspot {
   position: absolute;
@@ -179,6 +185,27 @@
 .instruction h3 {
   margin-bottom: 0.25rem;
 }
+
+.directions {
+  list-style: decimal;
+  margin-block-start: .65rem;
+  padding-inline-start: 1.35rem;
+}
+
+.directions li + li { margin-block-start: .38rem; }
+.directions strong, .directions li::marker { color: var(--guide-accent); }
+.directions li::marker { font-weight: 700; }
+
+.result {
+  display: grid;
+  gap: .2rem;
+  margin-block-start: .75rem;
+  padding-block-start: .55rem;
+  border-block-start: 1px solid var(--guide-border);
+  color: var(--guide-muted);
+}
+
+.result > strong { color: var(--guide-text); }
 
 .context,
 .hint {

@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import * as core from '../src/lib/hours-tracker.ts';
 const owner='750f77bf-7d5d-4ca6-8421-e025edea87ba';
-function load(file,deps={}) {const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,structuredClone,Response,URL,require:n=>{if(n in deps)return deps[n];throw Error(n);}});return exports;}
+function load(file,deps={}) {const exports={};vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../src/'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,structuredClone,Response,URL,require:n=>{if(n in deps)return deps[n];if(n==='@/lib/ai/cmpri-operation-guidance')return load('lib/ai/cmpri-operation-guidance.ts');throw Error(n);}});return exports;}
 const roles=load('lib/server/roles.ts');
 const store=load('lib/server/hours-tracker-store.ts',{'./roles':roles,'../hours-tracker':core});
 const adapter=load('lib/server/hours-tracker-mcp.ts',{'./hours-tracker-store':store});

@@ -29,8 +29,9 @@ const locations=[409,410].map(n=>({id:String(n),name:`Room ${n}`,room_number:Str
 const assets=locations.map(l=>({id:`vtac-${l.id}`,location_id:l.id,asset_type:'VTAC',name:`VTAC - Room ${l.id}`,manufacturer:'Friedrich',active:true}));
 function fixture(overrides={}){
   const writes={};const exports={};
-  const context={exports,classifyAsset,priorityForCategory,categoryFromIssue,inferWorkOrder,separateIssueFromReporterNotes,findLocationFromText,isFrontDeskUser:false,isSubmitOnlyUser:false,locations,assets,locationId:'409',assetId:'',manualLocation:true,manualAsset:false,manualCategory:false,manualPriority:false,...overrides};
+  const context={exports,classifyAsset,priorityForCategory,categoryFromIssue,inferWorkOrder,separateIssueFromReporterNotes,findLocationFromText,isFrontDeskUser:false,isSubmitOnlyUser:false,frontDeskPriorityOnly:false,locations,assets,locationId:'409',assetId:'',manualLocation:true,manualAsset:false,manualCategory:false,manualPriority:false,...overrides};
   context.systemAssignedTechnicalFields=overrides.systemAssignedTechnicalFields ?? context.isSubmitOnlyUser;
+  context.canChoosePriority=overrides.canChoosePriority ?? !context.systemAssignedTechnicalFields;
   for(const key of ['LocationId','AssetId','Category','Priority'])context['set'+key]=value=>{writes[key[0].toLowerCase()+key.slice(1)]=value;};
   vm.runInNewContext(code,context);return {match:exports.match,writes};
 }
@@ -91,6 +92,12 @@ test('explicit room change ignores stale prior selection flags',()=>{
   const f=fixture({assetId:'vtac-409',manualAsset:true,manualCategory:true,manualPriority:true});
   f.match('not cooling','',locations[1]);assert.equal(f.writes.assetId,'vtac-410');assert.equal(f.writes.category,'HVAC');assert.equal(f.writes.priority,'High');
 });
+test('explicit room change keeps a manual Front Desk priority while refreshing equipment and category',()=>{
+  const f=fixture({isFrontDeskUser:true,isSubmitOnlyUser:true,frontDeskPriorityOnly:true,canChoosePriority:true,
+    assetId:'vtac-409',manualAsset:true,manualCategory:true,manualPriority:true});
+  f.match('not cooling','',locations[1]);
+  assert.deepEqual(f.writes,{assetId:'vtac-410',category:'HVAC'});
+});
 test('typing respects manually selected equipment/category/priority',()=>{
   const f=fixture({assetId:'vtac-409',manualAsset:true,manualCategory:true,manualPriority:true});f.match('not cooling','');assert.deepEqual(f.writes,{});
 });
@@ -107,8 +114,14 @@ test('surveillance camera is Safety and Enseo STB is TV / AV',()=>{
   assert.equal(classifyAsset({asset_type:'STB',name:'Enseo - Room 103B'}),'TV / AV');
 });
 
-test('front desk replaces stale guesses with the same canonical result used on submission',()=>{
-  const f=fixture({isFrontDeskUser:true,isSubmitOnlyUser:true,assetId:'stale',manualAsset:true,manualCategory:true,manualPriority:true});f.match('not cooling','');assert.equal(f.writes.assetId,'vtac-409');assert.equal(f.writes.category,'HVAC');assert.equal(f.writes.priority,'High');
+test('Front Desk refreshes inferred equipment and category and preserves an explicit priority choice',()=>{
+  const overrides={isFrontDeskUser:true,isSubmitOnlyUser:true,canChoosePriority:true,assetId:'stale',manualAsset:true,manualCategory:true};
+  const inferred=fixture(overrides);
+  inferred.match('not cooling','');
+  assert.deepEqual(inferred.writes,{assetId:'vtac-409',category:'HVAC',priority:'High'});
+  const selected=fixture({...overrides,manualPriority:true});
+  selected.match('not cooling','');
+  assert.deepEqual(selected.writes,{assetId:'vtac-409',category:'HVAC'});
 });
 test('General Managers cannot preserve manually selected engineering-owned creation fields',()=>{
   const f=fixture({systemAssignedTechnicalFields:true,assetId:'stale',manualAsset:true,manualCategory:true,manualPriority:true});

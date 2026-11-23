@@ -4,6 +4,8 @@ import { allows } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { profileIsChiefEngineer, profileIsEstablishedHoursChief } from "@/lib/server/roles";
 import { isUuid } from "@/lib/uuid";
+import { verifyAskAttachment } from "@/lib/server/ask-cmpri-actions";
+import { isSupportedWorkOrderMedia } from "@/lib/work-order-media";
 
 const DOCUMENTATION_BUCKET = "asset-documentation";
 const MAX_IMAGE_BYTES = 100 * 1024 * 1024;
@@ -215,9 +217,14 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       return reply({ error: "Photos and videos must be 100 MB or smaller." }, 400);
     }
     const extension = (body.name.split(".").pop() || "").toLowerCase();
-    const contentType = IMAGE_CONTENT_TYPES[extension];
-    if (!contentType || (body.type && body.type !== "application/octet-stream" && body.type.toLowerCase() !== contentType)) {
+    const supportedType = isSupportedWorkOrderMedia(body.name, body.type);
+    if (!supportedType) {
       return reply({ error: "Only supported JPEG, PNG, GIF, WebP, HEIC/HEIF, BMP, MP4, MOV or WebM media can be attached." }, 400);
+    }
+    const contentType = supportedType;
+    const attachmentToken = request.headers.get("x-cmpri-ask-attachment");
+    if (attachmentToken && (attachmentToken.length > 12_000 || !verifyAskAttachment(attachmentToken, context.auth.principal, id, body))) {
+      return reply({ error: "This file is outside the confirmed Ask CMPRI attachment list." }, 403);
     }
     const actor = context.auth.principal.identity.id;
     const storage = context.auth.admin.storage.from(DOCUMENTATION_BUCKET);

@@ -7,7 +7,7 @@ import { workOrderReader } from "@/lib/server/work-order-reader";
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { HOTEL_ID } from "@/lib/constants";
-import { allows } from "@/lib/server/access";
+import { allows, canSetFrontDeskWorkOrderPriority } from "@/lib/server/access";
 import { requireUser } from "@/lib/server/auth";
 import { authenticatedUser } from "@/lib/server/request-auth";
 import { isFrontDesk, isSubmitOnlyRole, roleAllows } from "@/lib/server/roles";
@@ -22,6 +22,8 @@ import { currentRoomOperation, currentRoomStatus, loadCurrentRoomStatuses } from
 
 const USER_FIELDS = ["location_id", "asset_id", "asset_name", "category", "issue", "priority", "notes"] as const;
 const ACTIVE_DUPLICATE_LIMIT = 1000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PRIORITIES = ["Low", "Medium", "High", "Urgent"];
 
 async function attachCurrentRoomStatuses<T extends { id:string; room?: unknown }>(admin: SupabaseClient, orders: T[]) {
   let combined;
@@ -116,12 +118,11 @@ function stringField(value: unknown, field: string, maximum: number, required = 
 async function alreadySubmittedDraftResponse(
   admin: SupabaseClient,
   sourceDraftId: string,
+  expectedRevision: number | null,
   workOrder: Record<string, unknown>,
 ) {
-  const { error } = await admin.from("cmpri_work_order_drafts")
-    .delete()
-    .eq("hotel_id", HOTEL_ID)
-    .eq("id", sourceDraftId);
+  const { error } = expectedRevision === null ? { error: null } : await admin.from("cmpri_work_order_drafts")
+    .delete().eq("hotel_id", HOTEL_ID).eq("id", sourceDraftId).eq("revision", expectedRevision);
   return NextResponse.json({
     ok: true,
     count: 1,
@@ -129,6 +130,13 @@ async function alreadySubmittedDraftResponse(
     already_submitted: true,
     ...(error ? { warning: "The work order already exists, but the source draft could not be removed automatically." } : {}),
   });
+}
+
+function isSameDraftSubmission(inputs: unknown[], order: { location_id?: unknown; issue?: unknown }) {
+  if (inputs.length !== 1 || !inputs[0] || typeof inputs[0] !== "object") return false;
+  const input = inputs[0] as Record<string, unknown>;
+  return input.location_id === order.location_id && typeof input.issue === "string"
+    && separateIssueFromReporterNotes(input.issue.trim()).issue === order.issue;
 }
 
 export async function GET(request: NextRequest) {
@@ -271,10 +279,16 @@ export async function POST(request: NextRequest) {
 
   const sourceDraftId = typeof body.source_draft_id === "string" ? body.source_draft_id.trim() : "";
   const sourceDraftRevision = typeof body.source_draft_revision === "number" ? body.source_draft_revision : null;
+  const creationId = body.creation_id;
+  if (creationId !== undefined && (typeof creationId !== "string" || !UUID.test(creationId)
+    || sourceDraftId || body.pm_submission !== undefined || body.orders.length !== 1)) {
+    return NextResponse.json({ error: "An idempotent submission must identify one ordinary work order." }, { status: 400 });
+  }
   let sourceDraft: Record<string, unknown> | null = null;
   let attribution: ReturnType<typeof workOrderAttribution> & Record<string, unknown>;
   const canSetEngineeringFields = roleAllows(auth.profile.role, "edit_tickets")
     || roleAllows(auth.profile.role, "review_tickets");
+  const canSetSubmissionPriority = canSetEngineeringFields || Boolean(auth.principal && canSetFrontDeskWorkOrderPriority(auth.principal));
   const admin = createSupabaseAdmin();
   if (!admin) return NextResponse.json({ error: "CMPRI database configuration is unavailable." }, { status: 503 });
 
@@ -294,7 +308,7 @@ export async function POST(request: NextRequest) {
 
   if (sourceDraftId) {
     const { data: existingDraftOrder, error: existingDraftOrderError } = await admin.from("work_orders")
-      .select("id, display_id, status, source_draft_created_by")
+      .select("id, display_id, status, source_draft_created_by, location_id, issue")
       .eq("hotel_id", HOTEL_ID)
       .eq("source_draft_id", sourceDraftId)
       .maybeSingle();
@@ -304,7 +318,10 @@ export async function POST(request: NextRequest) {
         && !roleAllows(auth.profile.role, "review_tickets")) {
         return NextResponse.json({ error: "Only the submitter or an engineer/System Administrator can submit this draft." }, { status: 403 });
       }
-      return alreadySubmittedDraftResponse(admin, sourceDraftId, existingDraftOrder as Record<string, unknown>);
+      if (!isSameDraftSubmission(orderInputs, existingDraftOrder)) {
+        return NextResponse.json({ error: "This draft has already been submitted. Review the resulting work order before trying again." }, { status: 409 });
+      }
+      return alreadySubmittedDraftResponse(admin, sourceDraftId, sourceDraftRevision, existingDraftOrder as Record<string, unknown>);
     }
 
     const { data: draft, error: draftError } = await admin
@@ -369,13 +386,15 @@ export async function POST(request: NextRequest) {
     }
   }
   const rows: Record<string, unknown>[] = [];
+  let draftLinked = false;
   try {
     for (const value of orderInputs) {
       if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid work-order details.");
       const source = value as Record<string, unknown>;
       const row: Record<string, unknown> = {};
       for (const field of USER_FIELDS) {
-        if (!canSetEngineeringFields && ["asset_id", "asset_name", "category", "priority"].includes(field)) continue;
+        if (!canSetEngineeringFields && ["asset_id", "asset_name", "category"].includes(field)) continue;
+        if (field === "priority" && !canSetSubmissionPriority) continue;
         const item = source[field];
         if (field === "asset_id" && item === null) { row[field] = null; continue; }
         const maximum = field === "notes" ? 20000 : field === "issue" ? 4000 : 500;
@@ -383,6 +402,7 @@ export async function POST(request: NextRequest) {
         if (normalized !== undefined) row[field] = normalized;
       }
       if (!row.location_id || !row.issue) throw new Error("Room/location and issue are required.");
+      if (row.priority !== undefined && !PRIORITIES.includes(String(row.priority))) throw new Error("Select a valid priority.");
       const { issue: cleanIssue, reporterNotes } = separateIssueFromReporterNotes(String(row.issue));
       if (!cleanIssue) throw new Error("A maintenance issue is required. Add comments to an existing work order's notes.");
       row.issue = cleanIssue;
@@ -395,14 +415,19 @@ export async function POST(request: NextRequest) {
         if (!normalizedCategory) throw new Error("Select a valid work-order category.");
         row.category = normalizedCategory;
       }
-      if (sourceDraft && String(row.location_id) !== String(sourceDraft.location_id)) {
-        throw new Error("All work orders created from a draft must remain in the draft's room/location.");
+      const useDraftSource = Boolean(sourceDraft && !draftLinked && row.location_id === sourceDraft.location_id);
+      if (useDraftSource) draftLinked = true;
+      if (useDraftSource && canSetSubmissionPriority && !row.priority && PRIORITIES.includes(String(sourceDraft?.priority))) {
+        row.priority = sourceDraft?.priority;
       }
+      const { source_draft_id, ...submissionAttribution } = attribution;
       rows.push({
         ...row,
+        ...(typeof creationId === "string" ? { id: creationId.toLowerCase() } : {}),
         hotel_id: HOTEL_ID,
         ...(pmPrepared ? { import_source: "PM Log", import_external_id: pmPrepared.externalId } : {}),
-        ...attribution,
+        ...submissionAttribution,
+        ...(useDraftSource ? { source_draft_id } : {}),
         technician_name: "",
         action_root_cause: "",
         parts: "",
@@ -410,6 +435,7 @@ export async function POST(request: NextRequest) {
         hours: 0,
       });
     }
+    if (sourceDraft && !draftLinked) throw new Error("At least one split work order must match the draft's room/location.");
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid work-order details." }, { status: 400 });
   }
@@ -436,7 +462,7 @@ export async function POST(request: NextRequest) {
         row.asset_id = guess.assetId;
         row.asset_name = candidates.find((asset) => asset.id === guess.assetId)?.name || "";
         row.category = guess.category || "General";
-        row.priority = guess.priority || "Medium";
+        row.priority ||= guess.priority || "Medium";
       }
     } catch {
       return NextResponse.json({ error: "Equipment guesses could not be checked completely. No tickets were created." }, { status: 503 });
@@ -447,7 +473,7 @@ export async function POST(request: NextRequest) {
     if (!row.asset_id && (!row.category || String(row.category).trim() === "General")) {
       const suggestion = inferWorkOrder(String(row.issue || ""), []);
       if (suggestion.category) row.category = suggestion.category;
-      if (suggestion.priority) row.priority = suggestion.priority;
+      if (suggestion.priority && !row.priority) row.priority = suggestion.priority;
     }
   }
 
@@ -476,6 +502,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  const submitterId = auth.user.id;
+  async function findSubmission() {
+    if (typeof creationId !== "string") return null;
+    const { data, error } = await db.from("work_orders").select("id,display_id,status,location_id,issue,created_by")
+      .eq("hotel_id", HOTEL_ID).eq("id", creationId.toLowerCase()).maybeSingle();
+    if (error) return NextResponse.json({ error: "The work-order submission could not be confirmed." }, { status: 503 });
+    if (!data) return null;
+    if (data.created_by !== submitterId || data.location_id !== rows[0].location_id || data.issue !== rows[0].issue) {
+      return NextResponse.json({ error: "This work-order submission identifier is already in use." }, { status: 409 });
+    }
+    return NextResponse.json({ work_orders: [{ id: data.id, display_id: data.display_id, status: data.status }], reused: true });
+  }
+  const priorSubmission = await findSubmission();
+  if (priorSubmission) return priorSubmission;
+
   const { data: existing, error: duplicateError } = await db.from("work_orders")
     .select("id, display_id, location_id, asset_id, issue, status, source_draft_id, import_source, import_external_id")
     .eq("hotel_id", HOTEL_ID)
@@ -489,8 +530,12 @@ export async function POST(request: NextRequest) {
     if (linked) return NextResponse.json({ work_orders: [linked], reused: true });
     const duplicate = existing.find((previous) => likelyDuplicate(row, previous));
     if (duplicate) {
-      if (sourceDraftId && sourceDraftRevision !== null && String(duplicate.source_draft_id || "") === sourceDraftId) {
-        return alreadySubmittedDraftResponse(admin, sourceDraftId, duplicate as Record<string, unknown>);
+      if (typeof creationId === "string" && duplicate.id === creationId.toLowerCase()) {
+        const priorSubmission = await findSubmission();
+        if (priorSubmission) return priorSubmission;
+      }
+      if (sourceDraftId && sourceDraftRevision !== null && String(duplicate.source_draft_id || "") === sourceDraftId && isSameDraftSubmission(orderInputs, duplicate)) {
+        return alreadySubmittedDraftResponse(admin, sourceDraftId, sourceDraftRevision, duplicate as Record<string, unknown>);
       }
       return NextResponse.json({
         error: `Possible duplicate: ${duplicate.display_id || "existing work order"}. Review the existing ticket before submitting.`,
@@ -513,6 +558,8 @@ export async function POST(request: NextRequest) {
   const saved = (insertResult && (insertResult as { data?: Array<{ id: string; display_id?: string; status?: string }> }).data) || null;
   const insertError = insertResult && (insertResult as { error?: unknown }).error;
   if (insertError) {
+    const priorSubmission = await findSubmission();
+    if (priorSubmission) return priorSubmission;
     if (pmPrepared) {
       const prior = await db.from("work_orders").select("id,display_id,status").eq("hotel_id", HOTEL_ID)
         .eq("import_source", "PM Log").eq("import_external_id", pmPrepared.externalId).maybeSingle();
@@ -521,13 +568,13 @@ export async function POST(request: NextRequest) {
     }
     if (sourceDraftId && sourceDraftRevision !== null) {
       const { data: existingDraftOrder, error: existingDraftOrderError } = await db.from("work_orders")
-        .select("id, display_id, status")
+        .select("id, display_id, status, location_id, issue, source_draft_created_by")
         .eq("hotel_id", HOTEL_ID)
         .eq("source_draft_id", sourceDraftId)
         .maybeSingle();
       if (existingDraftOrderError) return NextResponse.json({ error: "The source draft submission could not be checked." }, { status: 503 });
-      if (existingDraftOrder) {
-        return alreadySubmittedDraftResponse(admin, sourceDraftId, existingDraftOrder as Record<string, unknown>);
+      if (existingDraftOrder && isSameDraftSubmission(orderInputs, existingDraftOrder)) {
+        return alreadySubmittedDraftResponse(admin, sourceDraftId, sourceDraftRevision, existingDraftOrder as Record<string, unknown>);
       }
     }
     return NextResponse.json({ error: "Work orders could not be saved. Refresh the list before retrying." }, { status: 409 });
@@ -540,7 +587,8 @@ export async function POST(request: NextRequest) {
       .from("cmpri_work_order_drafts")
       .delete()
       .eq("hotel_id", HOTEL_ID)
-      .eq("id", sourceDraftId);
+      .eq("id", sourceDraftId)
+      .eq("revision", sourceDraftRevision);
     if (draftDeleteError) {
       return NextResponse.json({
         ok: true,

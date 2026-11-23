@@ -48,3 +48,31 @@ test('desktop host relays saved asset to existing create window without resettin
  const event={origin,source:equipment,data:{type:'cmpri-assets-changed',assetId:'created',modalToken:'equipment-token'}};
  handler({...event,data:{...event.data,modalToken:'wrong'}});assert.equal(messages.length,0);handler(event);assert.equal(messages.length,1);assert.equal(messages[0].modalToken,'form-token');assert.equal(windows.length,2);
 });
+
+test('reusing an embedded asset window returns to its exact record with draft consent', () => {
+ const origin = 'https://fixture.invalid';
+ const parent = {};
+ const linkedAsset = { id: 'equipment-one' };
+ const selected = [];
+ let allowDiscard = false;
+ const handle = evaluate(extract('app/management/equipment/page.tsx', 'selectRequestedAsset', 'variable'), {
+  useEffectEvent: callback => callback,
+  URLSearchParams,
+  window: { parent, location: { origin, search: '?asset=equipment-one&modalToken=asset-token' }, confirm: () => allowDiscard },
+  assets: [linkedAsset, { id: 'equipment-two' }],
+  selectedId: 'equipment-two',
+  photoBusy: false, moveBusy: false, saving: false, creating: false,
+  unsavedEquipment: true, manualFile: null, ui: text => text,
+  selectAsset: asset => selected.push(asset),
+ });
+ const event = { origin, source: parent, data: { type: 'cmpri-open-asset', assetId: linkedAsset.id, modalToken: 'asset-token' } };
+ handle(event);
+ assert.deepEqual(selected, []);
+ allowDiscard = true;
+ handle({ ...event, source: {} });
+ handle({ ...event, data: { ...event.data, modalToken: 'other' } });
+ handle({ ...event, data: { ...event.data, assetId: 'equipment-two' } });
+ assert.deepEqual(selected, []);
+ handle(event);
+ assert.deepEqual(selected, [linkedAsset]);
+});

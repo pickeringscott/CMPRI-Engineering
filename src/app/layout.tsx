@@ -4,6 +4,7 @@ import WorkOrderMentionsInbox from "@/components/WorkOrderMentionsInbox";
 import StaffNotesUnread from "@/components/StaffNotesUnread";
 import ProfileNotificationInbox from "@/components/ProfileNotificationInbox";
 import GlobalModalHost from "@/components/GlobalModalHost";
+import AskCmpri from "@/components/ask-cmpri/AskCmpri";
 import UserPresence from "@/components/UserPresence";
 import ModalTheme from "@/components/ModalTheme";
 import SiteSeasonalBackground from "@/components/desktop/SiteSeasonalBackground";
@@ -41,6 +42,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <UserPresence />
         {children}
         <GlobalModalHost />
+        <AskCmpri />
         <StaffNotesUnread />
         <WorkOrderMentionsInbox />
         <ProfileNotificationInbox />

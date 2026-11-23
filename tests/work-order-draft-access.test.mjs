@@ -23,7 +23,7 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 
-function fixture(role, actorId = "actor") {
+function fixture(role, actorId = "actor", priorityAccess = false) {
   let now = Date.now();
   class Clock extends Date { static now() { return now; } }
   const profiles = [
@@ -123,6 +123,7 @@ function fixture(role, actorId = "actor") {
         requireCapability: async (_request, capability) => roleExports.roleAllows(role, capability) ? { principal, admin } : null,
       };
       if (name === "@/lib/server/roles") return roleExports;
+      if (name === "@/lib/server/access") return { canSetFrontDeskWorkOrderPriority: () => priorityAccess };
       throw new Error(`Unexpected module ${name}`);
     },
   });
@@ -160,6 +161,8 @@ function submittedDraftRetryFixture() {
     display_id: "WO-1234",
     status: "Open",
     source_draft_created_by: "submitter",
+    location_id: "room-1",
+    issue: "Already approved report",
   };
   const calls = [];
   const admin = {
@@ -210,7 +213,7 @@ function submittedDraftRetryFixture() {
       if (name === "@/lib/integrations/spreadsheet-input") return { jsonObject: async (request) => request.json() };
       if (name === "@/lib/work-order-attribution") return { validFirstName: () => true, workOrderAttribution: () => ({}) };
       if (name === "@/lib/work-order-duplicates") return { likelyDuplicate: () => false };
-      if (name === "@/lib/work-order-suggestions") return { inferWorkOrder: () => ({}) };
+      if (name === "@/lib/work-order-suggestions") return { inferWorkOrder: () => ({}), separateIssueFromReporterNotes: issue => ({ issue }) };
       if (name === "@/lib/work-order-categories") return { normalizeWorkOrderCategory: (value) => value };
       if (name === "@/lib/server/room-ranker") return { processRoomRankerSyncForWorkOrder: async () => ({}) };
       if (name === "@/lib/server/room-availability") return { currentRoomOperation: () => null, currentRoomStatus: () => "", loadCurrentRoomStatuses: async () => ({}) };
@@ -219,12 +222,12 @@ function submittedDraftRetryFixture() {
   });
   return {
     calls,
-    post: () => routeExports.POST({
+    post: (issue = "Already approved report") => routeExports.POST({
       headers: new Headers(),
       json: async () => ({
         source_draft_id: sourceDraftId,
         source_draft_revision: 1,
-        orders: [{ location_id: "room-1", issue: "Already approved report" }],
+        orders: [{ location_id: "room-1", issue }],
       }),
     }),
   };
@@ -499,6 +502,24 @@ test("retrying an already approved draft returns its existing order after draft 
   assert.equal(response.body.work_orders[0].id, "created-work-order");
   assert.ok(route.calls.indexOf("work_orders.maybeSingle") < route.calls.indexOf("cmpri_work_order_drafts.delete"));
   assert.equal(route.calls.includes("cmpri_work_order_drafts.maybeSingle"), false);
+});
+
+test("a different split row cannot reuse an already approved work order", async () => {
+  const route = submittedDraftRetryFixture();
+  const response = await route.post("A different split issue");
+  assert.equal(response.status, 409);
+  assert.equal(route.calls.includes("cmpri_work_order_drafts.delete"), false);
+});
+
+test("Front Desk can save and change an explicit priority without editing technical fields", async () => {
+  const route = fixture("Front Desk", "actor", true);
+  const response = await route.post({ location_id: "room-1", issue: "A fault", priority: "Urgent", asset_id: "forged" });
+  assert.equal(response.status, 200);
+  assert.equal(response.body.draft.priority, "Urgent");
+  assert.equal(response.body.draft.asset_id, null);
+  const updated = await route.patch({ id: response.body.draft.id, expected_revision: 1, notes: "Additional note" });
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.draft.priority, "Urgent");
 });
 
 

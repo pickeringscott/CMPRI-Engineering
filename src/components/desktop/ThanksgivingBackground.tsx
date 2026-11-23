@@ -1,14 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import assets from "@/lib/ui/thanksgiving-assets.json";
 import { ensureThanksgivingCache } from "@/lib/ui/thanksgiving-cache";
 
+const subscribe = () => () => {};
+
 /** Fixed viewport artwork shared by the approved desktop and mobile layouts. */
 export default function ThanksgivingBackground() {
   const pathname = usePathname();
-  const visible = pathname === "/" || pathname === "/engineering" || pathname === "/front-desk";
+  // Rewritten routes can have a different pathname during server rendering.
+  const visible = useSyncExternalStore(subscribe,
+    () => pathname === "/" || pathname === "/engineering" || pathname === "/front-desk", () => false);
   const frame = useRef<HTMLIFrameElement>(null);
   const [paused, setPaused] = useState(false);
   useEffect(() => {

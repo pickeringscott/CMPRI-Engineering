@@ -4,6 +4,8 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { profileIsChiefEngineer, roleKey } from "@/lib/server/roles";
 import GuideFlowchart, { type GuidePhase } from "./GuideFlowchart";
 import GuideWalkthrough, { type GuideAction } from "./GuideWalkthrough";
+import GuidePracticeWorkOrder from "./GuidePracticeWorkOrder";
+import { practiceWorkOrder, roomPracticePrompts, workOrderPracticeId } from "./ask-cmpri-practice";
 import "./beginners-guide.css";
 
 type GuideUser = { id: string; name: string; role: string; displayRole?: string };
@@ -22,11 +24,15 @@ type GuideRole = {
   phases: GuidePhase[];
   lessons: GuideLesson[];
 };
-type GuideData = { roles: Partial<Record<string, GuideRole>> };
+type GuideContent = GuideRole & { askLesson: GuideLesson };
+type GuideData = { roles: Partial<Record<string, GuideRole>>; askLesson: GuideLesson };
 type Position = { stop: number; action: number };
 type LaunchReason = "First app open" | "New Front Desk session" | "Reopened from the dashboard";
 
 const WELCOME: Position = { stop: 0, action: 0 };
+const ASK_CMPRI_STOP = 1;
+const FLOWCHART_STOP = 2;
+const ROLE_LESSON_START = 3;
 const ROLLOUT_END = Date.parse("2026-11-24T23:00:00-06:00");
 const WORK_ORDER_HANDOFF = [
   ["Front Desk & Housekeeping", "Report what happened and add room access or turnover details."],
@@ -37,11 +43,22 @@ const openedInMemory = new Set<string>();
 const sessionInMemory = new Set<string>();
 let guideData: Promise<GuideData> | undefined;
 
+function lessonAt(content: GuideContent | null, stop: number): GuideLesson | undefined {
+  if (!content) return undefined;
+  if (stop === ASK_CMPRI_STOP) return content.askLesson;
+  if (stop >= ROLE_LESSON_START) return content.lessons[stop - ROLE_LESSON_START];
+}
+
 function loadGuideData() {
-  guideData ??= import("./guide-lessons.json").then(({ default: data }) => data as unknown as GuideData).catch((error: unknown) => {
-    guideData = undefined;
-    throw error;
-  });
+  guideData ??= Promise.all([import("./guide-lessons.json"), import("./ask-cmpri-guide")])
+    .then(([{ default: data }, { ASK_CMPRI_GUIDE }]) => ({
+      roles: data.roles as unknown as GuideData["roles"],
+      askLesson: ASK_CMPRI_GUIDE,
+    }))
+    .catch((error: unknown) => {
+      guideData = undefined;
+      throw error;
+    });
   return guideData;
 }
 
@@ -96,8 +113,9 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<Position>(WELCOME);
   const [launchReason, setLaunchReason] = useState<LaunchReason>("Reopened from the dashboard");
-  const [content, setContent] = useState<GuideRole | null>(null);
+  const [content, setContent] = useState<GuideContent | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [practiceOrderId, setPracticeOrderId] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
@@ -141,11 +159,30 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
 
   useEffect(() => {
     if (!open) return;
+    function openPracticeOrder(event: Event) {
+      const id = (event as CustomEvent<{ id?: string }>).detail?.id;
+      if (id && practiceWorkOrder(id)) setPracticeOrderId(id);
+    }
+    window.addEventListener("cmpri-guide-open-work-order", openPracticeOrder);
+    return () => window.removeEventListener("cmpri-guide-open-work-order", openPracticeOrder);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     let active = true;
     void loadGuideData().then(data => {
       if (!active) return;
-      setContent(data.roles[role] ?? null);
-      setLoadError(!data.roles[role]);
+      const roleGuide = data.roles[role];
+      setContent(roleGuide ? {
+        ...roleGuide,
+        askLesson: data.askLesson,
+        lessons: roleGuide.lessons.map(lesson => lesson.key === "/staff-notes" ? {
+          ...lesson,
+          actions: lesson.actions.filter(action =>
+            action.title !== "Read the shared handoff feed" && action.title !== "Post to the property feed")
+        } : lesson)
+      } : null);
+      setLoadError(!roleGuide);
     }).catch(() => {
       if (active) setLoadError(true);
     });
@@ -171,6 +208,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   function closeGuide() {
     dialog.current?.close();
     setOpen(false);
+    setPracticeOrderId("");
     trigger.current?.focus({ preventScroll: true });
   }
 
@@ -202,11 +240,11 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
 
   if (role === "unknown") return null;
 
-  const lesson = position.stop >= 2 ? content?.lessons[position.stop - 2] : undefined;
-  const phase = position.stop === 1 ? content?.phases[position.action] : undefined;
+  const lesson = lessonAt(content, position.stop);
+  const phase = position.stop === FLOWCHART_STOP ? content?.phases[position.action] : undefined;
   const action = lesson?.actions[position.action];
-  const stepsInStop = position.stop === 1 ? content?.phases.length ?? 0 : lesson?.actions.length ?? 0;
-  const stops = ["Welcome", "Work Order Flowchart",
+  const stepsInStop = position.stop === FLOWCHART_STOP ? content?.phases.length ?? 0 : lesson?.actions.length ?? 0;
+  const stops = ["Welcome", content?.askLesson.title ?? "Ask CMPRI", "Work Order Flowchart",
     ...(content?.lessons.map(item => item.key === "/work-orders" ? "Create a Work Order" : item.title) ?? [])];
   const firstName = user.name.trim().split(/\s+/)[0];
   const welcome = position.stop === 0;
@@ -215,6 +253,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
 
   function next() {
     if (!content || animation.current) return;
+    setPracticeOrderId("");
     if (!lastAction) {
       setPosition({ ...position, action: position.action + 1 });
     } else if (lastStop) {
@@ -226,17 +265,28 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
 
   function back() {
     if (!content || animation.current) return;
+    setPracticeOrderId("");
     if (position.action) {
       setPosition({ ...position, action: position.action - 1 });
       return;
     }
     const stop = Math.max(position.stop - 1, 0);
-    const last = stop === 1 ? content.phases.length : content.lessons[stop - 2]?.actions.length;
+    const last = stop === FLOWCHART_STOP ? content.phases.length : lessonAt(content, stop)?.actions.length;
     setPosition({ stop, action: Math.max((last ?? 1) - 1, 0) });
   }
 
   function jump(stop: number) {
-    if (content && !animation.current) setPosition({ stop, action: 0 });
+    if (content && !animation.current) {
+      setPracticeOrderId("");
+      setPosition({ stop, action: 0 });
+    }
+  }
+
+  function openPracticeAsk(opener: HTMLButtonElement) {
+    const roomStep = position.action - 6;
+    const prompts = roomStep === -1 ? ["Where is the salt stored?"] : roomPracticePrompts.slice(0, Math.max(0, roomStep));
+    const query = roomPracticePrompts[roomStep];
+    window.dispatchEvent(new CustomEvent("cmpri-ask-open", { detail: { practice: true, query, prompts, opener } }));
   }
 
   const navigation = <div className="cmpri-guide-nav-buttons">
@@ -293,6 +343,11 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
               <strong>{department}</strong>
               <p>{description}</p>
             </li>)}
+            <li className="cmpri-guide-ask-handoff">
+              <span className="cmpri-guide-gemini-star" aria-hidden="true" />
+              <strong>Gemini in Ask CMPRI</strong>
+              <p>Select the Gemini star and ask “What’s the status of WO#4218?” to find the reported issue, current status, and notes your role can see.</p>
+            </li>
           </ul>
           <p className="cmpri-guide-example-ticket">WO#4218 · Room 204 · Bathroom sink drains slowly</p>
         </section>
@@ -313,13 +368,19 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
       </div>}
       {lesson && action && <div className="cmpri-guide-lesson-page">
         <h1 id={titleId} ref={title} tabIndex={-1}>{lesson.title}</h1>
-        <GuideWalkthrough key={lesson.key} title={lesson.title} purpose={lesson.purpose} when={lesson.when} action={action}
-          onTry={action.target && (!lastAction || !lastStop) ? next : undefined} />
+        <GuideWalkthrough key={lesson.key} title={position.stop === ASK_CMPRI_STOP ? "Using Ask CMPRI" : lesson.title}
+          purpose={lesson.purpose} when={lesson.when} action={action}
+          onTry={action.target && (!lastAction || !lastStop) ? next : undefined}
+          onPracticeAsk={position.stop === ASK_CMPRI_STOP ? openPracticeAsk : undefined}
+          onPracticeWorkOrder={position.stop === ASK_CMPRI_STOP ? () => setPracticeOrderId(workOrderPracticeId) : undefined}
+          onPracticeImage={practiceOrderId ? () => setPracticeOrderId("") : undefined}
+          practice={practiceOrderId && position.stop === ASK_CMPRI_STOP ? <GuidePracticeWorkOrder key={practiceOrderId} id={practiceOrderId} /> : undefined} />
       </div>}
       <footer className="cmpri-guide-footer">
         <div className="cmpri-guide-footer-controls">
           <p aria-live="polite">{content && (welcome ? launchReason : phase ? "Use Next to follow the work order." :
-            lesson ? "Tool " + (position.stop - 1) + " of " + content.lessons.length + " · Action " +
+            lesson ? (position.stop === ASK_CMPRI_STOP ? lesson.title : "Tool " +
+              (position.stop - FLOWCHART_STOP) + " of " + content.lessons.length) + " · Action " +
               (position.action + 1) + " of " + stepsInStop : "")}</p>
           {!welcome && navigation}
         </div>

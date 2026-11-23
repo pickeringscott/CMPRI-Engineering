@@ -26,13 +26,13 @@ function fixture(options={}) {
     if(sources[key] instanceof Error)throw sources[key];
     return Response.json(sources[key]);
   });
-  const route=loadTs('src/app/api/weather-preview/route.ts',{}, {
+  const route=loadTs('src/app/api/weather-preview/route.ts',{'astronomy-engine':{MoonPhase:()=>42}}, {
     process:{env:{VERCEL_ENV:options.environment===null?undefined:options.environment||'preview',NODE_ENV:options.nodeEnv||'production'}},
     Request,Response,URL,URLSearchParams,Error,AbortSignal:options.AbortSignal||AbortSignal,fetch:read,
-    Date:options.now?class extends Date {
+    Date:options.clock??(options.now?class extends Date {
       constructor(value) {super(arguments.length?value:options.now);}
       static now() {return Date.parse(options.now);}
-    }:Date,
+    }:Date),
   });
   return {route,calls,get:(part,init={})=>route.GET(new Request('https://branch.example/api/weather-preview?url=https://evil.example&point=0,0'
     +(part===undefined?'':'&part='+encodeURIComponent(part)),init))};
@@ -66,6 +66,79 @@ test('released NWS reads work in production, previews and local builds',async()=
     assert.equal(calls.length,7);
     assert.ok(calls.every(call=>new URL(call.url).origin===API));
   }
+});
+
+test('dashboard reads just the official compact dial feeds, preserves zero and respects the Central local day',async()=>{
+  const asOf='2026-11-23T14:30:00Z';
+  const {get,calls}=fixture({now:asOf,sources:payloads({
+    '/stations/KCMI/observations/latest':{properties:{timestamp:asOf,textDescription:'Partly cloudy',
+      temperature:{unitCode:'wmoUnit:degC',value:7.8},windSpeed:{unitCode:'wmoUnit:km_h-1',value:20.92},windDirection:{value:290}}},
+    '/gridpoints/ILX/95,71/forecast/hourly':{properties:{updateTime:asOf,periods:[
+      {startTime:'2026-11-23T05:00:00Z',endTime:'2026-11-23T06:00:00Z',temperature:70,temperatureUnit:'F'},
+      {startTime:'2026-11-23T14:00:00Z',endTime:'2026-11-23T15:00:00Z',temperature:59,temperatureUnit:'F',isDaytime:true,
+        probabilityOfPrecipitation:{value:0}},
+      {startTime:'2026-11-24T06:00:00Z',endTime:'2026-11-24T07:00:00Z',temperature:80,temperatureUnit:'F'},
+    ]}},
+    '/gridpoints/ILX/95,71':{properties:{updateTime:asOf,
+      temperature:{uom:'wmoUnit:degF',values:[{validTime:'2026-11-23T06:00:00Z/PT12H',value:38}]},
+      probabilityOfPrecipitation:{uom:'wmoUnit:percent',values:[{validTime:'2026-11-23T14:00:00Z/PT3H',value:20}]}}},
+  })});
+  const response=await get('dashboard');
+  const {dashboard}=await response.json();
+  assert.equal(response.status,200);
+  assert.equal(calls.length,4);
+  assert.equal(Math.round(dashboard.current),46);
+  assert.equal(dashboard.high,59);
+  assert.equal(dashboard.low,38);
+  assert.equal(dashboard.precipitation,0);
+  assert.equal(Math.round(dashboard.wind),13);
+  assert.equal(dashboard.bearing,290);
+  assert.equal(dashboard.condition,'Partly cloudy');
+  assert.equal(dashboard.observationTime,new Date(asOf).toISOString());
+  assert.equal(dashboard.moonAngle,42);
+});
+
+test('dashboard does not show stale observation, stale outlook, or missing values as current',async()=>{
+  const {get}=fixture({now:'2026-11-23T14:30:00Z',sources:payloads({
+    '/stations/KCMI/observations/latest':{properties:{timestamp:'2026-11-23T12:00:00Z',temperature:{unitCode:'wmoUnit:degF',value:46}}},
+    '/gridpoints/ILX/95,71/forecast/hourly':{properties:{updateTime:'2026-11-23T01:00:00Z',periods:[
+      {startTime:'2026-11-23T14:00:00Z',endTime:'2026-11-23T15:00:00Z',temperature:59,temperatureUnit:'F'},
+    ]}},
+    '/gridpoints/ILX/95,71':new Error('Upstream unavailable'),
+  })});
+  const {dashboard}=await(await get('dashboard')).json();
+  for(const field of ['current','high','low','precipitation','wind','condition','observationTime','forecastTime']) {
+    assert.equal(dashboard[field],null,field);
+  }
+});
+
+test('dashboard selects the new Central day when an upstream read crosses midnight', async () => {
+  let asOf = '2026-11-24T05:59:58Z';
+  class Clock extends Date {
+    constructor(value) { super(arguments.length ? value : asOf); }
+    static now() { return Date.parse(asOf); }
+  }
+  const sourceTime = '2026-11-24T05:50:00Z';
+  const sources = payloads({
+    '/gridpoints/ILX/95,71/forecast/hourly': { properties: { updateTime: sourceTime, periods: [
+      { startTime: '2026-11-24T05:00:00Z', endTime: '2026-11-24T06:00:00Z', temperature: 65, temperatureUnit: 'F', probabilityOfPrecipitation: { value: 5 } },
+      { startTime: '2026-11-24T06:00:00Z', endTime: '2026-11-24T07:00:00Z', temperature: 36, temperatureUnit: 'F', probabilityOfPrecipitation: { value: 70 } },
+    ] } },
+  });
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const { get } = fixture({ clock: Clock, fetch: async url => {
+    const path = new URL(url).pathname;
+    if (path.endsWith('/hourly')) await gate;
+    return Response.json(sources[path]);
+  } });
+  const response = get('dashboard');
+  asOf = '2026-11-24T06:00:02Z';
+  release();
+  const { dashboard } = await (await response).json();
+  assert.equal(dashboard.high, 36);
+  assert.equal(dashboard.low, 36);
+  assert.equal(dashboard.precipitation, 70);
 });
 
 test('live property resources preserve official text, times, null amounts and polygonless alerts',async()=>{

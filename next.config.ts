@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const CANONICAL_APP_URL = "https://cmpri-engineering.com";
-const OCR_RUNTIME = ["node_modules/tesseract.js/**/*", "node_modules/tesseract.js-core/**/*", "node_modules/@tesseract.js-data/eng/4.0.0_best_int/**/*"];
+const OCR_RUNTIME = ["node_modules/tesseract.js/**/*", "node_modules/tesseract.js-core/**/*", "node_modules/@tesseract.js-data/eng/package.json", "node_modules/@tesseract.js-data/eng/4.0.0_best_int/**/*"];
 const PDF_RUNTIME = ["node_modules/pdfjs-dist/legacy/build/*.mjs", "node_modules/pdfjs-dist/package.json", "node_modules/pdfjs-dist/standard_fonts/**/*", "node_modules/pdfjs-dist/cmaps/**/*", "node_modules/pdfjs-dist/wasm/**/*", "node_modules/@napi-rs/canvas/**/*", "node_modules/@napi-rs/canvas-*/**/*"];
 
 const nextConfig: NextConfig = {
@@ -22,6 +22,9 @@ const nextConfig: NextConfig = {
 		"/api/assets/documentation/ocr/dispatch": [...PDF_RUNTIME, ...OCR_RUNTIME],
 		"/api/maintenance-reference": [...PDF_RUNTIME, ...OCR_RUNTIME],
 		"/api/work-orders/*/troubleshooting": [...PDF_RUNTIME, ...OCR_RUNTIME],
+		"/api/ask-cmpri/troubleshooting": PDF_RUNTIME,
+		"/api/ask-cmpri": [...PDF_RUNTIME, ...OCR_RUNTIME, ".bridge/Copy of Preventative Maintenance Tracking - CMPRI.xlsx", "public/forms/swimming-facility-daily-operational-report.pdf"],
+		"/api/ask-cmpri/document-download": [...PDF_RUNTIME, ...OCR_RUNTIME],
 		"/api/assets": PDF_RUNTIME,
 		"/api/assets/documentation": [...PDF_RUNTIME, ...OCR_RUNTIME],
 	},

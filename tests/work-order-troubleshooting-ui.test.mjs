@@ -9,6 +9,7 @@ import {loadTs} from './helpers/load-ts.mjs';
 import {JSDOM} from 'jsdom';
 import * as taskReview from '../src/lib/pm/task-review.ts';
 import {sourceSemantics} from '../src/lib/work-orders/source-semantics.ts';
+import * as checklistDomain from '../src/lib/work-orders/troubleshooting-checklist.ts';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {url:'https://cmpri.test'});
 globalThis.window = dom.window;
@@ -23,11 +24,6 @@ const source = readFileSync(new URL('../src/components/WorkOrderTroubleshootingC
 const code = ts.transpileModule(source, {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText;
 const visitSource = readFileSync(new URL('../src/lib/work-orders/troubleshooting-visits.ts', import.meta.url), 'utf8');
 const visitCode = ts.transpileModule(visitSource, {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
-const guideSource = readFileSync(new URL('../src/lib/work-orders/troubleshooting-checklist.ts', import.meta.url), 'utf8');
-const guideAst = ts.createSourceFile('guide.ts', guideSource, ts.ScriptTarget.Latest, true);
-const visualFunction = guideAst.statements.find(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='troubleshootingTaskVisual').getText(guideAst);
-const visualModule = {exports:{}, taskComplete:taskReview.taskComplete};
-vm.runInNewContext(ts.transpileModule(visualFunction,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,visualModule);
 const deferred = () => { let resolve; const promise = new Promise(r=>{resolve=r;}); return {promise,resolve}; };
 const session = (id='tech-a',name='Alex Technician') => ({hotelId:'hotel-a',user:{id,name,role:'Technician'},capabilities:['view_work_orders']});
 
@@ -73,7 +69,7 @@ function harness(options={}) {
       if(name==='@/components/WorkOrderStepMedia')return {default:()=>null};
       if(name==='@/components/CopyButton')return {default:({text,label})=>React.createElement('button',{onClick:()=>copies.push(text)},label)};
       if(name==='@/lib/pm/task-review')return taskReview;
-      if(name==='@/lib/work-orders/troubleshooting-checklist')return visualModule.exports;
+      if(name==='@/lib/work-orders/troubleshooting-checklist')return checklistDomain;
       if(name==='@/lib/work-orders/troubleshooting-visits')return visits;
       if(name==='@/lib/work-orders/source-semantics')return {sourceSemantics};
       if(name==='@/lib/supabase/client')return {getValidSession:getAuth,createClient:()=>({auth:{onAuthStateChange(callback){authCallback=callback;return {data:{subscription:{unsubscribe(){}}}};}}})};
@@ -106,7 +102,8 @@ test('technician completion stays green after reload with one top source and no 
     assert.equal(h.parent.querySelectorAll('a').length,1);
     assert.equal(h.parent.querySelector('a').href,'https://cmpri.test/manual.pdf');
     for(const row of h.parent.querySelectorAll('li')) {
-      assert.equal(row.querySelectorAll('button').length,1,'the primary role checkbox is the only step control');
+      assert.equal(row.querySelectorAll('[role=checkbox]').length,1,'each step has one Tried check');
+      assert.equal(row.querySelectorAll('button:not([role=checkbox])').length,row===h.parent.querySelector('li')?1:0,'only the tried step offers its outcome editor');
       assert.equal(row.querySelectorAll('[role=checkbox]').length,1);
       assert.equal(row.querySelectorAll('a').length,0);
       assert.ok(!/Source:|Washer service manual\.pdf/i.test(row.textContent));

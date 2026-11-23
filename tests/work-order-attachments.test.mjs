@@ -32,6 +32,7 @@ const roleModule = compileModule("../src/lib/server/roles.ts");
 const accessModule = compileModule("../src/lib/server/access.ts", { "./roles": roleModule });
 const assignmentModule = compileModule("../src/lib/server/work-order-assignment.ts", { "./roles": roleModule });
 const uuidModule = compileModule("../src/lib/uuid.ts");
+const mediaModule = compileModule("../src/lib/work-order-media.ts");
 const routeSource = readFileSync(new URL("../src/app/api/work-orders/[id]/attachments/route.ts", import.meta.url), "utf8");
 const workOrderPageSource = readFileSync(new URL("../src/app/work-orders/page.tsx", import.meta.url), "utf8");
 const routeCode = ts.transpileModule(routeSource, {
@@ -181,6 +182,8 @@ function fixture(options = {}) {
       if (name === "@/lib/server/roles") return roleModule;
       if (name === "@/lib/server/work-order-assignment") return assignmentModule;
       if (name === "@/lib/uuid") return uuidModule;
+      if (name === "@/lib/server/ask-cmpri-actions") return { verifyAskAttachment: options.verifyAskAttachment || (() => false) };
+      if (name === "@/lib/work-order-media") return mediaModule;
       throw new Error(`Unexpected attachment route dependency: ${name}`);
     },
   });
@@ -197,7 +200,7 @@ function fixture(options = {}) {
   return {
     objects,
     direct: async (url, file) => storeObject(new URL(url).searchParams.get("path"), file),
-    put: (body, id = workOrderId) => exports.PUT({ text: async () => JSON.stringify(body) }, { params: Promise.resolve({ id }) }),
+    put: (body, id = workOrderId, headers = new Headers()) => exports.PUT({ headers, text: async () => JSON.stringify(body) }, { params: Promise.resolve({ id }) }),
     filters,
     storageCalls,
     logs,

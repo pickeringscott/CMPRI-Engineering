@@ -1,11 +1,19 @@
 import asyncio
 
-from cmpri_fixture import BASE, CAPS, UID, async_playwright, expect, install
+from cmpri_fixture import BASE, CAPS, UID, async_playwright, expect, install as install_fixture
 
 
 ROLE_TABS = ["Daily Work", "Rooms & Reports", "Safety & Logs", "Assets & Inventory", "Account", "Admin"]
 LIMITED_ROLES = {"front_desk", "housekeeping"}
 CHIEF_MENU_ROLES = {"chief_engineer", "system_admin", "engineer", "senior_management"}
+
+async def install(context, *args, **kwargs):
+    # These tests start at the dashboard after the user has dismissed the guide.
+    await install_fixture(context, *args, **kwargs)
+    await context.add_init_script(f"""try {{
+        localStorage.setItem("cmpri:beginners-guide:opened:{UID}", "1");
+        sessionStorage.setItem("cmpri:beginners-guide:session:{UID}", "1");
+    }} catch {{}}""")
 
 
 def group(page, name):
@@ -125,8 +133,10 @@ async def inspect_role(browser, role, width):
         tabs = ["Rooms & Reports", "Safety & Logs", "Account"]
     else:
         tabs = [tab for tab in ROLE_TABS if tab != "Admin" or role not in {"manager", "technician"}]
-    assert await page.locator(".cmpri-header-v23 legend").all_text_contents() == tabs, role
-    assert await page.locator(".cmpri-header-v23 legend[aria-expanded=true]").count() == 0
+    native_tabs = page.locator(".cmpri-header-v23 fieldset.group:not([data-ask-launcher-tab]) > legend")
+    assert await native_tabs.all_text_contents() == tabs, role
+    assert await native_tabs.and_(page.locator("[aria-expanded=true]")).count() == 0
+    await expect(page.locator("[data-cmpri-ask-launcher=mobile]" if width < 640 else "#desktop-ask-query")).to_be_visible()
 
     rooms = await actions(page, "Rooms & Reports")
     pool = await actions(page, "Safety & Logs")
@@ -161,13 +171,13 @@ async def inspect_role(browser, role, width):
             assert abs(button["x"] + button["width"] / 2 - buttons["x"] - buttons["width"] / 2) < 1
         assert await title.bounding_box() == before
         await expect(safety).to_have_attribute("aria-expanded", "true")
-        assert "blur(" in await group(page, "Safety & Logs").locator(".buttons").evaluate("element => getComputedStyle(element).filter")
+        await expect(group(page, "Safety & Logs").locator(".buttons")).to_have_css("filter", "blur(1.75px)")
     assert not errors, errors
     await context.close()
     print(f"{role} {width}px verified", flush=True)
 
 
-async def drag_between(page, context, touch, origin, destination, edge_hold_ms=0):
+async def drag_between(page, context, touch, origin, destination, edge_hold_ms=0, before_drop=None):
     x, y = origin
     to_x, to_y = destination
     if touch:
@@ -183,6 +193,8 @@ async def drag_between(page, context, touch, origin, destination, edge_hold_ms=0
             })
         if edge_hold_ms:
             await page.wait_for_timeout(edge_hold_ms)
+        if before_drop:
+            await before_drop()
         await pointer.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
         await pointer.detach()
     else:
@@ -191,6 +203,8 @@ async def drag_between(page, context, touch, origin, destination, edge_hold_ms=0
         await page.mouse.move(to_x, to_y, steps=14)
         if edge_hold_ms:
             await page.wait_for_timeout(edge_hold_ms)
+        if before_drop:
+            await before_drop()
         await page.mouse.up()
 
 
@@ -258,9 +272,29 @@ async def check_drag_and_save(browser, width):
     assert origin and destination
     x, y = origin["x"] + origin["width"] / 2, origin["y"] + origin["height"] / 2
     to_x, to_y = destination["x"] + destination["width"] / 2, destination["y"] + destination["height"] / 2
-    await drag_between(page, context, touch, (x, y), (to_x, to_y))
+    preview_order = []
+
+    async def check_before_drop():
+        await expect(target).to_have_attribute("aria-expanded", "true")
+        await expect(target).to_have_attribute("aria-current", "true")
+        await expect(target).to_be_focused()
+        row = group(page, "Rooms & Reports")
+        await expect(row.locator(".buttons")).to_have_css("filter", "none")
+        landing = row.locator(".action.landing-copy")
+        await expect(landing).to_be_visible()
+        await expect(landing).to_have_text("Work Order List")
+        await expect(landing).to_have_css("outline-style", "dashed")
+        preview_order.extend(await actions(page, "Rooms & Reports"))
+        assert preview_order[-1] == "Work Order List"
+        assert "work-order-list::Work Order List" not in layouts.get("chief_engineer", {}).get("buttons", {}).get("Rooms & Reports", []), "hover must not save the pending move"
+
+    await drag_between(page, context, touch, (x, y), (to_x, to_y), before_drop=check_before_drop)
     assert "Work Order List" not in await actions(page, "Daily Work")
     assert "Work Order List" in await actions(page, "Rooms & Reports")
+    assert await actions(page, "Rooms & Reports") == preview_order
+    await expect(page.locator(".anchored-menu .landing-copy")).to_have_count(0)
+    await expect(target).to_be_focused()
+    await expect(target).to_have_attribute("aria-current", "true")
     assert await page.get_by_role("dialog").count() == 0
     assert await title.bounding_box() == pinned
     for _ in range(30):
@@ -292,19 +326,45 @@ async def check_wake_and_scroll(browser, width):
     await expect(daily_tab).to_have_attribute("aria-expanded", "true")
     await (rooms_tab.tap() if touch else rooms_tab.click())
     await expect(rooms).to_have_attribute("data-active", "true")
-    assert await daily.locator(".buttons").evaluate("node => getComputedStyle(node).filter") != "none"
+    await expect(daily.locator(".buttons")).to_have_css("filter", "blur(1.75px)")
     work = daily.get_by_role("button", name="Work Order List", exact=True)
     await (work.tap() if touch else work.click())
     await expect(daily).to_have_attribute("data-active", "true")
     assert await page.locator('[data-cmpri-desktop-window="work-order-list"]').count() == 0
     assert int(await daily.evaluate("node => node.style.zIndex")) > int(await rooms.evaluate("node => node.style.zIndex"))
 
+    desktop = page.locator(".cmpri-desktop").last
+    desktop_bounds = await desktop.bounding_box()
+    assert desktop_bounds
+    blank = {"x": desktop_bounds["width"] / 2, "y": desktop_bounds["height"] / 2}
+    await (desktop.tap(position=blank) if touch else desktop.click(position=blank))
+    await expect(daily).to_have_attribute("data-active", "true")
+    await expect(daily.locator(".buttons")).to_have_css("filter", "none")
+    await expect(rooms.locator(".buttons")).to_have_css("filter", "blur(1.75px)")
+
+    # An open inactive tab selects its row; only the selected tab closes it.
     await (rooms_tab.tap() if touch else rooms_tab.click())
+    await expect(rooms_tab).to_have_attribute("aria-expanded", "true")
+    await expect(rooms).to_have_attribute("data-active", "true")
+    await expect(daily_tab).to_have_attribute("aria-expanded", "true")
+    await expect(rooms.locator(".buttons")).to_have_css("filter", "none")
+    assert int(await rooms.evaluate("node => node.style.zIndex")) > int(await daily.evaluate("node => node.style.zIndex"))
+    await (rooms_tab.tap() if touch else rooms_tab.click())
+    await expect(rooms_tab).to_have_attribute("aria-expanded", "false")
+    await expect(daily).to_have_attribute("data-active", "true")
+    await (rooms_tab.tap() if touch else rooms_tab.click())
+    await expect(rooms_tab).to_have_attribute("aria-expanded", "true")
     row = rooms.locator(".buttons")
     if not touch:
         edge = rooms.locator(".resize-edge")
         bounds = await edge.bounding_box()
         x, y = bounds["x"] + bounds["width"] / 2, bounds["y"] + bounds["height"] / 2
+        # Ask floats above the expanded button row. Move it aside when its
+        # pill is directly covering the existing row-resize handle.
+        if await page.evaluate("([x,y]) => Boolean(document.elementFromPoint(x,y)?.closest('#desktop-ask-search'))", [x, y]):
+            ask = await page.locator("#desktop-ask-tab").bounding_box()
+            center = (ask["x"] + ask["width"] / 2, ask["y"] + ask["height"] / 2)
+            await drag_between(page, context, False, center, (width - 5, center[1]))
         await drag_between(page, context, False, (x, y), (x - 350, y))
     scrollbar = rooms.get_by_role("slider", name="Scroll Rooms & Reports buttons")
     await expect(scrollbar).to_be_visible()
@@ -440,6 +500,64 @@ async def check_mobile_window_clearance(browser):
     print("mobile window close remains reachable when a tab is open", flush=True)
 
 
+async def check_telescope_to_moved_launcher(browser):
+    context = await browser.new_context(viewport={"width": 1440, "height": 900}, service_workers="block")
+    await install(context, "chief_engineer", connected=False)
+    await context.add_init_script("""{
+      window.telescopeEndpoints = [];
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function(frames, options) {
+        if (options?.id?.startsWith('cmpri-window-telescope-')) {
+          const box = this.getBoundingClientRect();
+          const opening = options.id.endsWith('-open');
+          const transform = new DOMMatrix(frames[opening ? 0 : frames.length - 1].transform);
+          window.telescopeEndpoints.push({
+            direction: opening ? 'open' : 'close',
+            x: box.left + box.width / 2 + transform.e,
+            y: box.top + box.height / 2 + transform.f,
+            width: box.width * transform.a, height: box.height * transform.d,
+          });
+        }
+        return animate.call(this, frames, options);
+      };
+    }""")
+    page = await context.new_page()
+    await page.goto(BASE + "/engineering", wait_until="domcontentloaded")
+    daily = group(page, "Daily Work")
+    await daily.locator("legend").click()
+    opener = page.locator('button[data-key="work-order-list"]')
+    panel = page.locator('[data-cmpri-desktop-window="work-order-list"]')
+
+    async def assert_endpoint(direction, target):
+        endpoint = await page.wait_for_function(
+            "direction => window.telescopeEndpoints.find(item => item.direction === direction)", arg=direction
+        )
+        recorded = await endpoint.json_value()
+        assert abs(recorded["x"] - target["x"] - target["width"] / 2) < 1, (recorded, target)
+        assert abs(recorded["y"] - target["y"] - target["height"] / 2) < 1, (recorded, target)
+        assert abs(recorded["width"] - target["width"]) < 1, (recorded, target)
+        assert abs(recorded["height"] - target["height"]) < 1, (recorded, target)
+
+    original = await opener.bounding_box()
+    await opener.click()
+    await expect(panel).to_be_visible()
+    await expect(daily.locator("legend")).to_have_attribute("aria-current", "true")
+    await assert_endpoint("open", original)
+    destination = group(page, "Rooms & Reports").locator("legend")
+    drop = await destination.bounding_box()
+    await drag_between(page, context, False,
+                       (original["x"] + original["width"] / 2, original["y"] + original["height"] / 2),
+                       (drop["x"] + drop["width"] / 2, drop["y"] + drop["height"] / 2))
+    await expect(destination).to_be_focused()
+    moved = await opener.bounding_box()
+    assert abs(moved["x"] - original["x"]) > 10
+    await panel.locator("[data-cmpri-window-close]").click()
+    await assert_endpoint("close", moved)
+    await expect(panel).to_have_count(0)
+    await context.close()
+    print("windows telescope to the exact same launcher after a cross-tab move", flush=True)
+
+
 async def main():
     CAPS["engineer"] = CAPS["chief_engineer"].copy()
     async with async_playwright() as playwright:
@@ -455,6 +573,7 @@ async def main():
         await check_resize_and_retry(browser)
         await check_housekeeping_profile(browser)
         await check_mobile_window_clearance(browser)
+        await check_telescope_to_moved_launcher(browser)
         await browser.close()
 
 

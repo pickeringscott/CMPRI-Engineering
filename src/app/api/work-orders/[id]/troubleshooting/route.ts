@@ -9,7 +9,7 @@ import { workOrderReader } from '@/lib/server/work-order-reader';
 import { changeTroubleshootingTask, troubleshootingChecklistAccess } from '@/lib/server/work-order-troubleshooting';
 import { normalizeManualKnowledge } from '@/lib/manual-knowledge';
 import type { PmTaskState } from '@/lib/pm/task-review';
-import { deriveTroubleshootingChecklistContext, type TroubleshootingChecklist, type TroubleshootingChecklistAsset } from '@/lib/work-orders/troubleshooting-checklist';
+import { deriveTroubleshootingChecklistContext, saveTroubleshootingAttempt, troubleshootingOutcomes, type TroubleshootingAttempt, type TroubleshootingChecklist, type TroubleshootingChecklistAsset, type TroubleshootingTaskState } from '@/lib/work-orders/troubleshooting-checklist';
 import { loadUploadedAssetGuide } from '@/lib/server/uploaded-asset-guide';
 import {manualPreviewReadOnly} from '@/lib/server/manual-preview';
 
@@ -117,11 +117,21 @@ export async function POST(request: NextRequest, params: Params) {
 
 export async function PATCH(request: NextRequest, params: Params) {
   const body = await request.json().catch(() => null);
-  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['contextKey', 'expectedRevision', 'itemId', 'action', 'visitId', 'mutationId'].includes(key))
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => !['contextKey', 'expectedRevision', 'itemId', 'action', 'visitId', 'mutationId', 'attempt'].includes(key))
     || typeof body.contextKey !== 'string' || !/^[a-f0-9]{64}$/.test(body.contextKey) || typeof body.itemId !== 'string' || !/^step-[1-9]\d*$/.test(body.itemId)
     || !Number.isSafeInteger(body.expectedRevision) || body.expectedRevision < 0
     || !isUuid(body.visitId) || !isUuid(body.mutationId)
-    || (body.action !== undefined && body.action !== 'toggle' && body.action !== 'clear')) return json({ error: 'Choose a current checklist step, context, revision and editing visit.' }, 400);
+    || (body.action !== undefined && body.action !== 'toggle' && body.action !== 'clear' && body.action !== 'details')) return json({ error: 'Choose a current checklist step, context, revision and editing visit.' }, 400);
+  let attempt: TroubleshootingAttempt | undefined;
+  if (body.action === 'details') {
+    if (!body.attempt || typeof body.attempt !== 'object' || Array.isArray(body.attempt) || Object.keys(body.attempt).some(key => key !== 'outcome' && key !== 'observation')
+      || (body.attempt.outcome !== '' && !troubleshootingOutcomes.includes(body.attempt.outcome))
+      || typeof body.attempt.observation !== 'string' || body.attempt.observation.length > 140 || /[\x00-\x1f\x7f]/.test(body.attempt.observation)) {
+      return json({ error: 'Choose a supported outcome and an observation of up to 140 characters.' }, 400);
+    }
+    attempt = { outcome: body.attempt.outcome, observation: body.attempt.observation.trim() };
+  } else if (body.attempt !== undefined) return json({ error: 'Save outcome details separately.' }, 400);
+  const ledgerAction = body.action === 'clear' ? 'clear' : 'toggle';
   const base = await authorize(request, params);
   if (base instanceof Response) return base;
   const replay = await base.auth.admin.from('cmpri_work_order_troubleshooting_events').select('request')
@@ -129,7 +139,9 @@ export async function PATCH(request: NextRequest, params: Params) {
   if (replay.error) return json({ error: 'The previous checklist change could not be verified. Retry this same change before leaving.' }, 503);
   if (replay.data) {
     const previous = replay.data.request as Record<string, unknown>;
-    if (previous.context_key !== body.contextKey || Number(previous.expected_revision) !== body.expectedRevision || previous.item_id !== body.itemId || previous.action !== (body.action || 'toggle') || previous.visit_id !== body.visitId) return conflict('This change identifier was already used for a different checklist action.', 'mutation_changed');
+    const previousAttempt = (previous.source as Record<string, unknown> | undefined)?.attempt as TroubleshootingAttempt | undefined;
+    if (previous.context_key !== body.contextKey || Number(previous.expected_revision) !== body.expectedRevision || previous.item_id !== body.itemId || previous.action !== ledgerAction || previous.visit_id !== body.visitId
+      || previousAttempt?.outcome !== attempt?.outcome || previousAttempt?.observation !== attempt?.observation) return conflict('This change identifier was already used for a different checklist action.', 'mutation_changed');
     const repeated = await load(request, params, base);
     return repeated instanceof Response ? repeated : json({ ...visibleChecklist(repeated), replayed: true, mutationId: body.mutationId });
   }
@@ -139,8 +151,9 @@ export async function PATCH(request: NextRequest, params: Params) {
   if (!checklist.contextKey || checklist.contextKey !== body.contextKey) return conflict('The reported issue, equipment or verified guide changed. Reload the checklist before trying again.');
   if (!checklist.steps.some(step => step.id === body.itemId)) return json({ error: 'This step is not part of the current verified issue-specific guide.' }, 400);
   if (checklist.revision !== body.expectedRevision) return conflict('Someone changed this checklist. Reload it before trying again.', 'revision_changed');
-  let next: PmTaskState;
-  try { next = changeTroubleshootingTask(checklist, checklist.taskStates[body.itemId], body.action); }
+  const before = checklist.taskStates[body.itemId];
+  let next: TroubleshootingTaskState;
+  try { next = attempt ? saveTroubleshootingAttempt(checklist, before, attempt) : changeTroubleshootingTask(checklist, before, ledgerAction); }
   catch (error) { return json({ error: error instanceof Error ? error.message : 'This completion cannot be changed by your account.' }, 403); }
   const step = checklist.steps.find(item => item.id === body.itemId)!;
   const sources = JSON.parse(checklist.contextIdentity!).sources as Record<string, unknown>[];
@@ -158,10 +171,10 @@ export async function PATCH(request: NextRequest, params: Params) {
     p_visit_id: body.visitId,
     p_mutation_id: body.mutationId,
     p_item_id: body.itemId,
-    p_action: body.action || 'toggle',
-    p_step_label: step.label,
-    p_source: { source_file_name: source.file, storage_path: source.storage_path, sha256: source.sha256, registered_file_id: source.registered_file_id, registered_updated_at: source.registered_updated_at, source_pages: step.sourcePages, issue: order.issue },
-    p_before_state: checklist.taskStates[body.itemId] || null,
+    p_action: ledgerAction,
+    p_step_label: attempt ? [step.label.slice(0, 2600), attempt.outcome ? `Outcome: ${attempt.outcome}` : '', attempt.observation || ''].filter(Boolean).join(' · ') : step.label,
+    p_source: { source_file_name: source.file, storage_path: source.storage_path, sha256: source.sha256, registered_file_id: source.registered_file_id, registered_updated_at: source.registered_updated_at, source_pages: step.sourcePages, issue: order.issue, ...(attempt ? { attempt } : {}) },
+    p_before_state: before || null,
     p_after_state: next,
   }).maybeSingle();
   if (saved.error) {

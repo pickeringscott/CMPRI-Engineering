@@ -21,6 +21,10 @@ export async function GET(request: NextRequest) {
   try {
     const hotel = auth.principal.hotelId, user = auth.principal.identity.id;
     const inboxOnly = request.nextUrl.searchParams.get("inbox") === "1";
+    const noteId = request.nextUrl.searchParams.get("note");
+    if (noteId !== null && !uuid.test(noteId)) {
+      return NextResponse.json({ error: "Invalid Staff Note." }, { status: 400, headers });
+    }
     const [inbox, schedule] = await Promise.all([
       auth.admin.from("cmpri_dashboard_notifications").select("notification_key", { count: "exact" })
         .eq("hotel_id", hotel).eq("recipient_user_id", user).like("notification_key", "staff-note:%").is("read_at", null).is("cleared_at", null).order("recorded_at", { ascending: false }).limit(100),
@@ -41,6 +45,7 @@ export async function GET(request: NextRequest) {
     const before = request.nextUrl.searchParams.get("before");
     let query = auth.admin.from("cmpri_staff_notes").select("id,author_user_id,author_name,author_name_id,body,parent_id,created_at,attachments,gif_ids,hashtags,mentions")
       .eq("hotel_id", hotel).order("created_at", { ascending: false }).order("id", { ascending: false }).limit(100);
+    if (noteId) query = query.eq("id", noteId);
     if (before) {
       const [date, id] = before.split("|");
       if (!uuid.test(id || "") || !Number.isFinite(Date.parse(date))) return NextResponse.json({ error: "Invalid cursor." }, { status: 400, headers });
@@ -52,6 +57,7 @@ export async function GET(request: NextRequest) {
     const result = await query;
     if (result.error) throw new Error("Staff Notes could not be loaded.");
     const notes = result.data || [];
+    if (noteId && !notes.length) return NextResponse.json({ error: "This Staff Note is unavailable." }, { status: 404, headers });
     const parentIds = [...new Set(notes.map(n => n.parent_id).filter(Boolean))];
     const parents = parentIds.length ? await auth.admin.from("cmpri_staff_notes").select("id,author_user_id,author_name,author_name_id,body,parent_id,created_at,attachments,gif_ids,hashtags,mentions").eq("hotel_id", hotel).in("id", parentIds) : { data: [], error: null };
     if (parents.error) throw new Error("Reply context could not be loaded.");

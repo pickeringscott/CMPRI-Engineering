@@ -27,6 +27,9 @@ export type TroubleshootingChecklistStep = ManualProvenance & {
   code?: string;
   media?: TroubleshootingStepMedia[];
 };
+export const troubleshootingOutcomes = ["No change", "Fixed", "Observed an issue", "Unable to complete"] as const;
+export type TroubleshootingAttempt = { outcome: typeof troubleshootingOutcomes[number] | ""; observation: string };
+export type TroubleshootingTaskState = PmTaskState & Partial<TroubleshootingAttempt>;
 export type TroubleshootingChecklist = {
   contextKey: string | null;
   contextIdentity: string | null;
@@ -37,7 +40,7 @@ export type TroubleshootingChecklist = {
   canClearOwn: boolean;
   canSeePendingReview: boolean;
   steps: TroubleshootingChecklistStep[];
-  taskStates: Record<string, PmTaskState>;
+  taskStates: Record<string, TroubleshootingTaskState>;
   pendingVisits: { visitId: string; startedAt: string; lastEventAt: string | null; eventCount: number }[];
   reason?: string;
   previewReadOnly?:boolean;
@@ -47,6 +50,15 @@ export type TroubleshootingChecklist = {
 /** Pending review is red only for an actual Chief; other readers see completion. */
 export function troubleshootingTaskVisual(state: PmTaskState | undefined, canSeePendingReview: boolean) {
   return canSeePendingReview ? state?.status || 'empty' : taskComplete(state) ? 'approved' : 'empty';
+}
+
+export function canSaveTroubleshootingAttempt(access: Pick<TroubleshootingChecklist, "canEdit" | "actor">, state: TroubleshootingTaskState | undefined) {
+  return Boolean(access.canEdit && state && taskComplete(state) && (access.actor.role === "chief" || state.workerId === access.actor.id));
+}
+
+export function saveTroubleshootingAttempt(access: Pick<TroubleshootingChecklist, "canEdit" | "actor">, state: TroubleshootingTaskState | undefined, attempt: TroubleshootingAttempt): TroubleshootingTaskState {
+  if (!state || !canSaveTroubleshootingAttempt(access, state)) throw new Error("Only the authorized person who tried this step or a Chief Engineer can save its outcome.");
+  return { ...state, outcome: attempt.outcome, observation: attempt.observation.trim() };
 }
 
 /**

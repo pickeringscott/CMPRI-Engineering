@@ -6,6 +6,7 @@ import { translateNotificationMessage } from "@/lib/i18n/notification-text";
 import { subscribeResources } from "@/lib/events/browser";
 import { HOTEL_ID } from "@/lib/constants";
 import PoolStatus from "@/components/desktop/PoolStatus";
+import WeatherUtilities from "@/components/desktop/WeatherUtilities";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -261,8 +262,12 @@ export default function TechnicianDashboard() {
     ...(profileCanUseHoursTracker(account) ? [{key:"/engineering/hours-tracker", label:"Hours Tracker"}] : []),
     {key:"sign-out", label:"Sign Out"},
   ] : [];
+  const weatherAction = menuActions.find(action => action.key === WEATHER_MENU_PATH);
+  function openDashboardWeather(event: React.MouseEvent<HTMLButtonElement>) {
+    if (weatherAction) launchMenuAction(weatherAction, Date.now(), event.currentTarget);
+  }
 
-  function launchMenuAction(action: { key: string; label: string }, clickedAt: number) {
+  function launchMenuAction(action: { key: string; label: string }, clickedAt: number, opener?: HTMLElement) {
     if (action.key === "sign-out") {
       void signOut();
       return;
@@ -279,7 +284,7 @@ export default function TechnicianDashboard() {
       void armWeatherWarningSound();
       href = `${WEATHER_MENU_PATH}?weather=open`;
     }
-    window.dispatchEvent(new CustomEvent("cmpri-open-modal", { detail: { href, title: action.label, clickedAt } }));
+    window.dispatchEvent(new CustomEvent("cmpri-open-modal", { detail: { href, title: action.label, clickedAt, opener } }));
   }
 
   return (
@@ -300,10 +305,12 @@ export default function TechnicianDashboard() {
               <p data-dashboard-name className="mt-1 text-sm font-semibold">{account?.name?.trim() || t("Maintenance Technician")}</p>
               <p data-dashboard-role className="text-xs text-sky-200/90">{t("Maintenance Technician")}</p>
             </div>
-            <div className="cmpri-header-utilities"><PoolStatus controlOnly onOpen={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/pool',title:'Pool'}}))}/><button type="button" className="cmpri-header-create" onClick={()=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/work-orders',title:'Create Work Order'}}))}>{t("+ Work Order")}</button></div>
+            <WeatherUtilities onOpen={weatherAction ? openDashboardWeather : undefined}>
+              <div className="cmpri-header-utilities"><PoolStatus controlOnly onOpen={event=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/pool',title:'Pool',opener:event.currentTarget}}))}/><button type="button" className="cmpri-header-create" onClick={event=>window.dispatchEvent(new CustomEvent('cmpri-open-modal',{detail:{href:'/work-orders',title:'Create Work Order',opener:event.currentTarget}}))}>{t("+ Work Order")}</button></div>
+            </WeatherUtilities>
           </div>
           <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
-            <ApprovedDashboardMenus anchored userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={launchMenuAction} />
+            <ApprovedDashboardMenus anchored askEnabled userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={launchMenuAction} />
           </nav>
         </header>
         <div data-weather-desktop-bulletin-host className="relative z-20 w-full" />

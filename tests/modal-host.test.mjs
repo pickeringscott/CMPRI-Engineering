@@ -115,7 +115,7 @@ test('global route modals scale down from their dashboard and retain usable mobi
     const assets = href.includes('/management/equipment');
     for (const index of [0, 1, 2, 5]) {
       const result = {};
-      vm.runInNewContext(sizingCode, { exports: result, entry: { href }, index, modalThemeStyle:()=>({}),modalActionForRoute:()=>"",modalDisplayTitle:()=>"" });
+      vm.runInNewContext(sizingCode, { exports: result, entry: { href }, index, dashboardOverlay: false, modalThemeStyle:()=>({}),modalActionForRoute:()=>"",modalDisplayTitle:()=>"" });
       const scale = 0.9 ** (Math.min(index, 2) + 1);
       const inset = (detail ? 24 : 16) * scale;
       assert.deepEqual({ ...result.panelStyle }, {
@@ -288,7 +288,7 @@ test('Engineering Dashboard screen-launch controls are real buttons that open de
   assert.match(navigation, /<ApprovedDashboardMenus anchored[^>]*groups=\{visibleLauncherGroups\} onLaunch=\{launch\}/);
   assert.match(launchers, /hasCapability\(session, "(?:view_dashboard|submit|edit_tickets|manage_assets|manage_rooms|manage_users|review_feedback|view_profiles)"\)/);
   assert.doesNotMatch(navigation, /<a\b|data-cmpri-modal-trigger/);
-  assert.match(dashboard, /onClick=\{\(\) => onLaunch\(launcher, Date\.now\(\)\)\}/);
+  assert.match(dashboard, /onClick=\{event => onLaunch\(launcher, Date\.now\(\), event\.currentTarget\)\}/);
 });
 
 test('shared modal navigation actions render buttons while source and media links remain links', () => {

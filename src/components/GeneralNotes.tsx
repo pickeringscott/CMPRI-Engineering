@@ -47,7 +47,19 @@ export default function GeneralNotes({scope}:{scope:NoteScope}){
   sync.onState=()=>{if(!live)return;setNotes(sync.notes());setReady(sync.ready);setMessage(sync.message);setConflict(!!draftRef.current&&sync.conflicts.has(draftRef.current.id))};
   sync.onRemote=(note,id)=>{if(live&&draftRef.current?.id===id&&!sync.pending.has(id))showNote(note||blankNote())};
   const unwatch=watchNotes(scope,sync);
-  void Promise.resolve().then(()=>{if(!live)return;showNote(blankNote(),false);return sync.start()}).then(async()=>{if(!live||!sync.ready||initialGeneration!==loadGeneration.current)return;const restored=[...sync.pending.values()].at(-1),latest=sync.notes()[0],id=preferred&&(sync.pending.has(preferred)||sync.summaries.has(preferred))?preferred:restored?.note.id||latest?.id;const generation=loadGeneration.current;try{const note=id?await sync.open(id):null;if(live&&generation===loadGeneration.current)showNote(note||blankNote())}catch(error){if(live)setMessage(error instanceof Error?error.message:'Could not reopen this note.')}});
+  const linked = new window.URLSearchParams(window.location.search).get('note');
+  void Promise.resolve().then(()=>{if(!live)return;showNote(blankNote(),false);return sync.start()}).then(async()=>{
+   if(!live||!sync.ready||initialGeneration!==loadGeneration.current)return;
+   const restored=[...sync.pending.values()].at(-1),latest=sync.notes()[0];
+   const id=linked??(preferred&&(sync.pending.has(preferred)||sync.summaries.has(preferred))?preferred:restored?.note.id||latest?.id);
+   const generation=loadGeneration.current;
+   try{
+    const note=id?await sync.open(id):null;
+    if(!live||generation!==loadGeneration.current)return;
+    if(linked&&!note){setMessage('This Personal Notepad entry is unavailable.');return}
+    showNote(note||blankNote());
+   }catch(error){if(live&&generation===loadGeneration.current)setMessage(error instanceof Error?error.message:'Could not reopen this note.')}
+  });
   const finalize=()=>{const draft=draftRef.current;if(draft)sync.queue(draft,true)};
   const hide=()=>{if(document.hidden){finalize();void sync.flushAll(true)}};
   const pageHide=()=>{finalize();void sync.flushAll(true)};
