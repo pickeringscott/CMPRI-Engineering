@@ -17,7 +17,7 @@ import { claimWorkOrder, releaseWorkOrder } from '@/lib/open-work-orders';
 import { canResumeWorkspaceView } from '@/lib/ui/workspace-route-access';
 import { clearWorkspace, normalizeWorkspaceHref, readWorkspace, saveWorkspace, workspaceIdentity, workspaceResumeHref,
   type WorkspaceIdentity, type WorkspaceOptions, type WorkspaceView } from '@/lib/ui/workspace-resume';
-import { defaultWindowRect, desktopWindowKeyForHref, refocusAssetWindow, type DesktopBounds, type WindowRect } from '@/lib/ui/desktop-windows';
+import { defaultWindowRect, desktopWindowKeyForHref, isAskRecordRoute, refocusAssetWindow, type DesktopBounds, type WindowRect } from '@/lib/ui/desktop-windows';
 import { animateWindowTelescope, captureWindowLauncher, clearWindowTelescope, currentWindowLauncher, type WindowLauncher } from '@/lib/ui/window-telescope';
 
 type ModalEntry = {
@@ -879,7 +879,7 @@ export default function GlobalModalHost() {
 
   useEffect(() => {
     const openFromEvent = (event: Event) => {
-      const detail = (event as CustomEvent<{ href?: string; title?: string; clickedAt?: number; opener?: HTMLElement; openerRect?: DOMRect }>).detail;
+      const detail = (event as CustomEvent<{ href?: string; title?: string; origin?: string; clickedAt?: number; opener?: HTMLElement; openerRect?: DOMRect }>).detail;
       if (event.defaultPrevented || !detail?.href || !isSameOriginInternal(detail.href)) return;
       if (window.parent !== window) {
         window.parent.postMessage({
@@ -890,6 +890,9 @@ export default function GlobalModalHost() {
         }, window.location.origin);
         return;
       }
+      // Engineering owns Ask record windows in its existing desktop manager.
+      if (detail.origin === "ask-cmpri" && document.querySelector("[data-cmpri-engineering-window-owner]")
+        && isAskRecordRoute(detail.href, window.location.origin)) return;
       const desktop = technicianDesktopRef.current;
       const clickedAt = Number.isFinite(detail.clickedAt) ? detail.clickedAt : undefined;
       const opener = detail.opener instanceof HTMLElement ? detail.opener : undefined;
