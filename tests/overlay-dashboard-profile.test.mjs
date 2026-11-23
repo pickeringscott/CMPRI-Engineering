@@ -286,11 +286,13 @@ test('work-order dashboards show the CMPRI Engineering title without a role-spec
   assert.doesNotMatch(source, /dashboardTitleForRole\(cmpriSession\.user\.role\)/);
 });
 
-test('submit-only work-order forms display inferred category and priority without unavailable dropdown controls', () => {
+test('work-order forms show inferred values for locked fields and a priority selector for Front Desk', () => {
   const source = readFileSync(new URL('../src/app/work-orders/page.tsx', import.meta.url), 'utf8');
   assert.match(source, /!canSetEngineeringFields \? \(\s*<output[^>]*>\s*\{!locationId\s*\?\s*tx\("Select location first", "Selecciona la ubicación primero"\)\s*:\s*createAssetOptions\.find\(\(option\) => option\.value === assetId\)\?\.label\s*\?\?\s*tx\("No specific asset \/ equipment", "Sin equipo específico"\)\}\s*<\/output>\s*\) : \(\s*<SearchableSelect\s+value=\{assetId\}/);
   assert.match(source, /!canSetEngineeringFields \? \(\s*<output[^>]*>\s*\{isSpanish \? \(categoryLabelEs\[category\] \|\| category\) : category\}\s*<\/output>\s*\) : \(\s*<SearchableSelect\s+value=\{category\}/);
-  assert.match(source, /!canSetEngineeringFields \? \(\s*<output[^>]*>\s*\{isSpanish \? \(\{ Urgent: "Urgente", High: "Alta", Medium: "Media", Low: "Baja" \} as Record<string, string>\)\[priority\] : priority\}\s*<\/output>\s*\) : \(\s*<SearchableSelect\s+value=\{priority\}/);
+  assert.match(source, /const canChooseFrontDeskPriority = Boolean\(cmpriSession && profileHasRole\(cmpriSession\.user, "front_desk"\)\)/);
+  assert.match(source, /const canChoosePriority = canSetEngineeringFields \|\| canChooseFrontDeskPriority/);
+  assert.match(source, /!canChoosePriority \? \(\s*<output[^>]*>\s*\{isSpanish \? \(\{ Urgent: "Urgente", High: "Alta", Medium: "Media", Low: "Baja" \} as Record<string, string>\)\[priority\] : priority\}\s*<\/output>\s*\) : \(\s*<SearchableSelect\s+value=\{priority\}/);
 });
 
 test('work-order top bar shares split media controls and retains retry recovery', () => {
