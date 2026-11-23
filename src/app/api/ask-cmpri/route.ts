@@ -232,15 +232,37 @@ export async function POST(request: NextRequest) {
       || (qualifiedAssets.length === 1 ? qualifiedAssets[0] : undefined);
     const maker = bestAsset?.manufacturer || plan.manufacturer;
     const equipment = bestAsset?.model_number || plan.model;
-    const isAuthoritative = Boolean(bestAsset || explicitEquipment(input.question, maker, equipment));
+    const hasExplicitEquipment = explicitEquipment(input.question, maker, equipment);
+    const isAuthoritative = Boolean(bestAsset || hasExplicitEquipment);
     const webQuery = publicAskQuery({
       ...plan, manufacturer: isAuthoritative ? maker : "", model: isAuthoritative ? equipment : "",
       errorCode: plan.errorCode && input.question.toLowerCase().replace(/[\s-]+/g, "").includes(plan.errorCode.toLowerCase().replace(/[\s-]+/g, "")) ? plan.errorCode : "",
     }, input.question, Boolean(bestAsset?.documentation_verified_at));
-    let web: AskResultItem[] = [];
-    if (webQuery) {
-      try { web = await searchPublicAsk(webQuery, budget); }
-      catch { missing.push("Manufacturer or other web sources are temporarily unavailable."); }
+    const queries = new Set<string>();
+    if (webQuery) queries.add(webQuery);
+    if (plan.webIntent === "manufacturer" && plan.followUp && !hasExplicitEquipment) {
+      const reportedAssets = new Set(orders.map((order) => order.asset_id));
+      for (const asset of qualifiedAssets) {
+        if (!reportedAssets.has(asset.id) || queries.size >= 3) continue;
+        const query = publicAskQuery({
+          ...plan, manufacturer: asset.manufacturer || "", model: asset.model_number || "", errorCode: "",
+        }, input.question, Boolean(asset.documentation_verified_at));
+        if (query) queries.add(query);
+      }
+    }
+    const web: AskResultItem[] = [];
+    if (queries.size) {
+      const grounded = await Promise.allSettled([...queries].map((query) => searchPublicAsk(query, budget)));
+      if (grounded.some((result) => result.status === "rejected")) missing.push("Some manufacturer or other web sources are temporarily unavailable.");
+      const links = new Set<string>();
+      for (const result of grounded) {
+        if (result.status !== "fulfilled") continue;
+        for (const item of result.value) {
+          if (!item.href || links.has(item.href)) continue;
+          links.add(item.href);
+          web.push({ ...item, id: `web-${web.length}` });
+        }
+      }
     } else if (plan.webIntent !== "none") missing.push("An exact, public equipment identifier or supported safety topic is needed to verify a public source.");
 
     const items = [...internal, ...fileItems(input), ...web];

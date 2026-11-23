@@ -6,6 +6,7 @@ export type CreationRecovery = {
   hotelId: string;
   userId: string;
   fields: DraftFields;
+  frontDeskPriorityManuallySet?: true;
   active: { id: string; revision: number } | null;
   baseline: string;
   pending: PendingDraftSave | null;
@@ -81,6 +82,7 @@ export function readCreationRecovery(storage: Pick<Storage, "getItem">, identity
       created = { workOrders, uploads };
     }
     return { version: 1, ...identity, fields: normalized, active: draft, baseline: row.baseline, pending,
+      ...(row.frontDeskPriorityManuallySet === true ? { frontDeskPriorityManuallySet: true } : {}),
       pendingReceipt: row.pendingReceipt, attachmentCount: Number(row.attachmentCount), submissionUncertain: row.submissionUncertain, ...(created ? { created } : {}) };
   } catch { return null; }
 }
@@ -88,6 +90,7 @@ export function readCreationRecovery(storage: Pick<Storage, "getItem">, identity
 export function saveCreationRecovery(storage: Pick<Storage, "getItem" | "setItem">, identity: Identity, snapshot: CreationRecovery): boolean {
   try {
     const candidate = JSON.stringify({ version: 1, ...identity, fields: snapshot.fields, active: snapshot.active,
+      ...(snapshot.frontDeskPriorityManuallySet === true ? { frontDeskPriorityManuallySet: true } : {}),
       baseline: snapshot.baseline, pending: snapshot.pending, pendingReceipt: snapshot.pendingReceipt,
       attachmentCount: snapshot.attachmentCount, submissionUncertain: snapshot.submissionUncertain, ...(snapshot.created ? { created: snapshot.created } : {}) });
     const safe = readCreationRecovery({ getItem: () => candidate }, identity);
@@ -110,5 +113,5 @@ export function canRestoreCreationRecovery(recovery: CreationRecovery, remote: S
 export function hasCreationRecoveryWork(snapshot: CreationRecovery): boolean {
   const { fields } = snapshot;
   return Boolean(fields.staff_first_name || fields.location_id || fields.issue || fields.notes || fields.asset_id
-    || snapshot.active || snapshot.pending || snapshot.attachmentCount || snapshot.submissionUncertain || snapshot.created);
+    || snapshot.frontDeskPriorityManuallySet || snapshot.active || snapshot.pending || snapshot.attachmentCount || snapshot.submissionUncertain || snapshot.created);
 }

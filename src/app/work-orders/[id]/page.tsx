@@ -48,7 +48,7 @@ import { normalizeManualKnowledge, type ManualErrorCode, type ManualKnowledge } 
 import ManualSourceLink from "@/components/ManualSourceLink";
 import {diagnosticCodeRuledOut,technicianTroubleshootingContext} from "@/lib/work-orders/technician-context";
 import { assetGuideIdentity, reconcileAssetGuide, type AssetGuideIdentity } from "@/lib/work-orders/asset-guide-cache";
-import { profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
+import { profileHasRole, profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
 import { accountRoleDisplayName } from "@/lib/account-display";
 import { historyLine, parseTicketHistory, noteHeading, type TicketHistoryEntry } from "@/lib/ticket-note-presentation";
 import { canAccessWorkOrderByAssignment } from "@/lib/server/work-order-assignment";
@@ -1734,7 +1734,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
             { type: "cmpri-work-order-loaded", modalKind: "workOrder", workOrderId: ticketId, workOrder: workOrderListSnapshot(saved), modalToken }, window.location.origin);
           return true;
         } catch (error) {
-          setMessage(`Save error: ${error instanceof Error ? error.message : "Your selection could not be confirmed."} Your selection is retained. Check the saved ticket before retrying with Save Changes.`);
+          const retryAction = field === "priority" && canEditFrontDeskPriority ? "Retry beside Priority" : "Save Changes";
+          setMessage(`Save error: ${error instanceof Error ? error.message : "Your selection could not be confirmed."} Your selection is retained. Check the saved ticket before retrying with ${retryAction}.`);
           return false;
         }
       });
@@ -2151,6 +2152,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   const canAccessAssignedWork = canAccessWorkOrderByAssignment(cmpriSession && (profileIsChiefEngineer(cmpriSession.user) || profileIsEstablishedHoursChief(cmpriSession.user)) ? "Chief Engineer" : cmpriSession?.user.role, cmpriSession?.user.name, order);
   const canEditTicket = canAccessAssignedWork && Boolean(cmpriSession?.capabilities.includes("edit_tickets"));
   const canReviewTicket = Boolean(cmpriSession?.capabilities.includes("review_tickets"));
+  const canEditFrontDeskPriority = Boolean(cmpriSession && profileHasRole(cmpriSession.user, "front_desk"));
   const canAddWorkOrderNotes = Boolean(cmpriSession?.capabilities.includes("add_work_order_notes"));
   const canReopenTicket = Boolean(cmpriSession?.capabilities.includes("reopen"));
   const chief = !!cmpriSession && (profileIsChiefEngineer(cmpriSession.user) || profileIsEstablishedHoursChief(cmpriSession.user));
@@ -2180,7 +2182,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
     unassigned: !String(order.technician_name || "").trim(),
     canClaimUnassigned: canClaimWorkOrder,
   });
-  const canEditField = (field: WorkOrderEditableField) => ticketReady && editableFields.includes(field);
+  const canEditField = (field: WorkOrderEditableField) => ticketReady
+    && (editableFields.includes(field) || (field === "priority" && canEditFrontDeskPriority));
   const canEditWorkOrder = editableFields.some((field) => field !== "technician_name" && field !== "notes");
   const statusValues = (() => {
     if (chief && canEditField("status")) return ["Pending Verification", "Open", "In Progress", "Completed", "Will Not Do", "Closed"];
@@ -2473,6 +2476,9 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("priority", priority, order.priority || "Medium")}>
                       <label htmlFor="ticket-priority" className="mb-1 block text-xs font-semibold text-slate-400">{t("Priority")}{order.ranker_base_priority && order.ranker_base_priority !== order.priority && <span className="text-red-500" aria-label={t("Raised by Room Ranker")}> !</span>}{pendingField("priority")}</label>
                       <select id="ticket-priority" value={priority} onChange={event => saveMetadataSelection("priority", event.target.value)} disabled={saving || !canEditField("priority")} className="cmpri-ticket-select">{priorityOptions.map(option => <option key={option.value} value={option.value}>{t(option.label)}</option>)}</select>
+                      {canEditFrontDeskPriority && ticketReady && !metadataSaving && priority !== (order.priority || "Medium") && (
+                        <button type="button" disabled={saving} className="mt-1 text-xs underline" onClick={() => void saveMetadataSelection("priority", priority)}>{t("Retry")}</button>
+                      )}
                     </div>
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("technician_name", technicianName, order.technician_name || "")}>
                       <div className="mb-1 text-xs font-semibold text-slate-400">{t("Technician")}{pendingField("technicianName")}</div>

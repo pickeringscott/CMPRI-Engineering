@@ -12,7 +12,7 @@ const snapshot=(extra={})=>({version:1,...identity,fields:{...fields},active:nul
 function storage(){const rows=new Map();return {getItem:key=>rows.get(key)??null,setItem:(key,value)=>rows.set(key,value),removeItem:key=>rows.delete(key),rows};}
 
 test('a complete device close/reopen recovers exact text, active draft compare baseline and attachment reminder',()=>{
-  const disk=storage(),saved=snapshot({active:{id:'draft-a',revision:4},baseline:draftFieldsKey(fields)});
+  const disk=storage(),saved=snapshot({fields:{...fields,priority:'Urgent'},frontDeskPriorityManuallySet:true,active:{id:'draft-a',revision:4},baseline:draftFieldsKey(fields)});
   assert.equal(recovery.saveCreationRecovery(disk,identity,saved),true);
   const reopened=recovery.readCreationRecovery(disk,identity);
   assert.deepEqual(reopened,saved);
@@ -83,6 +83,7 @@ function pageFixture(disk=storage(),overrides={}){
     cmpriSession:{hotelId:identity.hotelId,user:{id:identity.userId}},draftsLoaded:true,loadingLocations:false,loadingAssets:false,
     creationRecoveryScope:{current:''},creationScope:scope,creationRecoveryStopped:{current:false},creationRecoveryReady:'',creationRecoveryConflict:null,
     drafts:[],reviewDraft:null,issue:'',notes:'',locationId:'',staffFirstName:'',draftFields:{...fields},
+    frontDeskPriorityOnly:false,frontDeskPriorityOverride:undefined,priority:'Medium',manualPriority:false,
     currentDraftKey:draftFieldsKey(fields),activeDraftId:'',activeDraftRevision:null,lastSavedDraftKey:'',
     pendingDraftSave:{current:null},draftCreationReceipts:{current:new Map()},autoOpenedDraftRef:{current:''},persistCreationRecoveryRef:{current:()=>{}},
     acknowledgedCreation:{current:undefined},restoreCreationAttachments:async()=>{},persistAttachmentsRef:{current:async()=>true},restoringAttachments:{current:0},

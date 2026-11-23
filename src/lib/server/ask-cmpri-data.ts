@@ -99,6 +99,7 @@ export function applyAskContext(plan: AskPlan, question: string, previous?: AskC
   const workOrders = references.length ? references : plan.workOrders;
   const formatting = /^(?:(?:please|can you|could you)\s+)*(?:put (?:that|it|this) (?:in|into)|table please|in a table|sort (?:it |them )?by|add (?:a |the )?(?:priority|room|status|source|work order)(?: column)?|keep it short|use bullet points|bullet points)\b/i.test(question.trim());
   const followUp = Boolean(previous && (plan.followUp || formatting || /\b(?:there|that room|same room|that ticket|same work order)\b/i.test(question)));
+  const replacementFollowUp = followUp && plan.webIntent === "manufacturer" && !plan.model && previous?.sources?.includes("orders");
   const copyTarget = followUp && !rooms.length && !workOrders.length;
   const previousColumns = previous?.fields || [];
   const adding = followUp && /\b(?:add|include)\b/i.test(question) && previousColumns.length > 0;
@@ -106,18 +107,19 @@ export function applyAskContext(plan: AskPlan, question: string, previous?: AskC
     ? "table" : /\bbullet points\b/i.test(question) ? "bullets" : /\bkeep it short\b/i.test(question) ? "brief" : "default";
   const inferredSort = question.match(/\bsort (?:it |them )?by (priority|room|ticket status|repair state|checkout time|work order)\b/i)?.[1] || "";
   const assignedOnly = plan.assignedOnly || /\b(?:my assigned (?:tickets?|work|work orders?)|assign(?:ed)? to me|my tickets)\b/i.test(question)
-    || Boolean(formatting && previous?.assignedOnly);
+    || Boolean((formatting || replacementFollowUp) && previous?.assignedOnly);
   const draft = previous?.pending;
   const continuesAction = draft && followUp;
   return {
     ...plan,
     followUp,
-    sources: formatting && previous?.sources?.length ? previous.sources : plan.sources.length ? plan.sources : assignedOnly ? ["orders"] : followUp ? previous?.sources || [] : [],
+    sources: replacementFollowUp ? [...new Set<AskSource>(["orders", ...plan.sources])]
+      : formatting && previous?.sources?.length ? previous.sources : plan.sources.length ? plan.sources : assignedOnly ? ["orders"] : followUp ? previous?.sources || [] : [],
     rooms: [...new Set((copyTarget ? previous?.rooms || [] : rooms).map(validAskRoom).filter(Boolean))].slice(0, 8),
     workOrders: [...new Set((copyTarget ? previous?.workOrders || [] : workOrders).map((value) => isUuid(value) ? value : workOrderNumber(value) || "").filter(Boolean))].slice(0, 8),
-    terms: askTerms(formatting && previous?.terms?.length ? previous.terms
+    terms: askTerms((formatting || replacementFollowUp) && previous?.terms?.length ? previous.terms
       : plan.terms.length ? plan.terms : followUp && plan.sources.every((item) => previous?.sources?.includes(item)) ? previous?.terms || [] : []),
-    status: followUp && plan.status === "all" && plan.sources.every((item) => previous?.sources?.includes(item)) ? previous?.status || "all" : plan.status,
+    status: followUp && plan.status === "all" && (replacementFollowUp || plan.sources.every((item) => previous?.sources?.includes(item))) ? previous?.status || "all" : plan.status,
     assignedOnly,
     roomIntent: formatting && previous?.roomIntent ? previous.roomIntent : plan.roomIntent,
     format: plan.format !== "default" ? plan.format : defaultFormat !== "default" ? defaultFormat : followUp && previous?.format ? previous.format : "default",

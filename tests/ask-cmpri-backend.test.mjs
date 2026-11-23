@@ -97,6 +97,11 @@ test("follow-ups retain room and table fields while new substantive queries sele
   assert.deepEqual([...newQuery.rooms], []);
   assert.equal(newQuery.roomIntent, "late-checkouts");
   assert.equal(newQuery.format, "table");
+  const replacements = data.applyAskContext({ ...basePlan, followUp: true, sources: ["assets"], webIntent: "manufacturer" },
+    "What could replace those?", { sources: ["orders"], rooms: ["134", "212"], terms: ["microwave"] });
+  assert.deepEqual([...replacements.sources], ["orders", "assets"]);
+  assert.deepEqual([...replacements.rooms], ["134", "212"]);
+  assert.deepEqual([...replacements.terms], ["microwave"]);
 });
 
 test("repair complete and administrative closure remain separate facts", () => {

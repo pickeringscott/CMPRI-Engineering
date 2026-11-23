@@ -4,9 +4,11 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { createTicketWriteQueue } from '../src/lib/work-orders/write-queue.ts';
+import { profileHasRole } from '../src/lib/server/roles.ts';
 
 const source = readFileSync('src/app/work-orders/[id]/page.tsx', 'utf8');
 const ast = ts.createSourceFile('ticket.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+const createSource = readFileSync('src/app/work-orders/page.tsx', 'utf8');
 let method = '';
 function find(node) {
   if (ts.isFunctionDeclaration(node) && node.name?.text === 'saveMetadataSelection') method = node.getText(ast);
@@ -23,7 +25,7 @@ function fixture() {
   let server = { ...row }, release, hold = false, fail = false, changeServer = () => {};
   const requests = [], messages = [], posts = [];
   const fingerprint = { assetId: '', category: 'General', priority: 'Medium', technicianName: '', status: 'Open', dueBy: '', issue: 'Unrelated draft baseline' };
-  const ctx = { exports: {}, order: row, orderRef: { current: row }, ticketReady: true, canEditField: () => true,
+  const ctx = { exports: {}, order: row, orderRef: { current: row }, ticketReady: true, canEditField: () => true, canEditFrontDeskPriority: false,
     metadataSelectionVersion: { current: {} }, metadataSaveCount: { current: 0 }, assetSelectionChanged: { current: false },
     ticketWrites: { current: createTicketWriteQueue() }, assets: [{ id: 'asset', category: 'HVAC' }], cmpriSession: { user: { role: 'Chief Engineer' } },
     categoryForAsset: asset => asset.category, priorityForCategory: () => 'High', roleKey: s => s.toLowerCase().replaceAll(' ', '_'),
@@ -68,6 +70,27 @@ test('equipment selection saves inferred fields together and leaves unrelated dr
   const f = fixture(); await f.save('asset_id', 'asset');
   assert.deepEqual(f.requests[0], { expected_revision: 1, asset_id: 'asset', category: 'HVAC', priority: 'High' });
   assert.equal(f.fields.category, 'HVAC'); assert.equal(JSON.parse(f.ctx.fingerprint).issue, 'Unrelated draft baseline');
+});
+
+test('Front Desk can choose Urgent on submission and autosave only priority on a closed ticket', async () => {
+  const createGate = createSource.match(/const canChooseFrontDeskPriority =[^\n]+\n  const canChoosePriority =[^\n]+/)[0];
+  const editGate = source.match(/const canEditFrontDeskPriority =[^\n]+/)[0];
+  const fieldGate = source.match(/const canEditField = .*\n    && .*;/)[0].replace(': WorkOrderEditableField', '');
+  const f = fixture();
+  f.server().status = f.ctx.order.status = 'Closed';
+  f.ctx.cmpriSession.user.role = 'Front Desk';
+  Object.assign(f.ctx, { profileHasRole, editableFields: [], canSetEngineeringFields: false });
+  vm.runInNewContext(`${createGate}\n${editGate}\n${fieldGate}\nexports.gates = { canChoosePriority, canEditFrontDeskPriority, canEditField };`, f.ctx);
+  Object.assign(f.ctx, f.ctx.exports.gates);
+  assert.equal(f.ctx.canChoosePriority, true);
+  assert.match(createSource, /\{!canChoosePriority \? \([\s\S]*?options=\{\['Urgent','High','Medium','Low'\]/);
+  assert.match(createSource, /frontDeskPriorityOverride = frontDeskPriorityOnly && manualPriority \? priority : undefined/);
+  assert.match(createSource, /\{ \.\.\.order, priority: frontDeskPriorityOverride \}/);
+  await f.save('status', 'Open');
+  await f.save('priority', 'Urgent');
+  assert.deepEqual(f.requests, [{ expected_revision: 1, priority: 'Urgent' }]);
+  assert.equal(f.server().status, 'Closed');
+  assert.equal(f.server().priority, 'Urgent');
 });
 
 test('failure retains the selected draft, confirmed revision, and an actionable error', async () => {

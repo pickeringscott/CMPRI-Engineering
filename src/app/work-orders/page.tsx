@@ -47,7 +47,7 @@ import {
 import { normalizeManualKnowledge, type ManualKnowledge } from "@/lib/manual-knowledge";
 import { roomStatusBadge } from "@/lib/room-availability";
 import { keepCreateFormOpen } from "@/lib/work-order-create-presentation";
-import { isSubmitOnlyRole } from "@/lib/server/roles";
+import { isSubmitOnlyRole, profileHasRole } from "@/lib/server/roles";
 import { draftFieldsKey, guardedDraftRequest, mergeConfirmedOwnDraft, saveDraftWithRecovery, type DraftFields, type PendingDraftSave, type SavedDraft } from "@/lib/work-orders/draft-save";
 import { clearAttachmentDraft, readAttachmentDraft, saveAttachmentDraft, type AttachmentDraft } from "@/lib/work-orders/attachment-draft";
 import { canRestoreCreationRecovery, clearCreationRecovery, hasCreationRecoveryWork, readCreationRecovery, saveCreationRecovery, type CreationRecovery } from "@/lib/work-orders/creation-recovery";
@@ -788,6 +788,10 @@ export default function WorkOrdersPage() {
   const submittingRef = useRef(false);
   const submittedDisplayIdsRef = useRef<string[]>([]);
   const canSetEngineeringFields = Boolean(cmpriSession?.capabilities.includes("edit_tickets") || cmpriSession?.capabilities.includes("review_tickets"));
+  const canChooseFrontDeskPriority = Boolean(cmpriSession && profileHasRole(cmpriSession.user, "front_desk"));
+  const canChoosePriority = canSetEngineeringFields || canChooseFrontDeskPriority;
+  const frontDeskPriorityOnly = canChooseFrontDeskPriority && !canSetEngineeringFields;
+  const frontDeskPriorityOverride = frontDeskPriorityOnly && manualPriority ? priority : undefined;
   const systemAssignedTechnicalFields = isSubmitOnlyUser || !canSetEngineeringFields;
   const selectedCreateAsset = assets.find((item) => item.id === assetId);
   const selectedCreateAssetId = selectedCreateAsset?.id;
@@ -917,7 +921,7 @@ export default function WorkOrdersPage() {
 
     if (
       smartCategory &&
-      (!manualPriority || locationOverride || systemAssignedTechnicalFields)
+      (!manualPriority || locationOverride || !canChoosePriority)
     ) {
       setPriority(
         priorityForCategory(
@@ -1148,7 +1152,7 @@ export default function WorkOrdersPage() {
     setManualLocation(Boolean(snapshot.fields.location_id));
     setManualAsset(Boolean(snapshot.fields.asset_id));
     setManualCategory(true);
-    setManualPriority(true);
+    setManualPriority(!frontDeskPriorityOnly || snapshot.frontDeskPriorityManuallySet === true);
     setActiveDraftId(snapshot.active?.id || "");
     setActiveDraftRevision(snapshot.active?.revision ?? null);
     setLastSavedDraftKey(snapshot.baseline);
@@ -1258,7 +1262,8 @@ export default function WorkOrdersPage() {
       const identity = { hotelId: cmpriSession.hotelId, userId: cmpriSession.user.id };
       const pending = pendingDraftSave.current;
       const pendingReceipt = pending?.method === "POST" ? draftCreationReceipts.current.get(pending.id) || "" : "";
-      const snapshot: CreationRecovery = { version: 1, ...identity, fields: { ...draftFields, issue },
+      const snapshot: CreationRecovery = { version: 1, ...identity, fields: { ...draftFields, issue, ...(frontDeskPriorityOnly ? { priority } : {}) },
+        ...(frontDeskPriorityOnly && manualPriority ? { frontDeskPriorityManuallySet: true } : {}),
         active: activeDraftId && activeDraftRevision !== null ? { id: activeDraftId, revision: activeDraftRevision } : null,
         // A POST gets its bound receipt synchronously before fetch is called.
         // Before that point it has not been sent and needs only text recovery.
@@ -1285,7 +1290,7 @@ export default function WorkOrdersPage() {
     };
     // draftFields covers the form's text; the request snapshot is read from its durable ref at flush time.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [creationScope, creationRecoveryReady, creationRecoveryConflict, currentDraftKey, issue, activeDraftId, activeDraftRevision, lastSavedDraftKey, photos.length, createState, mainWorkOrderCreated, creationSubmissionUncertain]);
+  }, [creationScope, creationRecoveryReady, creationRecoveryConflict, currentDraftKey, issue, frontDeskPriorityOnly, manualPriority, priority, activeDraftId, activeDraftRevision, lastSavedDraftKey, photos.length, createState, mainWorkOrderCreated, creationSubmissionUncertain]);
 
   useEffect(() => {
     const persist = async () => {
@@ -1715,7 +1720,7 @@ export default function WorkOrdersPage() {
     const relatedAsset = resolveRelatedAsset(suggestion, location);
     setIssue(suggestion.issue);
     setCategory(suggestion.category);
-    setPriority(suggestion.priority);
+    setPriority(frontDeskPriorityOverride ?? suggestion.priority);
     setAssetId(relatedAsset?.id ?? "");
     setManualAsset(Boolean(relatedAsset));
     setShowBatchCreateDialog(false);
@@ -2001,7 +2006,10 @@ export default function WorkOrdersPage() {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
-          orders: Array.isArray(orders) ? orders : [orders],
+          orders: (Array.isArray(orders) ? orders : [orders]).map((order) =>
+            frontDeskPriorityOnly
+              ? { ...order, priority: frontDeskPriorityOverride }
+              : order),
           staff_first_name: staffFirstName.trim(),
           ...(activeDraftId ? { source_draft_id: activeDraftId, source_draft_revision: activeDraftRevision } : {}),
         }),
@@ -2627,7 +2635,7 @@ export default function WorkOrdersPage() {
 
               <label className="block">
                 <span className="mb-1 block text-sm font-medium"> {tx("Priority", "Prioridad")} </span>
-                {!canSetEngineeringFields ? (
+                {!canChoosePriority ? (
                   <output className="block w-full rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200">
                     {isSpanish ? ({ Urgent: "Urgente", High: "Alta", Medium: "Media", Low: "Baja" } as Record<string, string>)[priority] : priority}
                   </output>
@@ -2640,7 +2648,7 @@ export default function WorkOrdersPage() {
                     options={['Urgent','High','Medium','Low'].map((value) => ({ value, label: isSpanish ? ({ Urgent: 'Urgente', High: 'Alta', Medium: 'Media', Low: 'Baja' } as Record<string,string>)[value] : value }))}
                   />
                 )}
-                {!canSetEngineeringFields && <p className="mt-2 text-xs font-semibold text-emerald-400"> {tx("System best guess · locked for submit-only roles", "Mejor estimación del sistema · bloqueado para funciones de solo envío")} </p>}
+                {!canChoosePriority && <p className="mt-2 text-xs font-semibold text-emerald-400"> {tx("System best guess · locked for submit-only roles", "Mejor estimación del sistema · bloqueado para funciones de solo envío")} </p>}
               </label>
             </div>
 
@@ -2786,7 +2794,7 @@ export default function WorkOrdersPage() {
                       <div className="mt-1.5 grid gap-1.5 text-xs text-slate-300 sm:grid-cols-3">
                         <span><span className="text-slate-500">{tx("Asset:")}</span> {relatedAsset?.name ?? suggestion.assetName}</span>
                         <span><span className="text-slate-500">{tx("Category:")}</span> {tx(suggestion.category)}</span>
-                        <span><span className="text-slate-500">{tx("Priority:")}</span> {tx(suggestion.priority)}</span>
+                        <span><span className="text-slate-500">{tx("Priority:")}</span> {tx(frontDeskPriorityOverride ?? suggestion.priority)}</span>
                       </div>
                       {duplicate && (
                         <p className="mt-1.5 rounded-lg border border-orange-500/40 bg-orange-950/30 px-2 py-1 text-xs font-semibold text-orange-200">{tx("Possible duplicate:")}{" "}{formatWorkOrder(duplicate.display_id, "existing work order")} — {duplicate.issue || tx("similar active issue")}</p>

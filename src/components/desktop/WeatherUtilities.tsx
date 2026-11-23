@@ -24,6 +24,7 @@ function onArc(angle: number) {
 }
 
 function dialArc(visuals: WeatherVisuals | null, high: number | null, low: number | null) {
+  const startColor = visuals && high !== null ? visuals.colorAt(0) : UNKNOWN_COLOR;
   const highColor = visuals && high !== null ? visuals.colorAt(high) : UNKNOWN_COLOR;
   const lowColor = visuals && low !== null ? visuals.colorAt(low) : UNKNOWN_COLOR;
   const temperatureStops = visuals && high !== null && low !== null && high > low
@@ -32,10 +33,19 @@ function dialArc(visuals: WeatherVisuals | null, high: number | null, low: numbe
       return `${stop.color} ${HIGH_ANGLE - ARC_START + ratio * (LOW_ANGLE - HIGH_ANGLE)}deg`;
     }) : [];
   const stops = [
-    `${highColor} ${HIGH_ANGLE - ARC_START}deg`, ...temperatureStops,
+    `${startColor} 0deg`, `${highColor} ${HIGH_ANGLE - ARC_START}deg`, ...temperatureStops,
     `${lowColor} ${LOW_ANGLE - ARC_START}deg ${ARC_SPAN}deg`, `transparent ${ARC_SPAN}deg`,
   ];
-  return { background: `conic-gradient(from ${ARC_START}deg, ${stops.join(", ")})`, highColor, lowColor };
+  return { background: `conic-gradient(from ${ARC_START}deg, ${stops.join(", ")})`, startColor, highColor, lowColor };
+}
+
+function temperatureInk(color: string) {
+  const [red, green, blue] = [1, 3, 5].map(offset => {
+    const channel = parseInt(color.slice(offset, offset + 2), 16) / 255;
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  return luminance > 0.179 ? "#000" : "#fff";
 }
 
 function moonLight(angle: number | null) {
@@ -65,6 +75,10 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
   const bead = onArc(HIGH_ANGLE + range * (LOW_ANGLE - HIGH_ANGLE));
   const arc = dialArc(visuals, high, low);
   const endpoints = [onArc(ARC_START), onArc(ARC_START + ARC_SPAN)];
+  const markers = [
+    { label: "H", position: onArc(HIGH_ANGLE), color: arc.highColor },
+    { label: "L", position: onArc(LOW_ANGLE), color: arc.lowColor },
+  ];
   const moon = moonLight(data?.moonAngle ?? null);
   const temperature = (value: number | null) => value === null ? "—" : `${Math.round(value)}°`;
   const precipitation = data?.precipitation == null ? "—" : `${Math.round(data.precipitation)}%`;
@@ -84,26 +98,31 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
         aria-label={details.replaceAll("\n", ". ")} aria-haspopup="dialog" title={details} onClick={onOpen}>
         <span className={styles.ring} style={{ background: arc.background }} aria-hidden="true" />
         <svg className={styles.artboard} viewBox="0 0 100 100" aria-hidden="true" focusable="false">
-          <circle cx={endpoints[0].x} cy={endpoints[0].y} r="3.5" fill={arc.highColor} />
+          <circle cx={endpoints[0].x} cy={endpoints[0].y} r="3.5" fill={arc.startColor} />
           <circle cx={endpoints[1].x} cy={endpoints[1].y} r="3.5" fill={arc.lowColor} />
-          {current !== null && high !== null && low !== null ? <circle cx={bead.x} cy={bead.y} r="3.4" fill="white" /> : null}
-          <text x="25" y="17.5" className={styles.marker}>H</text>
-          <text x="79.5" y="81.5" className={styles.marker}>L</text>
+          {markers.map(({ label, position, color }) => <g key={label}>
+            <circle cx={position.x} cy={position.y} r="4.2" fill={color} className={styles.markerOutline} />
+            <text x={position.x} y={position.y + 2.2} fill={temperatureInk(color)} className={styles.marker}>{label}</text>
+          </g>)}
+          {current !== null && high !== null && low !== null ? <circle cx={bead.x} cy={bead.y} r="3.5" className={styles.currentBead} /> : null}
           <text x={CENTER_X} y="35" className={styles.temperature}>{temperature(current)}</text>
           <path d="M34 39H69" className={styles.rule} />
           <text x={CENTER_X} y="46.7" className={styles.now}>{t("Now", "Ahora")}</text>
-          <path d="M26 51q0 0 2.4 3.2a2.5 2.5 0 1 1-4.8 0Q26 51 26 51Zm5.8 2.7q0 0 1.7 2.2a1.8 1.8 0 1 1-3.4 0q1.7-2.2 1.7-2.2Z" className={styles.drops} />
-          <text x="29" y="65" className={styles.precipitation}>{precipitation}</text>
-          <text x="74" y="55.4" className={styles.wind}>{wind}</text>
-          <text x="74" y="59.4" className={styles.windUnit}>mph</text>
+          <g className={styles.drops}>
+            <path d="M18.2 53.9c1.5 2 2.6 3.5 2.6 5a2.6 2.6 0 0 1-5.2 0c0-1.5 1.1-3 2.6-5Z" />
+            <path d="M23.9 51.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
+            <path d="M23.9 57.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
+          </g>
+          <text x="27" y="61.1" className={styles.precipitation}>{precipitation}</text>
+          <text x="74" y="55.8" className={styles.wind}>{wind}<tspan className={styles.windUnit}> mph</tspan></text>
           <circle cx="74.5" cy="64.5" r="4" className={styles.windCircle} />
           {data?.wind === 0 ? <circle cx="74.5" cy="64.5" r="1" className={styles.calm} /> : data?.bearing != null && data?.wind != null ? (
             <path d="M74.5 62v5m-1.5-1.6 1.5 1.6 1.5-1.6" transform={`rotate(${data.bearing} 74.5 64.5)`} className={styles.windArrow} />
           ) : null}
-          <rect x="30" y="69.5" width="20" height="9.4" rx="4.7" className={styles.lozenge} />
-          <rect x="53" y="69.5" width="20" height="9.4" rx="4.7" className={styles.lozenge} />
-          <text x="40" y="76.3" className={styles.extreme}>{temperature(low)}</text>
-          <text x="63" y="76.3" className={styles.extreme}>{temperature(high)}</text>
+          <rect x="30" y="69.5" width="20" height="9.4" rx="4.7" fill={arc.lowColor} />
+          <rect x="53" y="69.5" width="20" height="9.4" rx="4.7" fill={arc.highColor} />
+          <text x="40" y="76.3" fill={temperatureInk(arc.lowColor)} className={styles.extreme}>{temperature(low)}</text>
+          <text x="63" y="76.3" fill={temperatureInk(arc.highColor)} className={styles.extreme}>{temperature(high)}</text>
           {moon ? <g transform={`translate(${CENTER_X} 89.7)`}>
             <circle r="4.2" className={styles.moon} />
             <path d={moon} className={styles.moonLight} />
