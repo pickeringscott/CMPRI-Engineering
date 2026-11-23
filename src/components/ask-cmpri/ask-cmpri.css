@@ -166,6 +166,14 @@
   background: var(--ask-raised); box-shadow: 0 7px 20px #000b, 0 2px 5px #0007;
 }
 .ask-query-box { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 4px; }
+.ask-voice-picker { display: flex; align-items: center; flex: 0 1 108px; min-width: 72px; height: var(--ask-control-size); }
+.ask-voice-picker[hidden] { display: none; }
+.ask-voice-picker select {
+  width: 100%; min-width: 0; min-height: 30px; padding: 3px 2px 3px 6px;
+  border: 1px solid var(--ask-edge); border-radius: 15px;
+  background: var(--ask-surface); color: var(--ask-muted); font: inherit; font-size: 12px;
+}
+.ask-voice-picker select:focus-visible { outline: 2px solid var(--ask-gold); outline-offset: 1px; }
 .ask-query-box .ask-gemini-mark {
   --ask-star-size: calc(17px + 2pt + var(--ask-mobile-increase, 0px));
   width: var(--ask-star-size); height: var(--ask-star-size);

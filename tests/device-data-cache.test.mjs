@@ -5,6 +5,12 @@ import { MemoryDataStore } from '../src/lib/data-cache/store.ts';
 import { dataCachePolicy, mutationTopics } from '../src/lib/data-cache/policy.ts';
 const json = value => Response.json(value);
 const policy = { topics: ['rooms'], ttl: 1000, durable: true };
+test('Ask search and speech POSTs leave resource invalidation to explicit confirmations', () => {
+  assert.deepEqual(mutationTopics('/api/ask-cmpri', 'POST'), []);
+  assert.deepEqual(mutationTopics('/api/ask-cmpri/speech', 'POST'), []);
+  assert.deepEqual(mutationTopics('/api/pool-log', 'POST'), ['pool']);
+  assert.deepEqual(mutationTopics('/api/work-orders', 'POST'), ['orders','rooms','reference']);
+});
 test('shared reads deduplicate requests and use fresh memory/disk data until expiration', async () => {
   const disk = new MemoryDataStore(); let now = 1, calls = 0, release;
   const cache = new DeviceDataCache(disk, () => now);

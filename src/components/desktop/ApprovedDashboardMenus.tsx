@@ -8,6 +8,7 @@ import {modalLauncherStyle} from '@/lib/ui/header-palette';
 import {allowsAnchoredHeaderPlacement,anchoredHeaderLayoutForGroups,normalizeHeaderLayout,headerLayoutForGroups,type AnchoredMenuRestriction,type HeaderLayout} from '@/lib/header-layout';
 import {useStaffNotesSummary} from '@/lib/staff-notes-unread';
 import {getValidSession} from '@/lib/supabase/client';
+import {subscribeResources} from '@/lib/events/browser';
 import '@/app/ask-dashboard-launcher.css';
 type Action={key:string;label:string};
 type MenuGroup<T>={label:string;items:T[];centered?:boolean};
@@ -58,7 +59,7 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
   const element=root.current,key=`cmpri:header-layout:${hotelId}:${userId}`;
   const askScope=`${hotelId}:${userId}`;
   const pendingKey=`${key}:pending`;
-  let active=true,sending=false,loading=false,revision=0,unmount:ReturnType<typeof mountApprovedMenus>|ReturnType<typeof mountAnchoredMenus>|undefined;
+  let active=true,sending=false,loading=false,refreshPending=false,revision=0,unmount:ReturnType<typeof mountApprovedMenus>|ReturnType<typeof mountAnchoredMenus>|undefined;
   let askLauncher:ReturnType<typeof mountAskDashboardLauncher>;
   let pending=readCachedLayout(pendingKey);
   let layout=pending ?? readCachedLayout(key) ?? normalizeHeaderLayout(null);
@@ -90,7 +91,7 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
       break;
      }
     }
-   }finally{sending=false}
+   }finally{sending=false;if(active&&refreshPending&&!pending)void load()}
   };
   const save=(value:HeaderLayout)=>{
    layout=normalizeHeaderLayout(value);
@@ -134,8 +135,9 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
    };
   };
   const load=async()=>{
-   if(document.hidden||sending||loading)return;
+   if(!active||document.hidden||sending||loading||document.body.classList.contains('drag-active'))return;
    if(pending){void persist();return}
+   refreshPending=false;
    const requestedAt=revision;
    loading=true;
    try{
@@ -143,14 +145,18 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
     if(!response.ok)throw Error('Load failed.');
     const data=await response.json();
     if(!active||revision!==requestedAt)return;
+    if(document.body.classList.contains('drag-active')){refreshPending=true;return}
     const next=normalizeHeaderLayout(data.layout);
     if(JSON.stringify(next)!==JSON.stringify(layout)){layout=next;mount()}
     try{localStorage.setItem(key,JSON.stringify(layout))}catch{}
-   }catch{}finally{loading=false}
+   }catch{}finally{loading=false;if(active&&refreshPending&&!pending)void load()}
   };
+  const stopResources=subscribeResources(['session'],async()=>{refreshPending=true;await load()},false);
+  const gestures=new MutationObserver(()=>{if(refreshPending&&!document.body.classList.contains('drag-active'))void load()});
+  gestures.observe(document.body,{attributes:true,attributeFilter:['class']});
   mount();void load();const wake=()=>void load();window.addEventListener('focus',wake);window.addEventListener('online',wake);document.addEventListener('visibilitychange',wake);
   return()=>{
-   active=false;localize.current=null;
+   active=false;localize.current=null;stopResources();gestures.disconnect();
    if(askLauncher){savedAskState.current={scope:askScope,state:askLauncher.getState()};askLauncher.dispose()}
    unmount?.();window.removeEventListener('focus',wake);window.removeEventListener('online',wake);document.removeEventListener('visibilitychange',wake);
   };

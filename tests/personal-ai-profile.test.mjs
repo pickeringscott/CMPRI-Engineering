@@ -159,7 +159,8 @@ test("MCP tools apply the connected CMPRI user's current permissions and gate da
   assert.match(writes, /@\/app\/api\/work-orders\/\[id\]\/route/);
   assert.match(writes, /normalizeMcpWorkOrderUpdate\(input\)/);
   assert.match(writes, /normalizeMcpFeedbackInput\(input\)/);
-  assert.match(writes, /expected_revision from the latest work-order read/);
+  assert.match(writes, /CMPRI_WRITE_ACTION_GUIDANCE\["work_orders.update"\]/);
+  assert.match(source("../src/lib/ai/cmpri-operation-guidance.ts"), /expected_revision from the latest work-order read/);
   assert.match(writeInput, /In Progress/);
   assert.match(reads, /allows\(identity\.principal, capability\)/);
   assert.match(reads, /@\/app\/api\/engineering\/operations\/route/);

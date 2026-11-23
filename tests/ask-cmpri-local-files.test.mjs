@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadTs } from "./helpers/load-ts.mjs";
 
-function browser({ pick } = {}) {
+function browser({ pick, locks } = {}) {
   const downloads = [];
   const api = loadTs("src/components/ask-cmpri/local-file-storage.ts", {}, {
     window: { isSecureContext: true, showDirectoryPicker: pick },
-    navigator: {},
+    navigator: { locks },
     DOMException,
     File,
     URL,
@@ -108,6 +108,23 @@ test("a save never replaces existing media and folder handles stay account-scope
   assert.equal(await api.downloadAskCmpriFile("account-b", "Fixture.txt", new Blob(["Other user"])), "browser");
   assert.equal(entries.size, 2);
   assert.deepEqual(downloads, ["Fixture.txt"]);
+});
+
+test("an aborted download waiting for the device write lock creates no file and cannot fall back to the browser", async () => {
+  let release, entered;
+  const waiting = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const { api, downloads } = browser({ locks: { async request(_name, write) { entered(); await gate; return await write(); } } });
+  const { folder, entries } = testFolder();
+  api.setActiveAskCmpriFolder("account-a", folder);
+  const controller = new AbortController();
+  const download = api.downloadAskCmpriFile("account-a", "Fixture.pdf", new Blob(["Fixture"]), controller.signal);
+  const rejected = assert.rejects(download, { name: "AbortError" });
+  await waiting;
+  controller.abort(); release();
+  await rejected;
+  assert.equal(entries.size, 0);
+  assert.deepEqual(downloads, []);
 });
 
 test("the picker requests Documents and only creates the requested child for a granted Documents handle", async () => {

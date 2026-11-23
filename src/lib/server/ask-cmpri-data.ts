@@ -31,12 +31,12 @@ export type AskOrder = Data & {
 };
 export type AskLocation = Data & { id: string; name: string; room_number: string | null };
 
-const sources: AskSource[] = ["orders", "assets", "inventory", "rooms", "roomRank", "staffNotes", "personalNotes"];
+const sources: AskSource[] = ["orders", "assets", "inventory", "rooms", "roomRank", "staffNotes", "personalNotes", "preventiveMaintenance", "cmpri"];
 const statusScope = ["all", "active", "in-progress", "completed", "closed"] as const;
 export const askContextSchema = z.object({
   question: z.string().max(650).optional(),
   language: z.enum(["en", "es"]).optional(),
-  sources: z.array(z.enum(sources)).max(7).optional(),
+  sources: z.array(z.enum(sources)).max(sources.length).optional(),
   rooms: z.array(z.string().max(20)).max(8).optional(),
   workOrders: z.array(z.string().max(45)).max(8).optional(),
   terms: z.array(z.string().max(80)).max(8).optional(),
@@ -61,6 +61,20 @@ export const askContextSchema = z.object({
   focus: z.enum(["error-code", "equipment"]).optional(),
   evidence: z.array(z.string().max(125)).max(75).optional(),
   contextProof: z.string().max(90).optional(),
+  native: z.object({
+    summary: z.string().max(4000),
+    userTurns: z.array(z.string().max(1000)).max(6).optional(),
+    documents: z.array(z.object({ assetId: z.string().uuid(), name: z.string().max(255),
+      sourceUrl: z.string().max(4000), token: z.string().max(16000) })).max(8).optional(),
+    publicSources: z.array(z.object({ url: z.string().max(4000), title: z.string().max(200).optional() })).max(20).optional(),
+    files: z.array(z.object({ id: z.string().uuid(), name: z.string().max(255), type: z.string().max(120),
+      size: z.number().int().positive().max(100 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      token: z.string().max(10000), expiresAt: z.number().int().positive() })).max(20).optional(),
+    reads: z.array(z.object({ operation: z.string().max(200),
+      parameters: z.record(z.string().max(100), z.string().max(4000)).optional(),
+      query: z.record(z.string().max(100), z.union([z.string().max(4000), z.array(z.string().max(4000))])).optional(),
+    })).max(20),
+  }).optional(),
   pending: z.object({
     field: z.enum(["create", "status", "priority", "comment", "staff-note"]),
     needs: z.enum(["room", "issue", "staffName", "workOrder", "value", "photo", "review"]),
@@ -97,6 +111,9 @@ export function canReadAskAssets(principal: Principal) {
 
 export function askPermittedSources(principal: Principal): AskSource[] {
   return [
+    // Native handlers remain the authority for every module and current role.
+    "cmpri",
+    ...(allows(principal, "view_pm") ? ["preventiveMaintenance"] as const : []),
     ...(allows(principal, "view_work_orders") ? ["orders", "roomRank"] as const : []),
     ...(canReadAskAssets(principal) ? ["assets"] as const : []),
     ...(allows(principal, "manage_assets") || canReadChiefModuleData(principal) ? ["inventory"] as const : []),

@@ -15,8 +15,8 @@
 
 .dial {
   position: fixed;
-  top: 653px;
-  left: 1198px;
+  top: min(653px, max(0px, calc(100dvh - 225px)));
+  left: min(1198px, max(0px, calc(100vw - 225px)));
   z-index: 1;
   display: none;
   inline-size: 225px;
@@ -30,7 +30,7 @@
   cursor: pointer;
 }
 
-@media (min-width: 701px) and (hover: hover) {
+@media (min-width: 701px) {
   .dial { display: block; }
 }
 

@@ -1,3 +1,5 @@
+import { placeDashboardTitleTabs, titleTabOutline, titleTabRailWidth } from './dashboard-title-tabs.js';
+
 /**
  * The approved launcher DOM and gestures, anchored to the title line.
  * @template {{key:string, label:string, style?:Record<string,string>}} Action
@@ -370,22 +372,25 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     field.style.width = width + 'px';
     field.drawOutline();
   };
-  const setPosition = (field, x) => {
-    field.positionX = Math.round(Math.max(0, Math.min(x, bar.clientWidth - field.tabWidth - 26)));
-    field.style.left = field.positionX + 'px';
-    fitWidth(field);
+  const renderPositions = () => {
+    placeDashboardTitleTabs(root, bar);
+    fields().forEach(fitWidth);
+    stageHeight();
   };
-  const place = () => {
+  const boundPosition = (field, x) => Math.round(Math.max(0, Math.min(x, titleTabRailWidth(root, bar) - field.tabWidth - 26)));
+  const setPosition = (field, x) => {
+    field.positionX = boundPosition(field, x);
+    renderPositions();
+  };
+  const place = (preserveGesture = false) => {
     const items = fields();
     items.forEach(fitTab);
-    const fittedTabs = items.reduce((size, field) => size + field.tabWidth + TAB_GAP, 0);
-    bar.style.minWidth = Math.max(root.clientWidth, fittedTabs + TAB_INSET + 9) + 'px';
     let x = 0;
     for (const field of items) {
-      setPosition(field, field.requestedX ?? x);
+      field.positionX = boundPosition(field, preserveGesture ? field.positionX ?? field.requestedX ?? x : field.requestedX ?? x);
       x += field.tabWidth + TAB_GAP;
     }
-    stageHeight();
+    renderPositions();
   };
   function resizeHandle(className, title, measure, setSize, snapshot, restore) {
     const edge = document.createElement('span');
@@ -440,6 +445,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     field.classList.remove('collapsed');
     field.querySelector('legend').setAttribute('aria-expanded', 'true');
     setActive(field);
+    place(Boolean(cancelGesture));
     const left = displayedX(field);
     if (left < root.scrollLeft)
       root.scrollLeft = left;
@@ -457,7 +463,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       }
     }
     else openField(field);
-    stageHeight();
+    place(Boolean(cancelGesture));
     emit();
   }
   function startTabDrag(event, field, title) {
@@ -468,7 +474,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     const initialX = field.positionX, initialDisplayX = displayedX(field), initialScroll = root.scrollLeft, initialZ = field.style.zIndex;
     let last = event, dragging = false, moved = false, swiping = false, frame;
     const within = () => { const { left, right, top } = root.getBoundingClientRect(); return last.clientX >= left && last.clientX <= right && last.clientY >= top - 1 && last.clientY <= top + TAB_HEIGHT + 1; };
-    const displace = () => { if (within())
+    const displace = () => { if (moved && within())
       setPosition(field, initialDisplayX + last.clientX - event.clientX + root.scrollLeft - initialScroll); };
     const edgeScroll = () => {
       if (!dragging)
@@ -532,7 +538,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
         }
         else {
           displace();
-          if (field.positionX !== initialX) {
+          if (moved && field.positionX !== initialX) {
             field.requestedX = field.positionX;
             emit();
           }
@@ -636,7 +642,8 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
         scroll.hidden = true;
         return;
       }
-      const w = field.clientWidth + 2, h = field.clientHeight + 16, l = 11, r = l + title.offsetWidth + 6;
+      const w = field.clientWidth + 2, h = field.clientHeight + 16;
+      const { left: l, right: r } = titleTabOutline(title.offsetWidth);
       svg.innerHTML = `<path d="M 6 15 H ${l - 3} Q ${l} 15 ${l} 12 V 6 Q ${l} 1 ${l + 5} 1 H ${r - 5} Q ${r} 1 ${r} 6 V 12 Q ${r} 15 ${r + 3} 15 H ${w - 6} Q ${w - 1} 15 ${w - 1} 20 V ${h - 6} Q ${w - 1} ${h - 1} ${w - 6} ${h - 1} H 6 Q 1 ${h - 1} 1 ${h - 6} V 20 Q 1 15 6 15 Z" fill="none" stroke="#334155aa"/>`;
       scroll.max = Math.max(0, buttons.scrollWidth - buttons.clientWidth);
       scroll.hidden = Number(scroll.max) < 1;
@@ -651,7 +658,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
     title.onkeydown = e => {
       if (e.altKey && ['ArrowLeft', 'ArrowRight'].includes(e.key)) {
         e.preventDefault();
-        setPosition(field, displayedX(field) + (e.key === 'ArrowLeft' ? -10 : 10));
+        setPosition(field, field.positionX + (e.key === 'ArrowLeft' ? -10 : 10));
         field.requestedX = field.positionX;
         stageHeight();
         emit();
@@ -711,8 +718,17 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
   const preferred = fields().find(field => isOpen(field) && label(field) === layout.active);
   if (preferred || layout.active === null)
     setActive(preferred || null);
-  observer = new ResizeObserver(() => { if (!cancelGesture) place(); });
+  observer = new ResizeObserver(() => {
+    for (const field of fields()) {
+      const title = field.querySelector('legend'), previous = title.style.width;
+      if (previous !== 'max-content') title.style.width = 'max-content';
+      field.minimumTabWidth = title.offsetWidth;
+      if (previous !== 'max-content') title.style.width = previous;
+    }
+    place(Boolean(cancelGesture));
+  });
   observer.observe(root);
+  fields().forEach(field => observer.observe(field.querySelector('legend')));
   // A ticker changes the CSS row offset, not the menu's own border-box size.
   // Recompute the existing overlay height without altering saved tab layout.
   const bulletinHost = root.closest('header.cmpri-dashboard-titlebar')?.parentElement
@@ -749,7 +765,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       if (empty) empty.textContent = translate('No buttons for this role');
       refitButtonRow(field);
     }
-    if (!cancelGesture) place();
+    place(Boolean(cancelGesture));
   };
   return unmount;
 }

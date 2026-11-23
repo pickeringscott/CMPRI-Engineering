@@ -1,8 +1,10 @@
+import type { AskStagedFile } from "./files";
+
 export type AskLanguage = "en" | "es";
-export type AskSource = "orders" | "assets" | "inventory" | "rooms" | "roomRank" | "staffNotes" | "personalNotes";
+export type AskSource = "orders" | "assets" | "inventory" | "rooms" | "roomRank" | "staffNotes" | "personalNotes" | "preventiveMaintenance" | "cmpri";
 export type AskStatus = "all" | "active" | "in-progress" | "completed" | "closed";
 export type AskFormat = "brief" | "bullets" | "table";
-export type AskRecordReference = { kind: "order" | "asset" | "roomRank" | "staffNote" | "personalNote" | "file"; id: string; label?: string; assetId?: string };
+export type AskRecordReference = { kind: "order" | "asset" | "roomRank" | "staffNote" | "personalNote" | "file" | "module"; id: string; label?: string; assetId?: string };
 export type AskResultItem = {
   id: string;
   title: string;
@@ -49,8 +51,19 @@ export type AskContext = {
   focus?: "error-code" | "equipment";
   evidence?: string[];
   contextProof?: string;
+  native?: {
+    summary: string;
+    reads: { operation: string; parameters?: Record<string, string>; query?: Record<string, string | string[]> }[];
+    /** Last six signed user turns, retaining full question values for native follow-ups. */
+    userTurns?: string[];
+    /** Signed references to the exact originals read for a later document import. */
+    documents?: { assetId: string; name: string; sourceUrl: string; token: string }[];
+    publicSources?: { url: string; title?: string }[];
+    /** Actor-bound original files selected for this conversation, rechecked before use. */
+    files?: AskStagedFile[];
+  };
   pending?: {
-    field: AskProposal["field"];
+    field: Exclude<AskProposal["field"], "cmpri">;
     needs: "room" | "issue" | "staffName" | "workOrder" | "value" | "photo" | "review";
     value?: string;
     priority?: "Low" | "Medium" | "High" | "Urgent";
@@ -61,7 +74,7 @@ export type AskContext = {
 export type AskProposal = {
   token: string;
   id: string;
-  field: "create" | "status" | "priority" | "comment" | "staff-note";
+  field: "create" | "status" | "priority" | "comment" | "staff-note" | "cmpri";
   label: string;
   from: string;
   to: string;
@@ -80,5 +93,7 @@ export type AskResponse = {
   proposal?: AskProposal;
   savedOrder?: { id: string; displayId: string; attachments?: AskAttachment[]; attachmentToken?: string };
   code?: string;
-  downloads?: { id: string; name: string; mimeType: string; content: string; encoding: "utf8" | "base64" }[];
+  downloads?: ({ id: string; name: string; mimeType: string } & (
+    { content: string; encoding: "utf8" | "base64" } | { downloadToken: string }
+  ))[];
 };

@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { createHmac } from "node:crypto";
 import vm from "node:vm";
 import ts from "typescript";
 import * as zod from "zod";
 import * as reference from "../src/lib/work-order-reference.js";
 import { loadTs } from "./helpers/load-ts.mjs";
 
+const responseHelper = loadTs("src/lib/server/ask-cmpri-response.ts", {
+  "server-only": {}, "next/server": { NextResponse: { json: Response.json } },
+}, { Response, ReadableStream, TextEncoder, Uint8Array });
 const roles = loadTs("src/lib/server/roles.ts");
 const access = loadTs("src/lib/server/access.ts", { "./roles": roles });
 const uuid = loadTs("src/lib/uuid.ts");
@@ -74,6 +78,18 @@ const basePlan = {
   sortBy: "", sortDirection: "none", followUp: false, clarification: "", candidateAction: "none",
   actionValue: "", requestedPriority: "default",
 };
+
+// A historical server-issued result uses the same actor/property-bound v1
+// contract as a real saved conversation. Unsigned client fields are not evidence.
+function historicalContext(context, principal, secret = "fixture-only") {
+  const canonical = value => value && typeof value === "object"
+    ? Array.isArray(value) ? "[" + value.map(canonical).join(",") + "]"
+      : "{" + Object.keys(value).filter(key => value[key] !== undefined).sort().map(key => JSON.stringify(key) + ":" + canonical(value[key])).join(",") + "}"
+    : JSON.stringify(value);
+  const contextProof = createHmac("sha256", secret).update("cmpri-ask-context-v1\0")
+    .update(principal.hotelId).update("\0").update(principal.identity.id).update("\0").update(canonical(context)).digest("base64url");
+  return { ...context, contextProof };
+}
 
 test("public search accepts allowlisted equipment and safe exact codes, without free text", async () => {
   const approved = { webIntent: "error-code", manufacturer: "Whirlpool", model: "WFW5620HW", errorCode: "F9 E1" };
@@ -177,7 +193,7 @@ test("an authorized linked asset stays tappable when physically elsewhere, with 
   assert.equal(installed.facts.find(({ label }) => label === "Installed model").value, "GE X12");
 });
 
-test("a formatter always rerenders previously selected result rows and keeps links and CSV export", async () => {
+test("signed historical results still format and export exact rows while substantive follow-ups migrate to native reads", async () => {
   const principal = {
     identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
     membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
@@ -185,30 +201,42 @@ test("a formatter always rerenders previously selected result rows and keeps lin
   const order = { id: "order:one", title: "Room 134 · WO#1042", text: "Sink is leaking", source: "CMPRI · Work orders", sourceType: "internal",
     record: { kind: "order", id: "one", label: "WO#1042" }, facts: [{ label: "Room", value: "134" }, { label: "Priority", value: "High" }] };
   const another = { ...order, id: "order:two", title: "WO#1110", text: "Out of context" };
+  const nativeCalls = [];
+  let legacyReads = 0;
   const requestHandler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
-    "@/lib/server/ask-cmpri-data": { ...data, readAskSources: async () => ({ items: [order, another], orders: [], locations: [], assets: [], missing: [] }) },
-    "@/lib/server/ask-cmpri-gemini": { ...gemini, askGeminiKey: () => true, planAsk: async () => ({ ...basePlan, sources: ["orders"], rooms: ["134"] }),
+    "@/lib/server/ask-cmpri-data": { ...data, readAskSources: async () => { legacyReads++; return { items: [order, another], orders: [], locations: [], assets: [], missing: [] }; } },
+    "@/lib/server/ask-cmpri-gemini": { ...gemini, askGeminiKey: () => true, planAsk: async () => ({ ...basePlan, sources: ["cmpri"], rooms: ["134"] }),
       answerAsk: async () => ({ title: "CMPRI results", summary: "A leaking sink.", itemIds: [order.id] }) },
     "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}), beginAskAction: () => ({}) },
+    "@/lib/server/ask-cmpri-native-agent": { runNativeAsk: async input => {
+      nativeCalls.push(input); return { title: "Native result", summary: "Fresh native search", context: { sources: ["cmpri"], native: { summary: "Fresh native search", reads: [] } } };
+    } },
   }, { AbortSignal, TextDecoder, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-only" } } });
   const submit = async (question, previous) => (await requestHandler.POST(new Request("https://test.invalid/api/ask-cmpri", {
     method: "POST", body: JSON.stringify({ question, previous }),
   }))).json();
-  const first = await submit("Any maintenance issues in Room 134?");
-  assert.ok(first.context.contextProof);
-  assert.deepEqual(first.items.map(({ id }) => id), [order.id]);
-  const table = await submit("Put that in a table", first.context);
+  const historical = historicalContext({ question: "Any maintenance issues in Room 134?", language: "en", sources: ["orders"],
+    rooms: ["134"], status: "all", evidence: [order.id] }, principal);
+  const table = await submit("Put that in a table", historical);
+  assert.ok(table.context.contextProof);
   assert.deepEqual(table.table.rows.map(({ id }) => id), [order.id]);
   assert.equal(table.table.rows[0].cells["Work order"].record.id, "one");
   const csv = await submit("Download that as CSV", table.context);
   assert.equal(csv.downloads[0].name, "CMPRI-search-results.csv");
   assert.match(csv.downloads[0].content, /Sink is leaking/);
   assert.doesNotMatch(csv.downloads[0].content, /Out of context/);
+  assert.equal(legacyReads, 2); assert.equal(nativeCalls.length, 0);
+  const fresh = await submit("Any maintenance issues in Room 134?");
+  assert.equal(fresh.summary, "Fresh native search");
+  await submit("Show the full repair cost and recorded labor for those tickets", table.context);
+  assert.equal(nativeCalls.length, 2); assert.equal(legacyReads, 2);
+  assert.deepEqual([...nativeCalls[1].previous.evidence], [order.id], "the native migration receives only authenticated historical context");
 });
 
-test("a priority-only table plan retains identifiable tickets, issues, rooms and exact links", async () => {
+test("signed historical table formatting retains ticket identities and exact links with priority-only and wide projections", async () => {
   let fields = ["Priority", "Ticket status", "Source"];
   const principal = {
     identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
@@ -221,6 +249,7 @@ test("a priority-only table plan retains identifiable tickets, issues, rooms and
       record: { kind: "order", id: "ac", label: "WO#261012111" }, facts: [{ label: "Room", value: "212" }, { label: "Priority", value: "Medium" }, { label: "Ticket status", value: "Open" }] },
   ];
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
     "@/lib/server/ask-cmpri-data": { ...data, readAskSources: async () => ({ items: records, orders: [], locations: [], assets: [], missing: [] }) },
@@ -229,7 +258,8 @@ test("a priority-only table plan retains identifiable tickets, issues, rooms and
       answerAsk: async () => ({ title: "Room 212", summary: "Two open tickets.", itemIds: records.map(({ id }) => id) }) },
     "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}), beginAskAction: () => ({}) },
   }, { AbortSignal, TextDecoder, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-only" } } });
-  const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question: "Show Room 212 tickets in a table sorted by priority, highest first, with links." }) }));
+  const historical = historicalContext({ question: "Show Room 212 tickets", language: "en", sources: ["orders"], rooms: ["212"], status: "all", evidence: records.map(record => record.id) }, principal);
+  const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question: "Put that in a table sorted by priority, highest first, with links.", previous: historical }) }));
   assert.equal(response.status, 200);
   const result = await response.json();
   assert.deepEqual(result.table.rows.map(({ id }) => id), ["order:ac", "order:light"]);
@@ -240,7 +270,7 @@ test("a priority-only table plan retains identifiable tickets, issues, rooms and
   assert.equal(result.table.rows[0].cells["Reported issue"], "AC not cooling");
   for (const record of records) record.facts.push(...["Repair status", "Equipment", "Created", "Updated"].map(label => ({ label, value: "Fixture " + label })));
   fields = ["Result", "Details", "Source", "Ticket status", "Repair status", "Equipment", "Created", "Updated"];
-  const wideResponse = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question: "Show Room 212 tickets with all those fields, sorted by priority highest first." }) }));
+  const wideResponse = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question: "Put that in a table with all those fields, sorted by priority highest first.", previous: result.context }) }));
   const wide = await wideResponse.json();
   assert.equal(wide.table.columns.length, 10, "the requested sort and ticket identities fit the column cap");
   assert.ok(wide.table.columns.some(({ id }) => id === "Priority"));
@@ -248,7 +278,170 @@ test("a priority-only table plan retains identifiable tickets, issues, rooms and
   assert.equal(wide.table.rows[0].cells["Work order"].record.id, "ac");
 });
 
-test("Chief Engineer missing-details and review corrections preserve signed creation context without writing", async () => {
+test("substantive reads use native data even when the planner selects a legacy source or suggests an unrequested edit", async () => {
+  let planned = basePlan;
+  let currentPrincipal = {
+    identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
+    membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
+  };
+  const calls = [];
+  const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "../../../lib/server/ask-cmpri-response": responseHelper,
+    "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
+    "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal: currentPrincipal }) }, "@/lib/work-order-attribution": {},
+    "@/lib/server/ask-cmpri-data": { ...data, readAskSources: () => assert.fail("A new read must not use the capped legacy source") },
+    "@/lib/server/ask-cmpri-gemini": { ...gemini, askGeminiKey: () => true, planAsk: async () => planned,
+      answerAsk: () => assert.fail("A new read must not answer from the short legacy projection") },
+    "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}), beginAskAction: () => assert.fail("A read must not prepare an edit") },
+    "@/lib/server/ask-cmpri-native-agent": { runNativeAsk: async input => {
+      calls.push(input); return { title: "Native result", summary: input.question, context: { sources: ["cmpri"], native: { summary: input.question, reads: [] } } };
+    } },
+  }, { AbortSignal, TextDecoder, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-only" } } });
+  const cases = [
+    ["What is the serial number and install year of the boiler?", "assets"],
+    ["Who is staying in room 203?", "rooms"],
+    ["Show Gold members", "rooms"],
+    ["List every item below its reorder level and the cost to restock", "inventory"],
+    ["Show every staff note with attachments tagged safety", "staffNotes"],
+    ["Show the full checklist in my personal note", "personalNotes"],
+    ["What did we spend on ticket 123?", "orders", { candidateAction: "status", actionValue: "Closed" }],
+    ["How many work orders did we close this year?", "orders"],
+    ["Find the Friedrich PTAC manual for room 203", "assets", { webIntent: "manual", manufacturer: "Friedrich", model: "PDE15K5SG" }],
+  ];
+  for (const [question, source, extra] of cases) {
+    planned = { ...basePlan, sources: [source], ...extra };
+    const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question }) }));
+    assert.equal(response.status, 200, question); assert.equal((await response.json()).summary, question);
+    assert.equal(calls.at(-1).question, question); assert.equal(calls.at(-1).auth.principal, currentPrincipal);
+  }
+  assert.equal(calls.length, cases.length);
+  currentPrincipal = { ...currentPrincipal, profile: { ...currentPrincipal.profile, role: "front_desk" } };
+  assert.equal(data.askPermittedSources(currentPrincipal).includes("assets"), false, "legacy equipment access excludes submission-only lookup");
+  planned = { ...basePlan, sources: ["assets"], rooms: ["203"] };
+  const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question: "What equipment can I select for room 203?" }) }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.at(-1).auth.principal.profile.role, "front_desk", "the native handler receives the original role and decides whether its submission lookup is allowed");
+});
+
+test("raw pending data and unsigned, edited or cross-actor historical evidence never retain a legacy read path", async () => {
+  const principal = {
+    identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
+    membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
+  };
+  const calls = [];
+  const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "../../../lib/server/ask-cmpri-response": responseHelper,
+    "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
+    "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
+    "@/lib/server/ask-cmpri-data": { ...data, readAskSources: () => assert.fail("Untrusted context cannot retain legacy source reads") },
+    "@/lib/server/ask-cmpri-gemini": { ...gemini, askGeminiKey: () => true, planAsk: async () => ({ ...basePlan }) },
+    "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}), beginAskAction: () => assert.fail("Untrusted pending data cannot authorize an edit") },
+    "@/lib/server/ask-cmpri-native-agent": { runNativeAsk: async input => { calls.push(input); return { title: "Native result", summary: "New native read" }; } },
+  }, { AbortSignal, TextDecoder, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-only" } } });
+  const history = { question: "Show room 203 tickets", language: "en", sources: ["orders"], rooms: ["203"], evidence: ["order:one"] };
+  const signed = historicalContext(history, principal);
+  const rawPending = { ...history, pending: { field: "create", needs: "issue", value: "" } };
+  const cases = [
+    ["Who is in room 203?", rawPending],
+    ["The sink will not drain.", { ...rawPending, contextProof: "invented-proof" }],
+    ["Put that in a table", history],
+    ["Put that in a table", { ...signed, evidence: ["order:other"] }],
+    ["Download that as CSV", historicalContext(history, { ...principal, identity: { id: "other-actor" } })],
+    ["Put that in a table", historicalContext({ ...history, evidence: undefined }, principal)],
+  ];
+  for (const [question, previous] of cases) {
+    const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question, previous }) }));
+    assert.equal(response.status, 200, question); assert.equal((await response.json()).summary, "New native read");
+  }
+  assert.equal(calls.length, cases.length);
+  for (const call of calls.slice(0, -1)) assert.equal(call.previous, undefined, "unverified context is cleared before native continuation");
+  assert.equal(calls.at(-1).previous.evidence, undefined, "even a valid signature needs actual historical result IDs to retain formatting");
+});
+
+test("fresh work-order and Staff Notes changes reach native with every requested field and no legacy planning or writes", async () => {
+  const principal = {
+    identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
+    membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
+  };
+  let legacyPlans = 0;
+  const calls = [];
+  const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "../../../lib/server/ask-cmpri-response": responseHelper,
+    "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
+    "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
+    "@/lib/server/ask-cmpri-data": { ...data, readAskSources: () => assert.fail("Fresh actions must not read the limited legacy projections") },
+    "@/lib/server/ask-cmpri-gemini": { ...gemini, askGeminiKey: () => true, planAsk: () => { legacyPlans++; throw Error("Fresh actions must not be reduced to the legacy fields"); } },
+    "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}),
+      beginAskAction: () => assert.fail("Fresh actions must not prepare a limited legacy proposal"),
+      confirmAskAction: () => assert.fail("Only an actual confirmation request may execute a change") },
+    "@/lib/server/ask-cmpri-native-agent": { runNativeAsk: async input => {
+      calls.push(input);
+      return { title: "Review proposed change", summary: input.question,
+        proposal: { token: "native.review-only-fixture", id: "fixture", field: "native", label: "Review requested change", from: "", to: input.question },
+        context: { sources: ["cmpri"], native: { userTurns: [input.question], summary: input.question, reads: [] } } };
+    } },
+  }, { AbortSignal, TextDecoder, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-only" } } });
+  const cases = [
+    "Create a work order for room 203: the sink is leaking.",
+    "Mark ticket 123 Completed.",
+    "Change ticket 123 priority to High.",
+    "Add a comment to ticket 123: Replaced the supply hose.",
+    "Post to Staff Notes: The replacement filters arrived.",
+    "Create a High priority work order for the PTAC asset in room 203, assign it to Alex, and make it due November 30, 2026: the fan is rattling.",
+  ];
+  for (const question of cases) {
+    const request = new Request("https://test.invalid/api/ask-cmpri", { method: "POST", headers: { authorization: "Bearer fixture-session" }, body: JSON.stringify({ question }) });
+    const response = await handler.POST(request);
+    assert.equal(response.status, 200, question);
+    const result = await response.json();
+    assert.equal(result.proposal.field, "native"); assert.equal(result.proposal.to, question);
+    assert.equal(result.context.pending, undefined); assert.ok(result.context.contextProof);
+    const call = calls.at(-1);
+    assert.equal(call.question, question); assert.equal(call.auth.principal, principal);
+    assert.equal(call.request, request); assert.equal(call.request.headers.get("authorization"), "Bearer fixture-session");
+    assert.equal(call.previous, undefined);
+  }
+  assert.equal(calls.length, cases.length); assert.equal(legacyPlans, 0);
+});
+
+test("new changes beside signed historical results use native instead of the legacy action projection", async () => {
+  const principal = {
+    identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
+    membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
+  };
+  const previous = historicalContext({ question: "Show room 203 tickets", language: "en", sources: ["orders"], rooms: ["203"], evidence: ["order:one"] }, principal);
+  let planned = basePlan;
+  const calls = [];
+  const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "../../../lib/server/ask-cmpri-response": responseHelper,
+    "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
+    "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
+    "@/lib/server/ask-cmpri-data": { ...data, readAskSources: () => assert.fail("An unrelated saved result must not retain legacy action reads") },
+    "@/lib/server/ask-cmpri-gemini": { ...gemini, askGeminiKey: () => true, planAsk: async () => planned },
+    "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}),
+      beginAskAction: () => assert.fail("Historical results cannot reduce a new native action to legacy fields"),
+      confirmAskAction: () => assert.fail("The request is not a confirmation") },
+    "@/lib/server/ask-cmpri-native-agent": { runNativeAsk: async input => {
+      calls.push(input); return { title: "Native request", summary: input.question };
+    } },
+  }, { AbortSignal, TextDecoder, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-only" } } });
+  const cases = [
+    ["Create a work order for the PTAC asset in room 203 due November 30, 2026: the fan is rattling.", "create", { rooms: ["203"], actionValue: "The fan is rattling." }],
+    ["Mark ticket 123 Completed.", "status", { workOrders: ["123"], actionValue: "Completed" }],
+    ["Change ticket 123 priority to High.", "priority", { workOrders: ["123"], actionValue: "High" }],
+    ["Add a comment to ticket 123: Replaced the supply hose.", "comment", { workOrders: ["123"], actionValue: "Replaced the supply hose." }],
+    ["Post to Staff Notes: The replacement filters arrived.", "staff-note", { actionValue: "The replacement filters arrived." }],
+  ];
+  for (const [question, field, details] of cases) {
+    planned = { ...basePlan, sources: [field === "staff-note" ? "staffNotes" : "orders"], candidateAction: field, ...details };
+    const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question, previous }) }));
+    assert.equal(response.status, 200, question); assert.equal((await response.json()).summary, question);
+    assert.equal(calls.at(-1).question, question); assert.equal(calls.at(-1).previous.contextProof, previous.contextProof);
+  }
+  assert.equal(calls.length, cases.length);
+});
+
+test("historical Chief Engineer missing-details and review corrections preserve signed creation context without writing", async () => {
   const principal = {
     identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
     membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
@@ -257,6 +450,7 @@ test("Chief Engineer missing-details and review corrections preserve signed crea
   let summaryCalls = 0;
   const reviews = [];
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
     "@/lib/server/ask-cmpri-data": { ...data, readAskSources: async () => ({ items: [], orders: [], locations: [], assets: [], missing: [] }) },
@@ -269,13 +463,18 @@ test("Chief Engineer missing-details and review corrections preserve signed crea
       reviews.push(JSON.parse(JSON.stringify(plan)));
       return { proposal: { token: "proposal-for-review-only", id: "review", field: "create", label: "Create work order", from: "", to: `${plan.rooms[0]} · ${plan.actionValue}` } };
     } },
+    "@/lib/server/ask-cmpri-native-agent": { runNativeAsk: async () => ({ title: "Native search", summary: "Native read", context: { sources: ["cmpri"], native: { summary: "Native read", reads: [] } } }) },
   }, { AbortSignal, TextDecoder, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-only" } } });
   const submit = async (question, previous) => {
     const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question, previous }) }));
     assert.equal(response.status, 200);
     return response.json();
   };
-  const missing = await submit("Create a work order for room 319.");
+  // This draft represents a real, previously signed missing-details reply from
+  // the legacy flow. Fresh creation now goes directly to the full native agent.
+  const legacyDraft = historicalContext({ question: "Create a work order.", language: "en", sources: ["orders"], rooms: [], status: "all",
+    pending: { field: "create", needs: "room", value: "" } }, principal);
+  const missing = await submit("Room 319.", legacyDraft);
   assert.equal(missing.proposal, undefined);
   assert.equal(missing.question, undefined, "Chief Engineer receives a statement, not a clarification question");
   assert.equal(missing.context.pending.needs, "issue");
@@ -284,7 +483,7 @@ test("Chief Engineer missing-details and review corrections preserve signed crea
   assert.ok(missing.context.contextProof);
   assert.equal(summaryCalls, 0, "missing details do not become an unrelated search answer");
 
-  planned = { ...basePlan };
+  planned = { ...basePlan, sources: ["cmpri"] };
   const filled = await submit("The toilet will not flush.", missing.context);
   assert.equal(filled.context.pending.needs, "review");
   assert.deepEqual(reviews[0].rooms, ["319"]);

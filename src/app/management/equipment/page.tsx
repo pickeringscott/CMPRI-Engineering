@@ -6,6 +6,7 @@ import "./asset-browser.css";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
 import LocalOcrReview, { type ReviewedOcrText, type ReviewedGuideText } from "@/components/LocalOcrReview";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
+import { useDeferredResourceRefresh } from "@/lib/events/use-deferred-resource-refresh";
 import { getValidSession } from "@/lib/supabase/client";
 import { parseTicketHistory } from "@/lib/ticket-note-presentation";
 import ModalNavigationButton from "@/components/ModalNavigationButton";
@@ -79,6 +80,7 @@ const blankAsset: Asset = {
   manufacturer: null, model_family: null, model_number: null, serial_number: null, generation: null, install_year: null, documentation_key: null,
   documentation_verified: false, documentation_count: 0,
 };
+const equipmentResourceTopics = ["reference", "rooms", "orders"] as const;
 
 export default function ManageEquipmentPage() {
   const {t: ui, locale} = useUiLanguage();
@@ -222,20 +224,24 @@ export default function ManageEquipmentPage() {
     return session?.access_token || "";
   }, []);
 
-  async function loadAssets(preferId?: string): Promise<boolean> {
-    setLoading(true);
-    setMessage("");
-    setAssetLoadError(false);
+  async function loadAssets(preferId?: string, isCurrent: () => boolean = () => true, background = false): Promise<boolean> {
+    if (!background) {
+      setLoading(true);
+      setMessage("");
+      setAssetLoadError(false);
+    }
     try {
       const access = await token();
       if (!access) throw new Error("Sign in again to load equipment.");
       const scope = new URLSearchParams(window.location.search).has("asset") ? "&scope=property" : "";
       const response = await fetch("/api/assets?include_documentation=false" + scope, { headers: { Authorization: `Bearer ${access}` }, cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
+      if (!isCurrent()) return false;
       if (!response.ok || !Array.isArray(payload.assets)) {
         throw new Error(payload.error || "Could not load equipment.");
       }
       const list = payload.assets as Asset[];
+      setAssetLoadError(false);
       setCanManage(payload.can_manage === true);
       setAssets(list);
       const nextId = preferId || selectedId || "";
@@ -245,17 +251,29 @@ export default function ManageEquipmentPage() {
       // will not run again after selectAsset clears the displayed documents.
       if (item.id && item.id === selectedId) {
         const result = await loadDocuments(item.id);
+        if (!isCurrent()) return false;
         displayDocuments(result.documents, result.verified, item.id);
       }
       return true;
     } catch (error) {
+      if (!isCurrent()) return false;
       setAssetLoadError(true);
       setMessage(error instanceof Error ? error.message : "Could not load equipment.");
       return false;
     } finally {
-      setLoading(false);
+      if (!background) setLoading(false);
     }
   }
+
+  useDeferredResourceRefresh(equipmentResourceTopics,
+    loading || editing || unsavedEquipment || adding || creating || saving || verifying || openingRevision
+      || moving || moveBusy || photoBusy || showDocumentationDialog || Boolean(manualFile || processingKey || revisionReason),
+    async isCurrent => {
+      if (await loadAssets(selectedId, isCurrent, true) && isCurrent()) {
+        setPhotoVersion(value => value + 1);
+        setOrderVersion(value => value + 1);
+      }
+    }, selectedId);
 
   async function loadDocuments(assetId: string): Promise<{ documents: Doc[]; verified: boolean; warnings: string[] }> {
     if (!assetId) return { documents: [], verified: false, warnings: [] };

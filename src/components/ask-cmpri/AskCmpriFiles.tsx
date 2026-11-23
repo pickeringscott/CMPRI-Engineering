@@ -19,6 +19,7 @@ import {
 import styles from "./AskCmpriFiles.module.css";
 
 export { downloadAskCmpriFile };
+import { ASK_FILE_COUNT, ASK_FILE_LIMIT, type AskStagedFile } from "../../lib/ask-cmpri/files";
 
 export type AskCmpriLocalFile = {
   id: string;
@@ -26,11 +27,13 @@ export type AskCmpriLocalFile = {
   type: string;
   size: number;
   text: string;
+  original?: File;
+  file?: AskStagedFile;
 };
 
 export type AskCmpriFilesStatus = { pending: number; error: string | null };
-export const ASK_MAX_FILES = 8;
-export const ASK_MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
+export const ASK_MAX_FILES = ASK_FILE_COUNT;
+export const ASK_MAX_ATTACHMENT_BYTES = ASK_FILE_LIMIT;
 const ticketAttachmentTypes: Record<string, string> = {
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
   bmp: "image/bmp", heic: "image/heic", heif: "image/heif", mp4: "video/mp4", mov: "video/quicktime", webm: "video/webm",
@@ -90,7 +93,7 @@ const filesSpanish: Record<string, string> = {
   "Saved a copy in the selected folder.": "Se guardó una copia en la carpeta seleccionada.",
   "Ask CMPRI could not verify the copy. Check the selected folder for {file} before downloading again.": "Ask CMPRI no pudo verificar la copia. Busca {file} en la carpeta seleccionada antes de volver a descargarlo.",
   "Check the selected folder or your browser’s downloads to verify the copy.": "Revisa la carpeta seleccionada o las descargas del navegador para verificar la copia.",
-  "Select up to eight files. Clear one before adding another to Ask CMPRI.": "Selecciona hasta ocho archivos. Desmarca uno antes de añadir otro a Ask CMPRI.",
+  "Select up to 20 files. Clear one before adding another to Ask CMPRI.": "Selecciona hasta 20 archivos. Desmarca uno antes de añadir otro a Ask CMPRI.",
   "Choose a file of 100 MB or less for Ask CMPRI.": "Elige un archivo de hasta 100 MB para Ask CMPRI.",
   "Set Up Local Files": "Configurar archivos locales",
   "Close folder setup": "Cerrar configuración de carpeta",
@@ -126,7 +129,8 @@ const filesSpanish: Record<string, string> = {
   "Reading text on this device…": "Leyendo texto en este dispositivo…",
   "No readable text was found. Try a text file, PDF, PNG, JPEG, or WebP copy.": "No se encontró texto legible. Prueba con un archivo de texto, PDF, PNG, JPEG o WebP.",
   "Review text for Ask CMPRI": "Revisar texto para Ask CMPRI",
-  "Ask CMPRI uses selected text excerpts. It reads the beginning of text files and up to 10 pages of PDFs.": "Ask CMPRI usa los fragmentos de texto seleccionados. Lee el comienzo de los archivos de texto y hasta diez páginas de los PDF.",
+  "When you send a question, Ask CMPRI uploads only the originals you attached or selected for that conversation. Text previews show the beginning of text files and up to 10 PDF pages.": "Al enviar una pregunta, Ask CMPRI carga solo los originales que adjuntaste o seleccionaste para esa conversación. Las vistas previas muestran el comienzo de los archivos de texto y hasta diez páginas de PDF.",
+  "Original selected; no readable text preview is available.": "Original seleccionado; no hay una vista previa de texto legible.",
 };
 
 function useFilesLanguage() {
@@ -331,7 +335,7 @@ function AccountLocalFiles({ open, active, scopeKey, focusFileId, focusExcerpt, 
 
   const selected = useMemo<AskCmpriLocalFile[]>(() => entries
     .filter((entry) => entry.status === "selected")
-    .map(({ id, file, text }) => ({ id, name: file.name.slice(0, 255), type: file.type.slice(0, 120), size: file.size, text })), [entries]);
+    .map(({ id, file, text }) => ({ id, name: file.name.slice(0, 255), type: file.type.slice(0, 120), size: file.size, text, original: file })), [entries]);
 
   const pending = entries.filter((entry) => entry.status === "reading").length;
   const readError = entries.some((entry) => entry.status === "unreadable") ? t("An excluded file has no readable text. Check the Files tab.") : null;
@@ -561,10 +565,10 @@ function AccountLocalFiles({ open, active, scopeKey, focusFileId, focusExcerpt, 
     }
     if (selectedIds.current.has(entry.id)) return;
     if (selectedIds.current.size >= ASK_MAX_FILES) {
-      setFeedback(t("Select up to eight files. Clear one before adding another to Ask CMPRI."));
+      setFeedback(t("Select up to 20 files. Clear one before adding another to Ask CMPRI."));
       return;
     }
-    if (entry.file.size > ASK_MAX_ATTACHMENT_BYTES) {
+    if (!entry.file.size || entry.file.size > ASK_MAX_ATTACHMENT_BYTES) {
       setFeedback(t("Choose a file of 100 MB or less for Ask CMPRI."));
       return;
     }
@@ -576,13 +580,13 @@ function AccountLocalFiles({ open, active, scopeKey, focusFileId, focusExcerpt, 
     try {
       const text = await readAskCmpriFileExcerpt(entry.file, reader.signal);
       if (!reader.signal.aborted) {
-        if (!text) selectedIds.current.delete(entry.id);
-        changeFile(entry.id, text ? "selected" : "unreadable", text);
+        changeFile(entry.id, "selected", text);
+        if (!text) setFeedback(t("Original selected; no readable text preview is available."));
       }
     } catch {
       if (!reader.signal.aborted) {
-        selectedIds.current.delete(entry.id);
-        changeFile(entry.id, "unreadable");
+        changeFile(entry.id, "selected");
+        setFeedback(t("Original selected; no readable text preview is available."));
       }
     } finally {
       if (reading.current.get(entry.id) === reader) reading.current.delete(entry.id);
@@ -711,13 +715,14 @@ function AccountLocalFiles({ open, active, scopeKey, focusFileId, focusExcerpt, 
               {entry.status === "reading" && <p className={styles.muted} role="status">{t("Reading text on this device…")}</p>}
               {entry.status === "unreadable" && <p className={styles.muted} role="status">
                 {t("No readable text was found. Try a text file, PDF, PNG, JPEG, or WebP copy.")}</p>}
-              {entry.status === "selected" && <details className={styles.excerpt} open={entry.id === focusFileId ? true : undefined}>
+              {entry.status === "selected" && !entry.text && <p className={styles.muted}>{t("Original selected; no readable text preview is available.")}</p>}
+              {entry.status === "selected" && entry.text && <details className={styles.excerpt} open={entry.id === focusFileId ? true : undefined}>
                 <summary>{t("Review text for Ask CMPRI")}</summary>
                 <p>{entry.text}</p>
               </details>}
             </li>)}
           </ul>}
-        <p className={styles.muted}>{t("Ask CMPRI uses selected text excerpts. It reads the beginning of text files and up to 10 pages of PDFs.")}</p>
+        <p className={styles.muted}>{t("When you send a question, Ask CMPRI uploads only the originals you attached or selected for that conversation. Text previews show the beginning of text files and up to 10 PDF pages.")}</p>
       </div>
     </section>
   </>;

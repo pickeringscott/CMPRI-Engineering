@@ -1,3 +1,4 @@
+import { CMPRI_DATA_READ_GUIDANCE, ROOM_OPERATIONS_REPORTING_INSTRUCTIONS } from "@/lib/ai/cmpri-operation-guidance";
 import { workOrderReadFilter } from "@/lib/work-order-read-policy";
 import { workOrderReader } from "@/lib/server/work-order-reader";
 import { NextRequest } from "next/server";
@@ -15,7 +16,7 @@ const NO_STORE = { "Cache-Control": "no-store", Pragma: "no-cache" };
 const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26"];
 const MAX_MCP_REQUEST_BYTES = 4_500_000;
 const MAX_MCP_WRITE_INPUT_BYTES = 4_000_000;
-const ROOM_OPERATIONS_REPORTING_INSTRUCTIONS = "When a user reports a daily room-operations import, read the room_operations view for that date and tell the user every room marked out of order (including OOO) and every detected room move. Include each room number and its out-of-order status, and report every move as move_from to move_to room numbers. Do not omit or summarize away these room numbers.";
+
 const MCP_TOOLS = [
   {
     name: "get_connection_identity",
@@ -73,7 +74,7 @@ const MCP_TOOLS = [
   },
   {
     name: "read_cmpri_data",
-    description: `Read manager and engineering data from CMPRI using the connected user's current role and permissions. Choose a view from the allowed views listed for this account. For the Preventative Maintenance (PM) modal, use preventive_maintenance with week set to the Monday starting the requested week (YYYY-MM-DD). It returns the modal's saved entries, task states, review queue, current permissions, locations, and form templates. Optional id opens the same work-order-linked PM context as the modal. For older connections, corporate_pm without sheet also reads the PM modal: date selects its week, or defaults to the current week in America/Chicago; room optionally selects that room's PM entries. Only an explicit sheet requests the legacy Corporate PM spreadsheet. Report saved task/review states as returned; do not treat the empty workbook placeholder as completed or missing inspections. Supply record ids, dates, rooms, or asset ids when other views require them. ${ROOM_OPERATIONS_REPORTING_INSTRUCTIONS}`,
+    description: CMPRI_DATA_READ_GUIDANCE,
     inputSchema: {
       type: "object",
       properties: {

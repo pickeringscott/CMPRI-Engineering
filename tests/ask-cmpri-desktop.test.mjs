@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
 import { loadTs } from "./helpers/load-ts.mjs";
+import * as titleTabs from "../src/lib/ui/dashboard-title-tabs.js";
 
 function fixture(initialWidth = 1440) {
   const dom = new JSDOM(`<!doctype html><html><body>
@@ -69,7 +70,7 @@ function fixture(initialWidth = 1440) {
   const native = root.querySelector("fieldset");
   native.positionX = 0;
   window.addEventListener("cmpri-ask-open", event => opens.push(event.detail));
-  const { mountAskDashboardLauncher } = loadTs("src/lib/ui/ask-dashboard-launcher.js", {}, {
+  const { mountAskDashboardLauncher } = loadTs("src/lib/ui/ask-dashboard-launcher.js", { "./dashboard-title-tabs.js": titleTabs }, {
     window, document, localStorage: window.localStorage, matchMedia, getComputedStyle,
     AbortController: window.AbortController, Event: window.Event, CustomEvent: window.CustomEvent,
     HTMLDialogElement: window.HTMLDialogElement, ResizeObserver: Observer, MutationObserver: Observer,

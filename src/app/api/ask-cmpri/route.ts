@@ -11,21 +11,25 @@ import { askPhotoSchema, beginAskAction, confirmAskAction } from "@/lib/server/a
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 45;
+export const maxDuration = 120;
 
 const headers = { "Cache-Control": "private, no-store" };
+const stagedFileSchema = z.object({ id: z.string().uuid(), name: z.string().max(255), type: z.string().max(120),
+  size: z.number().int().positive().max(100 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  token: z.string().min(1).max(10000), expiresAt: z.number().int().positive() });
 const fileSchema = z.object({
   id: z.string().regex(/^[A-Za-z0-9._-]{1,100}$/), name: z.string().max(255), type: z.string().max(120),
   size: z.number().nonnegative().max(100 * 1024 * 1024), text: z.string().max(8500).optional(),
+  file: stagedFileSchema.optional(),
 });
 const requestSchema = z.union([
-  z.object({ confirmationToken: z.string().min(15).max(22000), cancel: z.boolean().optional(), recover: z.boolean().optional() }),
+  z.object({ confirmationToken: z.string().min(15).max(320000), cancel: z.boolean().optional(), recover: z.boolean().optional(), previous: askContextSchema.optional() }),
   z.object({
     question: z.string().trim().max(1000),
     language: z.enum(["en", "es"]).optional(),
     previous: askContextSchema.optional(),
-    files: z.array(fileSchema).max(8).optional(),
-    attachments: z.array(askPhotoSchema).max(12).optional(),
+    files: z.array(fileSchema).max(20).optional(),
+    attachments: z.array(askPhotoSchema).max(20).optional(),
     staffName: z.string().trim().max(80).optional(),
   }).refine((input) => input.question || input.files?.length || input.attachments?.length),
 ]);
@@ -296,7 +300,7 @@ function confirmedTarget(plan: AskPlan, input: SearchInput, continued: boolean) 
     const named = plan.locationNames || [];
     if (new Set([...plan.rooms, ...named]).size !== 1) return false;
     const lower = input.question.toLowerCase();
-    const literalRoom = validAskRoom(input.question.replace(/[.?!]$/, "")) || validAskRoom(lower.match(/(?:^|\b(?:for|at|in|en|para|room|rm|habitaci[oó]n|cuarto)\s+)\s*#?(\d{1,4}[a-z]?)(?=$|[\s,.!?])/i)?.[1] || "");
+    const literalRoom = validAskRoom(input.question.replace(/[.?!]$/, "")) || validAskRoom(lower.match(/(?:^|\b(?:for|at|in|en|para|room|rm|habitaci[oó]n|cuarto)\s+)\s*#?(\d{1,4}[a-z]?)(?=$|[\s,.!?]|:\s)/i)?.[1] || "");
     return !!literalRoom && plan.rooms.includes(literalRoom)
       || named.some((name) => lower.includes(name.toLowerCase().split(" / ")[0]))
       || !!(continued && input.previous?.contextProof && input.previous.pending?.needs !== "room"
@@ -333,39 +337,87 @@ export async function POST(request: NextRequest) {
   const parsed = requestSchema.safeParse(await requestBody(request));
   if (!parsed.success) return NextResponse.json({ error: "Send a question of up to 1,000 characters, a supported attachment, or a current confirmation." }, { status: 400, headers });
   if ("confirmationToken" in parsed.data) {
-    const { confirmationToken, cancel, recover } = parsed.data;
+    const { confirmationToken, cancel, recover, previous } = parsed.data;
+    if (confirmationToken.startsWith("native.")) {
+      const { confirmAskNativeChange } = await import("@/lib/server/ask-cmpri-native");
+      const { askJsonResponse } = await import("../../../lib/server/ask-cmpri-response");
+      const { result, status } = await confirmAskNativeChange(request, auth, confirmationToken, { cancel, recover });
+      if (!cancel && result.context && previous?.native && acceptsContext(previous, auth.principal)) {
+        result.context = { ...result.context, native: { ...previous.native, summary: result.summary.slice(0, 4000) } };
+      }
+      return askJsonResponse(result.context ? { ...result, context: attest(result.context, auth.principal) } : result, { status, headers });
+    }
     const { result, status } = await confirmAskAction(request, auth, confirmationToken, { cancel, recover });
     return NextResponse.json(result.context ? { ...result, context: attest(result.context, auth.principal) } : result, { status, headers });
   }
 
   const prior = parsed.data.previous;
   const trusted = acceptsContext(prior, auth.principal);
-  const previous = trusted ? prior : prior && { ...prior, pending: undefined, evidence: undefined, contextProof: undefined, publicEquipment: undefined, focus: undefined, webIntent: undefined };
+  const previous = trusted ? prior : prior && { ...prior, pending: undefined, evidence: undefined, contextProof: undefined, publicEquipment: undefined, focus: undefined, webIntent: undefined, native: undefined };
   const language = questionLanguage(parsed.data.question, previous?.language || parsed.data.language || "en");
   if (cancelsAction(parsed.data.question)) return NextResponse.json({
     title: language === "es" ? "Solicitud cancelada" : "Request cancelled",
     summary: language === "es" ? "Se descartó la solicitud pendiente." : "The pending request was discarded.",
     context: attest({ language }, auth.principal),
   } satisfies AskResponse, { headers });
+  // The reported year-end PM rate question is a deterministic CMPRI calculation.
+  // It must not fail merely because the text planner omits a PM source or Gemini is unavailable.
+  if (language === "en" && /\b(?:PMs?|prevent(?:ive|ative) maintenance)\b/i.test(parsed.data.question)
+    && /\b(?:per day|a day|each day|daily|per weekday)\b/i.test(parsed.data.question)
+    && /\b(?:end of (?:the )?year|year[- ]end)\b/i.test(parsed.data.question)
+    && !/\b(?:create|save|edit|delete|mark|assign|close|set)\b/i.test(parsed.data.question)) {
+    const { readAskPm } = await import("@/lib/server/ask-cmpri-pm");
+    const rooms = [...parsed.data.question.matchAll(/\b(?:room|rm)\s*#?\s*(\d{2,4})\b/gi)].map(match => match[1]);
+    const pm = await readAskPm(auth, { question: parsed.data.question, rooms });
+    return NextResponse.json({ title: "PM completion plan", summary: pm.summary,
+      items: pm.items.map(item => ({ ...item, record: { kind: "module" as const, id: "/engineering/preventive-maintenance", label: "Open Preventive Maintenance" } })),
+      context: attest({ question: parsed.data.question.slice(0, 650), language, sources: ["preventiveMaintenance"], rooms }, auth.principal),
+    } satisfies AskResponse, { headers });
+  }
   if (!askGeminiKey()) return NextResponse.json({ error: "Ask CMPRI is not configured for this environment." }, { status: 503, headers });
   const usesAttachments = !parsed.data.question && Boolean(parsed.data.attachments?.length) && previous?.pending?.needs === "photo";
   const input = { ...parsed.data, previous, question: parsed.data.question || (usesAttachments ? "" : language === "es" ? "Usa los archivos adjuntos en esta conversación." : "Use the attached files in this conversation.") };
   const chief = profileIsChiefEngineer(auth.principal.profile) || profileIsEstablishedHoursChief(auth.principal.profile);
   let es = language === "es";
   try {
-    const budget = AbortSignal.any([request.signal, AbortSignal.timeout(38_000)]);
+    const budget = AbortSignal.any([request.signal, AbortSignal.timeout(110_000)]);
+    const nativeAnswer = async () => {
+      const { runNativeAsk } = await import("@/lib/server/ask-cmpri-native-agent");
+      const { askJsonResponse } = await import("../../../lib/server/ask-cmpri-response");
+      const result = await runNativeAsk({ request, auth, question: input.question, language, chief, previous: trusted ? previous : undefined, files: input.files, signal: budget });
+      return askJsonResponse(result.context ? { ...result, context: attest(result.context, auth.principal) } : result, { headers });
+    };
+    // New conversations use every native field/action directly. The legacy
+    // planner exists only to resume already-signed drafts and historical results.
+    if (!trusted) return await nativeAnswer();
+    // Short replies such as a missing date keep the verified native workflow and its supplied values.
+    if (trusted && previous?.native) return await nativeAnswer();
+    // Keep whole application domains out of the legacy seven-source planner.
+    if (/\b(?:room\s*rank(?:er|ing)?|rank(?:ed|ing)?\s+[abc]\s+rooms?|rooms?\s+(?:ranked?|rated)\s+[abc]|weather|forecast|radar|astronomy|airport|willard|k?cmi|aircraft|runways?|taxiways?|flights?|arrivals?|departures?)\b/i.test(input.question)
+      || /\brooms?\b/i.test(input.question) && /\brank(?:ed)?\s+[abc]\b/i.test(input.question)) return await nativeAnswer();
+    if (input.files?.some(file => file.file)) return await nativeAnswer();
+    // Guest loyalty and native follow-ups always retain all native fields and role checks.
+    if (/\b(?:bonvoy|loyalty tier|guest tier|membership tier|titanium|ambassador|platinum)\b/i.test(input.question)) return await nativeAnswer();
+    if (/\b(?:asset|equipment|equipo|activo)\b/i.test(input.question)
+      && /\b(?:manual|pdf|document\w*|vendor|manufacturer|download|upload|verif\w*|move|relocat\w*|traslad\w*)\b/i.test(input.question)) return await nativeAnswer();
     const allowed = askPermittedSources(auth.principal);
     const { contextProof: _proof, evidence: _evidence, ...priorPlan } = previous || {};
     void _proof; void _evidence;
-    const planned = await planAsk(input.question, previous ? priorPlan : undefined, language, allowed, chief, budget);
+    const planned = await planAsk(input.question, previous ? priorPlan : undefined, language, allowed, chief, budget).catch(() => undefined);
+    if (!planned) return await nativeAnswer();
     const initial = continueAction(input, { ...planned });
+    const historicalFormat = trusted && Boolean(previous?.evidence?.length) && asksToReformat(input.question);
+    if (!initial.continued && !historicalFormat) return await nativeAnswer();
     const responseLanguage = initial.continued || !input.question ? language : planned.language || language;
     es = responseLanguage === "es";
     const actionAllowed = initial.continued || directAction(input.question, initial.plan.candidateAction);
     if (!actionAllowed) initial.plan.candidateAction = "none";
     initial.plan.actionValue = normalizeActionValue(initial.plan, input.question);
     const plan = applyAskContext(initial.plan, input.question, previous);
-    const reformat = trusted && plan.followUp && asksToReformat(input.question);
+    const reformat = historicalFormat && plan.followUp;
+    // New searches use complete native fields and the original module's role checks.
+    // Keep the established action flow and formatting of signed historical results.
+    if (plan.candidateAction === "none" && !reformat) return await nativeAnswer();
     if (reformat) plan.webIntent = previous?.webIntent || "none";
     const equipmentReply = /^\s*(?:[a-z]{1,3}\s*[- ]?\s*\d{1,4}(?:\s*[- ]?\s*[a-z]{1,3}\s*\d{1,4})?|lo\s*fl)\s*[.?!]?\s*$/i.test(input.question);
     if (trusted && (reformat || plan.followUp || equipmentReply) && previous?.publicEquipment) {
@@ -377,7 +429,7 @@ export async function POST(request: NextRequest) {
         plan.errorCode = input.question.trim().replace(/[.?!]$/, "");
       } else if (reformat && previous.webIntent === "error-code") plan.errorCode ||= retained.errorCode || "";
     }
-    if (plan.workOrders.length && (!plan.sources.length || explicitAskOrders(input.question).length) && !plan.sources.includes("orders")) plan.sources = (["orders", ...plan.sources] as AskSource[]).slice(0, 7);
+    if (plan.workOrders.length && (!plan.sources.length || explicitAskOrders(input.question).length) && !plan.sources.includes("orders")) plan.sources = (["orders", ...plan.sources] as AskSource[]);
     if (!reformat && actionAllowed && !plan.workOrders.length && previous?.contextProof && plan.followUp && /\b(?:that ticket|that work order|that one|esa orden|ese ticket)\b/i.test(input.question)) {
       const ids = previous.evidence?.filter((id) => id.startsWith("order:")) || [];
       if (ids.length === 1) {

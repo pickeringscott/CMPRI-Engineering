@@ -12,7 +12,7 @@ type WeatherVisuals = {
   condition: (description: string | null, options: { icon: string | null; isDaytime: boolean | null }) => SVGElement;
 };
 
-const DESKTOP = "(min-width: 701px) and (hover: hover)";
+const DESKTOP = "(min-width: 701px)";
 const REFRESH_INTERVAL = 10 * 60 * 1000;
 const CENTER_X = 51.6, CENTER_Y = 49, RADIUS = 42.5;
 const ARC_START = 210, ARC_SPAN = 300, HIGH_ANGLE = 321, LOW_ANGLE = 498;

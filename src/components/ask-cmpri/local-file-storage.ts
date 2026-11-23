@@ -151,9 +151,11 @@ async function removeEmptyTarget(folder: AskCmpriFolderHandle, target: FileSyste
   }
 }
 
-export async function saveAskCmpriFolderFile(folder: AskCmpriFolderHandle, name: string, blob: Blob) {
+export async function saveAskCmpriFolderFile(folder: AskCmpriFolderHandle, name: string, blob: Blob, signal?: AbortSignal) {
   const write = async () => {
+    signal?.throwIfAborted();
     const candidate = await unusedFileName(folder, safeFileName(name));
+    signal?.throwIfAborted();
     const target = await folder.getFileHandle(candidate, { create: true });
     let stream: FileSystemWritableFileStream | undefined;
     let empty = false;
@@ -161,9 +163,12 @@ export async function saveAskCmpriFolderFile(folder: AskCmpriFolderHandle, name:
       // An outside program could create the same name after our availability check.
       empty = (await target.getFile()).size === 0;
       if (!empty) throw new AskCmpriFolderSaveError(candidate);
+      signal?.throwIfAborted();
       stream = await target.createWritable();
+      signal?.throwIfAborted();
       await stream.write(blob);
       if ((await target.getFile()).size !== 0) throw new AskCmpriFolderSaveError(candidate);
+      signal?.throwIfAborted();
       await stream.close();
     } catch (error) {
       await stream?.abort().catch(() => {});
@@ -181,17 +186,20 @@ export async function saveAskCmpriFolderFile(folder: AskCmpriFolderHandle, name:
   return result;
 }
 
-export async function downloadAskCmpriFile(scopeKey: string, name: string, blob: Blob) {
+export async function downloadAskCmpriFile(scopeKey: string, name: string, blob: Blob, signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const folder = activeFolders.get(scopeKey);
   if (folder) {
     try {
-      await saveAskCmpriFolderFile(folder, name, blob);
+      await saveAskCmpriFolderFile(folder, name, blob, signal);
       return "folder" as const;
     } catch (error) {
+      signal?.throwIfAborted();
       if (error instanceof AskCmpriFolderSaveError) throw error;
       /* The browser download remains available after a folder permission changes. */
     }
   }
+  signal?.throwIfAborted();
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

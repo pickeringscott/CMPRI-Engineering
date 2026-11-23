@@ -4,14 +4,14 @@ import { generateText, Output } from "ai";
 import { z } from "zod";
 import type { AskContext, AskLanguage, AskResultItem, AskSource } from "@/lib/ask-cmpri/types";
 
-const sources = ["orders", "assets", "inventory", "rooms", "roomRank", "staffNotes", "personalNotes"] as const;
+const sources = ["orders", "assets", "inventory", "rooms", "roomRank", "staffNotes", "personalNotes", "preventiveMaintenance", "cmpri"] as const;
 const orderStates = ["all", "active", "in-progress", "completed", "closed"] as const;
 const formats = ["brief", "bullets", "table"] as const;
 const priority = ["Low", "Medium", "High", "Urgent"] as const;
 const updateTypes = ["none", "create", "status", "priority", "comment", "staff-note"] as const;
 
 export const planSchema = z.object({
-  sources: z.array(z.enum(sources)).max(7),
+  sources: z.array(z.enum(sources)).max(sources.length),
   rooms: z.array(z.string().max(20)).max(8),
   workOrders: z.array(z.string().max(45)).max(8),
   terms: z.array(z.string().max(80)).max(8),
@@ -74,7 +74,8 @@ export async function planAsk(question: string, previous: AskContext | undefined
     maxOutputTokens: 2200,
     output: Output.object({ schema: planSchema }),
     system: `Plan a CMPRI hotel operations search, without answering or executing anything. Interpret shorthand, typos and nontechnical language. Preserve original-language search terms as well as short English synonyms; stored ticket and note text can be Spanish. Search terms should be specific nouns, not filler such as “broken” or “issue”. Use inventory for stocked parts, supplies, quantities on hand and storage locations; preserve the literal item name, size or SKU as search terms instead of broad equipment synonyms. Assets describe installed equipment and are not stock quantities. Collect room numbers only when they identify rooms, never parse times, dates, work-order references or manufacturer codes as rooms. For named locations use locationNames. Use ticketStatus for a requested exact work-order status. A status inquiry about a known ticket or room is a read. Keep active, Completed and Closed distinct. Use assignedOnly only for the signed-in user’s assigned tickets. Use roomIntent and its specific threshold or state for checkout/availability; use rank for a requested A/B/C category. Use room records and permitted equipment records for amenities, never assume room facts. Use staffNotes for operational instructions and storage and personalNotes only for the signed-in user's own notes. Use noteAuthor and ISO YYYY-MM-DD date ranges as filters when requested. Preserve requested table, brief or bullets format changes. Use assetState when the question asks about retired or all equipment. A write suggestion requires an explicit instruction or an unambiguous report of a new maintenance issue; never treat a filler reply, formatting, cancellation, question, or another search as an edit. A work-order status/priority/comment needs the explicit target; ticket numbers quoted inside comment text are content, not another target. Use the speaker's words for an issue, a comment, or an announcement. A private note request never becomes a staff-wide announcement. Only return one focused question when needed to determine a missing detail. The Chief Engineer receives no questions. For public search extract manufacturer and equipment model and any explicitly stated diagnostic code, never names, rooms, serial numbers, guest identifiers, or property text. Public safety queries must identify the topic. Omit optional filters when unknown and use empty required strings/arrays for unset values.`,
-    prompt: JSON.stringify({ question, previous, language, permitted, chief, date: new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }) }),
+    prompt: JSON.stringify({ question, previous, language, permitted, chief, date: new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }),
+      nativeCmpri: "Use cmpri for any CMPRI question or action needing sources, fields, operations, calculations, complete counts, app help, filters, joins, settings, or roles beyond the specialized legacy searches. No preset question or module restrictions apply: the user's native role permissions are the only access boundary. This includes all guest Bonvoy-tier queries (current and incoming), guest details, PM forms/tasks, pool, purchasing/email, vendors, inventory, parts, manuals, Enseo, GSS, winter, hours, notes, notifications, users, profile, weather, guide and imports/exports. Use preventiveMaintenance for PM completion/count/pace/deadline questions. Use cmpri for finding or downloading vendor documents for actual assets, uploading/reviewing/verifying manuals, using them in work-order troubleshooting, and moving assets between locations. Use cmpri for all multi-module combinations, hotel-wide counts or bulk operations and all writes beyond basic work-order create/status/priority/comment and Staff Notes. Do not relabel an unsupported action as one of those basic actions. For cmpri and preventiveMaintenance, set candidateAction none; the native CMPRI handler resolves reads and requested changes. Follow-ups to native context should remain cmpri unless clearly changing subject." }),
   });
   return output;
 }

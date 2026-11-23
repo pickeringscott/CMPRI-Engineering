@@ -1,3 +1,5 @@
+import { placeDashboardTitleTabs } from './dashboard-title-tabs.js';
+
 const hints = [
   'Work orders', 'Asset records', 'Equipment PDFs', 'Error codes',
   'Troubleshoot', 'Staff Notes', 'Safety steps', 'Find supplies',
@@ -426,12 +428,13 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
   }
 
   function positionTabs(curveSpace = 0) {
-    const labels = native.map((entry) => entry.legend.getBoundingClientRect().width);
+    tab.titleTabVisible = desktop.matches;
+    const labels = native.map((entry) => entry.legend.offsetWidth);
     const gap = native.length > 1 ? native[1].left() - native[0].left() - labels[0] : 10;
     const spacing = Math.max(6, Math.min(10, gap));
-    const tabWidth = legend.getBoundingClientRect().width;
+    const tabWidth = legend.offsetWidth;
     const rowBounds = row.getBoundingClientRect();
-    const tabInset = legend.getBoundingClientRect().left - rowBounds.left - (parseFloat(tab.style.left) || 0);
+    const tabInset = tab.clientLeft + legend.offsetLeft;
     const railLeft = rail.getBoundingClientRect().left;
     const railRight = scroller.getBoundingClientRect().right;
     const minimum = Math.max(0, railLeft + curveSpace - rowBounds.left - tabInset);
@@ -452,29 +455,9 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
         x + tabWidth + spacing <= entry.x || x >= entry.x + entry.width + spacing
       )) ?? renderedPosition;
     }
-    const askEnd = renderedPosition + tabWidth;
-    let occupiedEnd = askEnd + spacing;
-    let followingField = null;
-    let layoutChanged = false;
-    neighbors.forEach(entry => {
-      let left = entry.x;
-      if (desktop.matches && !entry.field.classList.contains('dragging') &&
-          left < occupiedEnd && left + entry.width + spacing > renderedPosition) {
-        left = occupiedEnd;
-        occupiedEnd = left + entry.width + spacing;
-      }
-      if (!followingField && left > renderedPosition) followingField = entry.field;
-      const cssLeft = left + 'px';
-      if (entry.field.style.left !== cssLeft) {
-        entry.field.style.left = cssLeft;
-        layoutChanged = true;
-      }
-    });
-    const tabLeft = renderedPosition + 'px';
-    if (tab.style.left !== tabLeft) {
-      tab.style.left = tabLeft;
-      layoutChanged = true;
-    }
+    tab.positionX = renderedPosition;
+    const { changed: layoutChanged } = placeDashboardTitleTabs(root, row);
+    const followingField = neighbors.find(entry => parseFloat(entry.field.style.left) > renderedPosition)?.field || null;
     if (desktop.matches && tab.nextElementSibling !== followingField) row.insertBefore(tab, followingField);
     if (layoutChanged) root.dispatchEvent(new Event('cmpri-menu-placement'));
   }
@@ -525,12 +508,14 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
 
   function stopDragging(event) {
     if (!pointer || pointer.id !== event.pointerId) return;
-    tab.classList.remove('dragging');
-    if (pointer.moved) {
-      if (event.type === 'pointerup') setPosition(renderedPosition, true);
-      else setPosition(pointer.original);
-    }
+    const finished = pointer;
     pointer = null;
+    tab.classList.remove('dragging');
+    if (finished.moved) {
+      if (event.type === 'pointerup' && desktop.matches) setPosition(renderedPosition, true);
+      else setPosition(finished.original);
+    }
+    if (rail.hasPointerCapture(finished.id)) rail.releasePointerCapture(finished.id);
   }
 
   on(legend, 'pointerdown', (event) => {
@@ -603,10 +588,14 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
   on(outgoing, 'animationiteration', () => { outgoing.textContent = nextHint(incoming.textContent, hintSource); });
   on(incoming, 'animationiteration', () => { incoming.textContent = nextHint(outgoing.textContent, hintSource); });
   on(scroller, 'scroll', placeForm);
-  on(desktop, 'change', () => { arrangeTabs(); syncVisibility(); });
+  on(desktop, 'change', () => {
+    if (!desktop.matches && pointer) stopDragging({ pointerId: pointer.id, type: 'pointercancel' });
+    arrangeTabs(); syncVisibility();
+  });
 
   const resize = new ResizeObserver(arrangeTabs);
   resize.observe(rail);
+  resize.observe(legend);
   function syncNativeDialog(preferred) {
     const dialogs = [...document.querySelectorAll('dialog:modal')];
     const focused = document.activeElement?.closest('dialog:modal');
@@ -644,7 +633,7 @@ export function mountAskDashboardLauncher(root, scope, translate, initial) {
       tab.remove();
       form.remove();
       mobile.remove();
-      for (const entry of native) entry.field.style.left = entry.left() + 'px';
+      if (placeDashboardTitleTabs(root, row).changed) root.dispatchEvent(new Event('cmpri-menu-placement'));
     }
   };
 }

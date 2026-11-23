@@ -13,7 +13,7 @@ Object.assign(globalThis, { window: dom.window, document: dom.window.document, I
 Object.defineProperty(globalThis, 'navigator', { value: dom.window.navigator, configurable: true });
 const React = await import('react');
 const { createRoot } = await import('react-dom/client');
-let verified, serverEntries, requests, root, getBlocked, releaseGet;
+let verified, serverEntries, requests, root, getBlocked, releaseGet, resourceRefresh;
 const modules = new Map();
 const fetchPm = async (url, options = {}) => {
   const body = options.body ? JSON.parse(options.body) : null;
@@ -42,6 +42,8 @@ function loadModule(path) {
     if (name.endsWith('/supabase/client')) return { getValidSession: async () => ({ access_token: 'fixture-token' }) };
     if (name.endsWith('/auth/client-session')) return { loadCmpriSession: async () => verified };
     if (name.endsWith('/auth/session-preference')) return { enforceSessionPreference: async () => true };
+    if (name === '@/lib/events/use-deferred-resource-refresh') return loadModule('src/lib/events/use-deferred-resource-refresh.ts');
+    if (name === './browser') return { subscribeResources: (_topics, load) => { resourceRefresh = load; return () => { resourceRefresh = null; }; } };
     if (name.endsWith('/use-embedded-modal')) return () => true;
     if (name.endsWith('/PmRecordedIssues') || name.endsWith('.css')) return () => null;
     if (name === './source-catalog.json') return require('../src/lib/pm/source-catalog.json');
@@ -73,7 +75,7 @@ function entry(form = identity, revision = 2) {
 function reset() {
   window.localStorage.clear();
   verified = { user: { id: 'alex' }, hotelId: 'hotel', capabilities: ['view_pm'] };
-  serverEntries = [entry()]; requests = []; getBlocked = false; releaseGet = null;
+  serverEntries = [entry()]; requests = []; getBlocked = false; releaseGet = null; resourceRefresh = null;
 }
 async function settle() { for (let i = 0; i < 12; i++) await new Promise(resolve => setImmediate(resolve)); }
 async function mount() { root = createRoot(document.getElementById('root')); await React.act(async () => { root.render(React.createElement(Page)); await settle(); }); }
@@ -128,6 +130,25 @@ test('inspection form restores its equipment identity and contents after restart
   await mount(); try { assert.match(dialog().textContent, new RegExp(inspection.title)); assert.equal(notes().value, 'Unsaved room observations'); }
   finally { await unmount(); }
   await mount(); try { assert.equal(notes().value, 'Unsaved room observations'); } finally { await unmount(); }
+});
+
+test('a resource change waits for an open PM draft and refreshes after nested Close without erasing recovery', async () => {
+  reset(); seed(); await mount();
+  try {
+    const reads = requests.filter(request => request.method === 'GET').length;
+    const draftBefore = window.localStorage.getItem(rules.pmFormDraftKey(owner, identity));
+    serverEntries = [entry(identity, 9)];
+    await React.act(async () => { await resourceRefresh(); await settle(); });
+    assert.equal(requests.filter(request => request.method === 'GET').length, reads, 'the open form defers the resource read');
+    assert.equal(notes().value, 'Unsaved room observations');
+    assert.equal(window.localStorage.getItem(rules.pmFormDraftKey(owner, identity)), draftBefore);
+    await click([...dialog().querySelectorAll('button')].find(button => button.textContent === 'Close'));
+    assert.equal(dialog(), null);
+    assert.equal(requests.filter(request => request.method === 'GET').length, reads + 1);
+    const retained = rules.readPmFormDraft(window.localStorage.getItem(rules.pmFormDraftKey(owner, identity)), owner, identity);
+    assert.equal(retained.revision, 2);
+    assert.equal(retained.formNotes, 'Unsaved room observations');
+  } finally { await unmount(); }
 });
 
 test('restoration waits for the saved week fresh server read before exposing a saved form', async () => {

@@ -241,7 +241,7 @@ export function AskCmpriAttachmentDropIndicator({ locale }: { locale?: string })
 
 function DownloadableFile({ name, openBlob, file, scopeKey = "", locale }: {
   name: string;
-  openBlob: () => Blob;
+  openBlob: (signal: AbortSignal) => Blob | Promise<Blob>;
   file?: File;
   scopeKey?: string;
   locale?: string;
@@ -249,17 +249,30 @@ function DownloadableFile({ name, openBlob, file, scopeKey = "", locale }: {
   const text = labels(locale);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => {
+    request.current?.abort();
+    request.current = null;
+  }, []);
   async function download() {
-    if (busy) return;
+    if (request.current) return;
+    const controller = new AbortController();
+    request.current = controller;
+    const current = () => request.current === controller && !controller.signal.aborted;
     setBusy(true);
     setStatus("");
     try {
-      const destination = await downloadAskCmpriFile(scopeKey, name, openBlob());
-      setStatus(destination === "folder" ? text.saved : text.downloaded);
+      const blob = await openBlob(controller.signal);
+      if (!current()) return;
+      const destination = await downloadAskCmpriFile(scopeKey, name, blob, controller.signal);
+      if (current()) setStatus(destination === "folder" ? text.saved : text.downloaded);
     } catch (error) {
-      setStatus(error instanceof AskCmpriFolderSaveError ? text.uncertain(error.fileName) : text.unavailable);
+      if (current()) setStatus(error instanceof AskCmpriFolderSaveError ? text.uncertain(error.fileName) : text.unavailable);
     } finally {
-      setBusy(false);
+      if (request.current === controller) {
+        request.current = null;
+        setBusy(false);
+      }
     }
   }
   return <>
@@ -283,7 +296,7 @@ export function AskCmpriFileList({ files, outgoing = false, locale, scopeKey }: 
   return (
     <ul className={styles.files} data-outgoing={outgoing} aria-label={outgoing ? text.sent : text.received}>
       {files.map((file, index) => (
-        <li key={`${file.name}-${file.lastModified}-${index}`}><DownloadableFile name={file.name} file={file}
+        <li key={`${scopeKey}:${file.name}-${file.lastModified}-${index}`}><DownloadableFile name={file.name} file={file}
           openBlob={() => file} locale={locale} scopeKey={scopeKey} /></li>
       ))}
     </ul>
@@ -291,22 +304,77 @@ export function AskCmpriFileList({ files, outgoing = false, locale, scopeKey }: 
 }
 
 type ReplyDownload = NonNullable<AskResponse["downloads"]>[number];
+type AuthorizeDownload = (signal?: AbortSignal, expected?: string) => Promise<{ scope: string; headers: Record<string, string> }>;
+const MAX_NATIVE_DOWNLOAD_BYTES = 100 * 1024 * 1024;
 
-function responseDownload(download: ReplyDownload) {
+async function responseDownload(download: ReplyDownload, scopeKey: string, authorize: AuthorizeDownload, signal: AbortSignal): Promise<Blob> {
+  signal.throwIfAborted();
+  if ("downloadToken" in download) {
+    const auth = await authorize(signal, scopeKey);
+    signal.throwIfAborted();
+    if (!scopeKey || auth.scope !== scopeKey) throw new Error("The download account changed.");
+    const response = await fetch("/api/ask-cmpri/document-download", {
+      method: "POST", headers: { ...auth.headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ token: download.downloadToken }), cache: "no-store", signal,
+    });
+    const metadata = await response.json().catch(() => null) as Record<string, unknown> | null;
+    signal.throwIfAborted();
+    if (!response.ok || !metadata || typeof metadata.url !== "string" || metadata.name !== download.name
+      || metadata.mimeType !== "application/pdf" || metadata.mimeType !== download.mimeType
+      || typeof metadata.size !== "number" || !Number.isSafeInteger(metadata.size) || metadata.size <= 0 || metadata.size > MAX_NATIVE_DOWNLOAD_BYTES
+      || typeof metadata.sha256 !== "string" || !/^[a-f0-9]{64}$/i.test(metadata.sha256)) {
+      throw new Error("The PDF download could not be verified.");
+    }
+    const url = new URL(metadata.url);
+    if (url.protocol !== "https:" || url.username || url.password
+      || !url.pathname.startsWith("/storage/v1/object/sign/") || !url.searchParams.get("token")) {
+      throw new Error("The PDF download address is invalid.");
+    }
+    const file = await fetch(url.href, { credentials: "omit", referrerPolicy: "no-referrer", redirect: "error", cache: "no-store", signal });
+    if (!file.ok || !file.body) throw new Error("The PDF could not be retrieved.");
+    const reader = file.body.getReader();
+    const chunks: Uint8Array<ArrayBuffer>[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        signal.throwIfAborted();
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > metadata.size) throw new Error("The PDF size changed.");
+        chunks.push(new Uint8Array(chunk.value));
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => {});
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+    if (size !== metadata.size) throw new Error("The PDF size changed.");
+    const blob = new Blob(chunks, { type: metadata.mimeType });
+    const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+    const sha256 = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+    if (sha256 !== metadata.sha256.toLowerCase()) throw new Error("The PDF content changed.");
+    const finalAuth = await authorize(signal, scopeKey);
+    signal.throwIfAborted();
+    if (finalAuth.scope !== scopeKey) throw new Error("The download account changed.");
+    return blob;
+  }
   if (download.encoding === "utf8") return new Blob([download.content], { type: download.mimeType });
   const decoded = atob(download.content);
   return new Blob([Uint8Array.from(decoded, (value) => value.charCodeAt(0))], { type: download.mimeType });
 }
 
-export function AskCmpriDownloadList({ downloads, scopeKey, locale }: {
+export function AskCmpriDownloadList({ downloads, scopeKey, locale, authorize }: {
   downloads?: readonly ReplyDownload[];
   scopeKey: string;
   locale?: string;
+  authorize: AuthorizeDownload;
 }) {
   if (!downloads?.length) return null;
   return <ul className={styles.files} aria-label={labels(locale).received}>
-    {downloads.map((item) => <li key={item.id}>
-      <DownloadableFile name={item.name} openBlob={() => responseDownload(item)} locale={locale} scopeKey={scopeKey} />
+    {downloads.map((item) => <li key={`${scopeKey}:${item.id}`}>
+      <DownloadableFile name={item.name} openBlob={signal => responseDownload(item, scopeKey, authorize, signal)} locale={locale} scopeKey={scopeKey} />
     </li>)}
   </ul>;
 }

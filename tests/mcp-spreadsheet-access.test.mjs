@@ -17,6 +17,7 @@ function load(relative, overrides = {}, globals = {}) {
       if (name.includes("work-order-read-policy") || name.includes("work-order-reader")) return ticketReadDependency(name);
     if(Object.hasOwn(overrides,name)) return overrides[name];
     if(name==='server-only')return {};
+    if(name==='@/lib/ai/cmpri-operation-guidance')return load('lib/ai/cmpri-operation-guidance.ts');
     if(name==='./hours-tracker-mcp')return {canUseHoursMcp:()=>false};
     if(name==='@/lib/server/hours-clock-policy')return {hoursClockEnabled:()=>false};
     if(name==='next/server')return {NextRequest:class NextRequest {}};

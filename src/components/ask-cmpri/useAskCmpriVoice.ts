@@ -15,6 +15,7 @@ export interface AskCmpriVoiceOptions {
   onEnd?: () => void;
   locale?: string;
   enabled?: boolean;
+  synthesizeSpeech?: (text: string, signal: AbortSignal) => Promise<ArrayBuffer>;
 }
 
 interface VoiceState {
@@ -81,6 +82,7 @@ const VOICE_TEXT = {
     recognitionEnded: "Browser dictation ended before detecting speech.",
     ended: "Voice call ended.",
     topic: "New voice topic.",
+    speechError: "Gemini voice could not play this reply. The reply is available as text.",
   },
   es: {
     listen: "Escuchando. Di «adiós» para finalizar la llamada.",
@@ -92,6 +94,7 @@ const VOICE_TEXT = {
     recognitionEnded: "El dictado del navegador terminó antes de detectar voz.",
     ended: "Llamada de voz finalizada.",
     topic: "Nuevo tema de voz.",
+    speechError: "No se pudo reproducir la voz de Gemini. La respuesta está disponible como texto.",
   },
 };
 
@@ -121,10 +124,12 @@ function punctuate(text: string) {
   return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
-function createVoiceController({ onTranscript, onInterruptedTranscript, onEnd, locale }: AskCmpriVoiceOptions, publish: VoiceListener) {
+function createVoiceController({ onTranscript, onInterruptedTranscript, onEnd, locale, synthesizeSpeech }: AskCmpriVoiceOptions, publish: VoiceListener) {
   const speechWindow = window as Window & {
     SpeechRecognition?: RecognitionConstructor;
     webkitSpeechRecognition?: RecognitionConstructor;
+    AudioContext?: typeof AudioContext;
+    webkitAudioContext?: typeof AudioContext;
   };
   const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
   const media = navigator.mediaDevices;
@@ -145,7 +150,8 @@ function createVoiceController({ onTranscript, onInterruptedTranscript, onEnd, l
   let turnTimer: number | undefined;
   let finalSegments: string[] = [];
   let shortRuns = 0;
-  let spokenUtterance: SpeechSynthesisUtterance | null = null;
+  let audioContext: AudioContext | null = null;
+  let spokenAudio: { controller: AbortController; source: AudioBufferSourceNode | null } | null = null;
   let speechTimer: number | undefined;
   let echoUntil = 0;
 
@@ -279,11 +285,12 @@ function createVoiceController({ onTranscript, onInterruptedTranscript, onEnd, l
         if (run !== current) return;
         const interim: string[] = [];
         let receivedFinal = false;
-        const rejectEcho = spokenUtterance !== null || performance.now() < echoUntil;
+        const rejectEcho = spokenAudio?.source != null || performance.now() < echoUntil;
         for (let index = event.resultIndex; index < event.results.length; index += 1) {
           const result = event.results[index];
           const segment = result[0]?.transcript.trim();
           if (!segment) continue;
+          if (!rejectEcho && spokenAudio) cancelSpeech();
           if (!result.isFinal) {
             if (!rejectEcho) interim.push(segment);
             continue;
@@ -331,6 +338,8 @@ function createVoiceController({ onTranscript, onInterruptedTranscript, onEnd, l
 
   function start() {
     if (disposed || state.active) return;
+    // Resume on the microphone click, before any network await, for mobile autoplay rules.
+    void prepareAudio().catch(() => { /* The text reply remains available if playback is blocked. */ });
     const started = ++generation;
     shortRuns = 0;
     update({ active: true, status: text.starting, typingFallback: false });
@@ -365,10 +374,14 @@ function createVoiceController({ onTranscript, onInterruptedTranscript, onEnd, l
     window.clearTimeout(speechTimer);
     speechTimer = undefined;
     echoUntil = 0;
-    if (!spokenUtterance) return;
-    spokenUtterance.onend = spokenUtterance.onerror = null;
-    spokenUtterance = null;
-    speechWindow.speechSynthesis.cancel();
+    const current = spokenAudio;
+    spokenAudio = null;
+    current?.controller.abort();
+    if (current?.source) {
+      current.source.onended = null;
+      try { current.source.stop(); } catch { /* The buffer may have ended already. */ }
+      current.source.disconnect();
+    }
   }
 
   function stop() {
@@ -401,32 +414,55 @@ function createVoiceController({ onTranscript, onInterruptedTranscript, onEnd, l
     return true;
   }
 
+  async function prepareAudio(): Promise<AudioContext> {
+    let context = audioContext;
+    if (!context || context.state === "closed") {
+      const Context = speechWindow.AudioContext || speechWindow.webkitAudioContext;
+      if (!Context) throw new Error("Audio playback is unavailable");
+      context = new Context();
+      audioContext = context;
+    }
+    if (context.state === "suspended") await context.resume();
+    return context;
+  }
+
   function speak(answer: string) {
-    if (!state.active || !answer.trim() || !speechWindow.speechSynthesis || typeof SpeechSynthesisUtterance !== "function") return;
+    if (!state.active || !answer.trim()) return;
     cancelSpeech();
     if (finalSegments.length) submitTurn();
     else clearTurn();
-    const utterance = new SpeechSynthesisUtterance(answer);
-    utterance.lang = speechLocale;
-    spokenUtterance = utterance;
-    const resume = () => {
-      if (spokenUtterance !== utterance) return;
-      spokenUtterance = null;
+    const current = { controller: new AbortController(), source: null as AudioBufferSourceNode | null };
+    spokenAudio = current;
+    const finished = () => {
+      if (spokenAudio !== current) return;
+      current.source?.disconnect();
+      spokenAudio = null;
       window.clearTimeout(speechTimer);
       speechTimer = undefined;
       echoUntil = performance.now() + 230;
     };
-    utterance.onend = utterance.onerror = resume;
-    speechTimer = window.setTimeout(() => {
-      if (spokenUtterance !== utterance) return;
-      resume();
-      speechWindow.speechSynthesis.cancel();
-    }, Math.min(16_000, Math.max(3_500, answer.length * 65)));
-    try {
-      speechWindow.speechSynthesis.speak(utterance);
-    } catch {
-      resume();
-    }
+    const failed = () => {
+      if (spokenAudio !== current) return;
+      cancelSpeech();
+      if (state.active && !disposed) update({ status: text.speechError });
+    };
+    speechTimer = window.setTimeout(failed, 25_000);
+    void (async () => {
+      if (!synthesizeSpeech) throw new Error("Gemini voice is unavailable");
+      const bytes = await synthesizeSpeech(answer, current.controller.signal);
+      if (spokenAudio !== current || !state.active || disposed) return;
+      const context = await prepareAudio();
+      const buffer = await context.decodeAudioData(bytes);
+      if (spokenAudio !== current || !state.active || disposed) return;
+      const source = context.createBufferSource();
+      current.source = source;
+      source.buffer = buffer;
+      source.onended = finished;
+      source.connect(context.destination);
+      window.clearTimeout(speechTimer);
+      speechTimer = window.setTimeout(failed, Math.ceil(buffer.duration * 1000) + 2_000);
+      source.start();
+    })().catch(failed);
   }
 
   media?.addEventListener?.("devicechange", () => {
@@ -444,6 +480,9 @@ function createVoiceController({ onTranscript, onInterruptedTranscript, onEnd, l
     disposed = true;
     events.abort();
     stop();
+    cancelSpeech();
+    if (audioContext && audioContext.state !== "closed") void audioContext.close().catch(() => {});
+    audioContext = null;
   }
 
   return { start, stop, newTopic, endFromText, speak, refreshMicrophone, dispose };
@@ -463,6 +502,10 @@ export function useAskCmpriVoice(options: AskCmpriVoiceOptions) {
       onTranscript: (text) => callbacks.current.onTranscript(text),
       onInterruptedTranscript: (text) => callbacks.current.onInterruptedTranscript?.(text),
       onEnd: () => callbacks.current.onEnd?.(),
+      synthesizeSpeech: (text, signal) => {
+        const synthesize = callbacks.current.synthesizeSpeech;
+        return synthesize ? synthesize(text, signal) : Promise.reject(new Error("Gemini voice is unavailable"));
+      },
     }, setState);
     controller.current = current;
     // The first status probe runs after the mounted controls can report its result.
