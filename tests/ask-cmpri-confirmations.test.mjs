@@ -76,6 +76,15 @@ function fixture(role = "Front Desk") {
       if (interrupt === "after") throw new Error("Synthetic loss after commit");
       return Response.json({ work_orders: [row] });
     },
+    async PATCH(request, { params }) {
+      const { id } = await params;
+      const { expected_revision, status } = await request.json();
+      const row = orders.get(id);
+      assert.equal(expected_revision, row.revision);
+      orders.set(id, { ...row, status, revision: row.revision + 2 });
+      saves++;
+      return Response.json({ saved: true, error: "Changes were saved. Reload before making more changes." });
+    },
   };
   const actions = loadTs("src/lib/server/ask-cmpri-actions.ts", {
     "server-only": {}, zod, "next/server": { NextRequest: NativeRequest }, "@/lib/server/access": access,
@@ -88,6 +97,7 @@ function fixture(role = "Front Desk") {
     "@/lib/i18n/ticket-media": loadTs("src/lib/i18n/ticket-media.ts"),
     "./ask-cmpri-data": { askText: ascii, askOrderItem: () => ({}) },
     "@/app/api/work-orders/route": native,
+    "@/app/api/work-orders/[id]/route": native,
   }, { URL, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "synthetic confirmation fixture" } } });
   const action = extra => actions.beginAskAction({
     plan: create, principal, orders: [], locations: [location], language: "es", staffName: "María",
@@ -168,4 +178,19 @@ test("a changed work-order revision rejects the original confirmation without st
   assert.equal(result.status, 409);
   assert.match(result.result.summary, /cambió/);
   assert.equal(route.saves(), 0);
+});
+
+test("an edit committed without a fresh row is confirmed without showing stale work-order values", async () => {
+  const route = fixture("Chief Engineer");
+  const row = { id: randomUUID(), display_id: "WO#888", hotel_id: hotel, revision: 2, status: "In Progress", priority: "Medium",
+    technician_name: "Assigned Technician" };
+  route.orders.set(row.id, row);
+  const proposal = route.action({ plan: { ...create, candidateAction: "status", actionValue: "Completed" }, orders: [row], language: "en" }).proposal;
+  const { result, status } = await route.confirm(proposal.token);
+  assert.equal(status, 200);
+  assert.match(result.summary, /saved.*reopen/i);
+  assert.equal(result.items[0].record.id, row.id);
+  assert.equal(route.orders.get(row.id).status, "Completed");
+  assert.equal((await route.confirm(proposal.token, { recover: true })).status, 200);
+  assert.equal(route.saves(), 1);
 });

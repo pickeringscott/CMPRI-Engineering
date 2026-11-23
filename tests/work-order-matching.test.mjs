@@ -29,7 +29,7 @@ const locations=[409,410].map(n=>({id:String(n),name:`Room ${n}`,room_number:Str
 const assets=locations.map(l=>({id:`vtac-${l.id}`,location_id:l.id,asset_type:'VTAC',name:`VTAC - Room ${l.id}`,manufacturer:'Friedrich',active:true}));
 function fixture(overrides={}){
   const writes={};const exports={};
-  const context={exports,classifyAsset,priorityForCategory,categoryFromIssue,inferWorkOrder,separateIssueFromReporterNotes,findLocationFromText,isFrontDeskUser:false,isSubmitOnlyUser:false,locations,assets,locationId:'409',assetId:'',manualLocation:true,manualAsset:false,manualCategory:false,manualPriority:false,...overrides};
+  const context={exports,classifyAsset,priorityForCategory,categoryFromIssue,inferWorkOrder,separateIssueFromReporterNotes,findLocationFromText,isFrontDeskUser:false,isSubmitOnlyUser:false,frontDeskPriorityOnly:false,locations,assets,locationId:'409',assetId:'',manualLocation:true,manualAsset:false,manualCategory:false,manualPriority:false,...overrides};
   context.systemAssignedTechnicalFields=overrides.systemAssignedTechnicalFields ?? context.isSubmitOnlyUser;
   context.canChoosePriority=overrides.canChoosePriority ?? !context.systemAssignedTechnicalFields;
   for(const key of ['LocationId','AssetId','Category','Priority'])context['set'+key]=value=>{writes[key[0].toLowerCase()+key.slice(1)]=value;};
@@ -91,6 +91,12 @@ test('guest departure commentary is separated from the maintenance issue',()=>{
 test('explicit room change ignores stale prior selection flags',()=>{
   const f=fixture({assetId:'vtac-409',manualAsset:true,manualCategory:true,manualPriority:true});
   f.match('not cooling','',locations[1]);assert.equal(f.writes.assetId,'vtac-410');assert.equal(f.writes.category,'HVAC');assert.equal(f.writes.priority,'High');
+});
+test('explicit room change keeps a manual Front Desk priority while refreshing equipment and category',()=>{
+  const f=fixture({isFrontDeskUser:true,isSubmitOnlyUser:true,frontDeskPriorityOnly:true,canChoosePriority:true,
+    assetId:'vtac-409',manualAsset:true,manualCategory:true,manualPriority:true});
+  f.match('not cooling','',locations[1]);
+  assert.deepEqual(f.writes,{assetId:'vtac-410',category:'HVAC'});
 });
 test('typing respects manually selected equipment/category/priority',()=>{
   const f=fixture({assetId:'vtac-409',manualAsset:true,manualCategory:true,manualPriority:true});f.match('not cooling','');assert.deepEqual(f.writes,{});

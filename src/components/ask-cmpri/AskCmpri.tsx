@@ -73,7 +73,7 @@ function isCancelCommand(question: string) {
 function recordPath(record: AskRecordReference) {
   if (record.kind === "order") return "/work-orders/" + encodeURIComponent(record.id);
   if (record.kind === "asset") return "/management/equipment?asset=" + encodeURIComponent(record.id);
-  if (record.kind === "roomRank") return "/engineering/room-ranker";
+  if (record.kind === "roomRank") return "/engineering/room-ranking?room=" + encodeURIComponent(record.id);
   if (record.kind === "personalNote") return "/notes?note=" + encodeURIComponent(record.id);
   return null;
 }

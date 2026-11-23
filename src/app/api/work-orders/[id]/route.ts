@@ -369,23 +369,25 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     field => Object.prototype.hasOwnProperty.call(update, field) && update[field] !== existing[field],
   );
   let committed = data;
-  const warnings = [];
   if (rankInputChanged) {
     const { data: current, error: reloadError } = await db.from("work_orders")
       .select("*").eq("hotel_id", HOTEL_ID).eq("id", id).maybeSingle();
-    if (reloadError || !current) warnings.push("The current ticket could not be reloaded. Refresh it before making more changes.");
-    else committed = current;
+    if (reloadError || !current) {
+      return NextResponse.json({ saved: true, error: "Your changes were saved, but the updated ticket could not be loaded. Reload it before making more changes." });
+    }
+    committed = current;
   }
+  let warning: string | undefined;
   if (isEngineeringWorkOrderActor(auth.principal.profile)) {
     try {
       await recordEngineeringWorkOrderView(auth.admin, { id, display_id: existing.display_id }, {
         id: auth.principal.identity.id,
       });
     } catch {
-      warnings.push("Technician notifications could not be refreshed.");
+      warning = "Technician notifications could not be refreshed.";
     }
   }
-  return NextResponse.json({ workOrder: { ...committed, can_correct_report: reportCorrectionAllowed(auth.principal.profile, committed.status, canReadWorkOrder(workOrderReader(auth.principal), committed)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, committed.room) } : {}) }, ...(warnings.length ? { warning: warnings.join(" ") } : {}) });
+  return NextResponse.json({ workOrder: { ...committed, can_correct_report: reportCorrectionAllowed(auth.principal.profile, committed.status, canReadWorkOrder(workOrderReader(auth.principal), committed)), ...(roomStatuses?.statuses ? { room_status: currentRoomStatus(roomStatuses.statuses, committed.room) } : {}) }, ...(warning ? { warning } : {}) });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {

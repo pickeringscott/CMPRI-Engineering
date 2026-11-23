@@ -402,6 +402,16 @@ async function applyConfirmedAction(request: NextRequest, auth: Authorized, acti
   if (action.field === "staff-note") {
     return typeof body.id === "string" ? savedStaffNote(action, body.id) : confirmationError(action, 502, "Check Staff Notes before retrying.", "Revisa Notas del personal antes de volver a intentarlo.");
   }
+  if (body.saved === true) {
+    const label = es ? "Abrir orden de trabajo" : "Open work order";
+    return { status: 200, result: {
+      title: es ? "Orden actualizada" : "Work order updated",
+      summary: es ? "Se guardó el cambio. Vuelve a abrir la orden antes de hacer más cambios." : "Your change was saved. Reopen the work order before making more changes.",
+      items: [{ id: "order:" + action.id, title: es ? "Orden de trabajo" : "Work order", source: "CMPRI · Work orders", sourceType: "internal",
+        record: { kind: "order", id: action.id, label } }],
+      context: { language: action.language, sources: ["orders"], workOrders: [action.id] },
+    } };
+  }
   const row = body.workOrder as AskOrder | undefined;
   return row ? editResult(action, row, Boolean(body.warning)) : confirmationError(action, 502, "Check the work order before retrying.", "Revisa la orden de trabajo antes de volver a intentarlo.");
 }

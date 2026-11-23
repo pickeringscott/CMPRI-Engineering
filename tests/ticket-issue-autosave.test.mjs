@@ -162,6 +162,7 @@ test('a failed post-commit read reports that the save succeeded and requires rel
  const f=await fixture({deferredRanker:true,failReload:true});try{
   const result=await f.patch({expected_revision:1,status:'Open'});
   assert.equal(result.status,200);assert.equal(result.body.saved,true);assert.match(result.body.error,/saved.*Reload/i);
+  assert.equal(result.body.workOrder,undefined);
   assert.equal((await f.row()).status,'Open');assert.equal((await f.row()).revision,3);
  }finally{await f.db.close()}
 });

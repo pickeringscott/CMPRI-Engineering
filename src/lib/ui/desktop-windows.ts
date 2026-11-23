@@ -124,7 +124,8 @@ export function saveDesktopLayout(storage: StorageLike, userId: string, layoutKe
 /** Reuse an exact record window, never a different record on the same screen. */
 export function desktopWindowKeyForHref(href: string, origin: string) {
   const url = new URL(href, origin);
-  const parameter = url.pathname === "/management/equipment" ? "asset" : url.pathname === "/notes" ? "note" : "";
+  const parameter = url.pathname === "/management/equipment" ? "asset" : url.pathname === "/notes" ? "note"
+    : url.pathname === "/engineering/room-ranking" ? "room" : "";
   const id = parameter && url.searchParams.get(parameter);
   return id ? `${url.pathname}?${parameter}=${encodeURIComponent(id)}` : url.pathname;
 }

@@ -86,6 +86,8 @@ test('desktop routes open same-origin screens as embedded windows', () => {
   assert.equal(desktopWindowKeyForHref('/management/equipment?asset=one&modalToken=token', origin), '/management/equipment?asset=one');
   assert.notEqual(desktopWindowKeyForHref('/management/equipment?asset=one', origin), desktopWindowKeyForHref('/management/equipment?asset=two', origin));
   assert.equal(desktopWindowKeyForHref('/notes?note=one', origin), '/notes?note=one');
+  assert.equal(desktopWindowKeyForHref('/engineering/room-ranking?room=one&modalToken=token', origin), '/engineering/room-ranking?room=one');
+  assert.notEqual(desktopWindowKeyForHref('/engineering/room-ranking?room=one', origin), desktopWindowKeyForHref('/engineering/room-ranking?room=two', origin));
   assert.equal(windowLayoutKey('/management/equipment?asset=one'), '/management/equipment');
   assert.equal(isDesktopRoute('/management/rooms', origin), true);
   assert.equal(isDesktopRoute('https://elsewhere.example/x', origin), false);

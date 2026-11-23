@@ -921,7 +921,7 @@ export default function WorkOrdersPage() {
 
     if (
       smartCategory &&
-      (!manualPriority || !canChoosePriority)
+      (!manualPriority || !canChoosePriority || (locationOverride && !frontDeskPriorityOnly))
     ) {
       setPriority(
         priorityForCategory(
@@ -945,7 +945,10 @@ export default function WorkOrdersPage() {
     setAssetId("");
     setManualAsset(false);
     setCategory("General");
-    if (!manualPriority || !canChoosePriority) setPriority("Medium");
+    if (!frontDeskPriorityOnly || !manualPriority) {
+      setPriority("Medium");
+      setManualPriority(false);
+    }
 
     setManualCategory(false);
 

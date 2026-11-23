@@ -26,12 +26,16 @@ export default function TicketRoomRankerPage() {
   const [additionalRoom, setAdditionalRoom] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
+  const [linkedRoomMissing, setLinkedRoomMissing] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
+  const pendingRoom = useRef<string | null>(null);
+  const roomList = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let stopped = false;
     let busy = false;
     let controller: AbortController | undefined;
+    let linkedRoomId = new URLSearchParams(window.location.search).get("room");
     async function refresh() {
       if (stopped || busy || document.visibilityState === "hidden") return;
       busy = true;
@@ -44,7 +48,21 @@ export default function TicketRoomRankerPage() {
           if (!stopped && (response.status === 401 || response.status === 403)) setRooms([]);
           throw new Error(result.error || "Room ranking could not be refreshed.");
         }
-        if (!stopped) { setRooms(result.rooms); setLoaded(true); setError(""); }
+        if (!stopped) {
+          if (linkedRoomId) {
+            const linked = (result.rooms as RankedRoom[]).find(room => room.id === linkedRoomId);
+            if (linked) {
+              pendingRoom.current = linked.id;
+              setFilter("All");
+              setFloorsOpen(previous => ({ ...previous, [linked.floor]: true }));
+            }
+            setLinkedRoomMissing(!linked);
+            linkedRoomId = null;
+          }
+          setRooms(result.rooms);
+          setLoaded(true);
+          setError("");
+        }
       } catch (cause) {
         if (!stopped) setError(cause instanceof Error ? cause.message : "Room ranking could not be refreshed.");
       } finally { clearTimeout(timeout); busy = false; }
@@ -55,6 +73,16 @@ export default function TicketRoomRankerPage() {
     });
     return () => { stopped = true; controller?.abort(); stop(); };
   }, []);
+
+  useEffect(() => {
+    const id = pendingRoom.current;
+    if (!id) return;
+    const row = roomList.current?.querySelector<HTMLElement>(`[data-room-id="${CSS.escape(id)}"]`);
+    if (!row) return;
+    pendingRoom.current = null;
+    row.scrollIntoView({ block: "nearest" });
+    row.focus({ preventScroll: true });
+  }, [rooms]);
 
   const counts = roomRankCounts(rooms);
   const shown = rooms.filter((room) => filter === "All" || room.rank === filter);
@@ -84,9 +112,10 @@ export default function TicketRoomRankerPage() {
       {!embedded && <RoomRankerKey />}
     </div>
     {error && <p role="alert" className={styles.error}>{t(error)}{loaded && t(" Displaying the last successful refresh.")}</p>}
+    {linkedRoomMissing && <p role="status" className={styles.message}>{t("The linked room is unavailable in Room Ranker.")}</p>}
     {!loaded && !error && <p role="status" className={styles.message}>{t("Loading rooms and active tickets…")}</p>}
     <div className={styles.visibleCount} aria-live="polite">{shown.length} / {rooms.length}{" "}{t("rooms · Read down each floor")}</div>
-    <div className={styles.floors}>
+    <div ref={roomList} className={styles.floors}>
       {floors.map((floor) => {
         const list = shown.filter((room) => room.floor === floor);
         const open = floorsOpen[floor] === true;
@@ -94,7 +123,7 @@ export default function TicketRoomRankerPage() {
           <button type="button" className={styles.floorHeader} aria-expanded={open} aria-controls={`floor-${floor}`} onClick={() => toggleFloor(floor)}><span>{open ? "▾" : "▸"} {t(({"1":"1st", "2":"2nd", "3":"3rd", "4":"4th"} as Record<string,string>)[floor] || floor)}{" "}{t("Floor")}</span><span>{list.length}{" "}{t("rooms")}</span></button>
           <div id={`floor-${floor}`} hidden={!open}>
             <div className={styles.columns}><span>{t("Room")}</span><span>{t("Rank")}</span><span /><span>{t("Issue")}</span><span /></div>
-            {list.map((room) => <div key={room.id} className={styles.row} data-room={room.number} data-rank={room.rank}>
+            {list.map((room) => <div key={room.id} className={styles.row} data-room={room.number} data-room-id={room.id} data-rank={room.rank} tabIndex={-1}>
               <span className={`${styles.room} ${styles[`text${room.rank}`]}`}>{room.number}</span><span className={`${styles.badge} ${styles[room.rank]}`}>{room.rank}</span>
               {room.issues.some(isTicketAutomaticallyEscalated) ? <TicketEscalationIndicator /> : <span />}
               {room.issues[0] ? <a className={styles.issue} href={`/work-orders/${encodeURIComponent(room.issues[0].id)}`} title={room.issues[0].issue}>{room.issues[0].issue}</a> : <span className={styles.muted}>{t("No active tickets")}</span>}
