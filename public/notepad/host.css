@@ -17,7 +17,10 @@ body{margin:0}
 .layout-1 .note-attribution time{white-space:nowrap}
 .layout-1 .priority-row.note-details{display:flex;justify-content:flex-start;gap:0 5px;min-height:18px;padding:0 2px}
 .layout-1 .general-notes-editor{gap:0}
-.layout-1 .notepad-formatting{margin-top:0;padding-top:0;padding-bottom:0}
+.layout-1 .notepad-formatting{margin-top:0;padding-top:0;padding-bottom:0;gap:0}
+/* Keep the approved controls together in the normal CMPRI window by removing
+   spare group spacing, without shrinking their fonts, buttons or dropdowns. */
+.layout-1 .notepad-formatting .fmt-group{gap:0;padding-right:1px;margin-right:0}
 
 /* Only real text/ink extends the page. The unchanged 800×1100 ink layer keeps
    its coordinate system, with its unused blank area clipped out of scrolling. */
