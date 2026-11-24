@@ -81,7 +81,7 @@ test('the real installed Google provider serializes every native tool and the st
   assert.ok(declarations.every(tool => tool.parametersJsonSchema?.type === 'object'));
   assert.ok(declarations.some(tool => tool.name === 'readCmpri'));
   assert.ok(declarations.some(tool => tool.name === 'proposeChange'));
-  assert.equal(body.toolConfig.functionCallingConfig.mode, 'AUTO');
+  assert.equal(body.toolConfig.functionCallingConfig.mode, 'VALIDATED');
   assert.equal(h.requests[0].headers.get('x-goog-api-key'), 'not-a-real-provider-key');
   // A mocked accepted response proves SDK construction/parsing, not live Google schema acceptance.
 });

@@ -198,6 +198,9 @@ export async function runNativeAsk(input: {
   const tools = {
     discoverOperations: tool({
       description: "Discover every native CMPRI feature and action. Use an empty query to see the complete catalog. Role access is checked by each native operation; never assume a module is unavailable because it is absent from the old seven-source search.",
+      // The Google SDK selects request-wide VALIDATED mode when an active
+      // tool is strict. Gemini uses that mode with structured output.
+      strict: true,
       inputSchema: z.object({ query: z.string().default("") }),
       execute: ({ query }) => {
         const words = query.toLowerCase().split(/\W+/).filter(Boolean);
