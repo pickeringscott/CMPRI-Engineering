@@ -13,7 +13,7 @@ import { resolveMcpWorkOrderLocation } from "@/lib/ai/mcp-work-order-location";
 export const dynamic = "force-dynamic";
 
 const NO_STORE = { "Cache-Control": "no-store", Pragma: "no-cache" };
-const SUPPORTED_PROTOCOLS = ["2025-06-18", "2025-03-26"];
+const SUPPORTED_PROTOCOLS = ["2025-11-25", "2025-06-18", "2025-03-26"];
 const MAX_MCP_REQUEST_BYTES = 4_500_000;
 const MAX_MCP_WRITE_INPUT_BYTES = 4_000_000;
 
