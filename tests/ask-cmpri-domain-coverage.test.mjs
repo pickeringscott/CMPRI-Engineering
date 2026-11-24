@@ -268,6 +268,7 @@ test("fresh Room Ranker, Weather and Airport questions bypass legacy planning in
   let planned = 0;
   const nativeQuestions = [];
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": next, zod,
     "@/lib/server/roles": { profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
