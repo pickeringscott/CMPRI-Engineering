@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { ToolLoopAgent, Output, hasToolCall, isStepCount, tool, wrapLanguageModel } from "ai";
+import { APICallError, ToolLoopAgent, Output, hasToolCall, isStepCount, tool, wrapLanguageModel } from "ai";
 import { z } from "zod";
 import type { AskContext, AskLanguage, AskProposal, AskResponse, AskResultItem, AskTable } from "@/lib/ask-cmpri/types";
 import type { AuthAttempt } from "@/lib/server/auth";
@@ -34,6 +34,27 @@ const querySchema = z.object({
   offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(200).default(50),
 });
 const answerSchema = z.object({ title: z.string(), summary: z.string(), itemIds: z.array(z.string()), format: z.enum(["default", "brief", "bullets", "table"]) });
+
+const geminiQuotaDetails = z.object({
+  error: z.object({
+    details: z.array(z.object({
+      "@type": z.string(),
+      violations: z.array(z.object({ quotaDimensions: z.record(z.string(), z.string()).optional() })).optional(),
+    })),
+  }),
+});
+
+function canSwitchGeminiModel(error: unknown) {
+  if (!APICallError.isInstance(error)) return false;
+  if (error.statusCode === 503) return true;
+  if (error.statusCode !== 429) return false;
+  const quota = geminiQuotaDetails.safeParse(error.data);
+  if (!quota.success) return false;
+  const violations = quota.data.error.details
+    .filter(detail => detail["@type"] === "type.googleapis.com/google.rpc.QuotaFailure")
+    .flatMap(detail => detail.violations ?? []);
+  return violations.length > 0 && violations.every(violation => Boolean(violation.quotaDimensions?.model));
+}
 
 function simplifyGeminiToolSchema(schema: object) {
   for (const key of ["minItems", "maxItems", "minimum", "maximum", "minLength", "maxLength", "pattern", "format", "default"]) {
@@ -521,9 +542,11 @@ export async function runNativeAsk(input: {
   const apiKey = askGeminiKey();
   if (!apiKey) throw new Error("Ask CMPRI is not configured for this environment.");
   const google = createGoogleGenerativeAI({ apiKey });
-  const agent = new ToolLoopAgent({
+  const primaryModel = process.env.CMPRI_GEMINI_MODEL?.trim() || "gemini-3.5-flash";
+  const models = [...new Set([primaryModel, "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.6-flash"])].slice(0, 3);
+  const createAgent = (model: string) => new ToolLoopAgent({
     model: wrapLanguageModel({
-      model: google(process.env.CMPRI_GEMINI_MODEL?.trim() || "gemini-3.5-flash"),
+      model: google(model),
       middleware: {
         specificationVersion: "v4",
         async transformParams({ params }) {
@@ -552,13 +575,29 @@ For an explicitly requested change, first resolve current targets and revisions 
   });
   let rendered: z.infer<typeof answerSchema> | undefined;
   try {
-    const result = await agent.generate({ abortSignal: input.signal, prompt: JSON.stringify({
+    const prompt = JSON.stringify({
       question: input.question, language: input.language, chief: input.chief, date: today,
       previous: input.previous ? { ...input.previous, native: input.previous.native ? { ...input.previous.native, files: undefined } : undefined } : undefined,
       files: [...files.entries()].map(([fileId, file]) => ({ fileId, name: file.name, type: file.type, size: file.size, sha256: file.sha256 })),
       filePreviews: input.files?.map(file => ({ name: file.name, text: file.text, coverage: "Preview only; inspect the selected original for complete source content." })),
-    }) });
-    if (!proposal) rendered = result.output;
+    });
+    for (const [index, model] of models.entries()) {
+      let startedSteps = 0;
+      let toolStarted = false;
+      try {
+        const result = await createAgent(model).generate({
+          abortSignal: input.signal, prompt,
+          onStepStart: () => { startedSteps++; },
+          onToolExecutionStart: () => { toolStarted = true; },
+        });
+        if (!proposal) rendered = result.output;
+        break;
+      } catch (error) {
+        // A fresh model can replay only the initial, tool-free request.
+        if (index === models.length - 1 || startedSteps !== 1 || toolStarted
+          || input.signal.aborted || !canSwitchGeminiModel(error)) throw error;
+      }
+    }
   } catch (error) {
     if (!proposal && !evidence.size) throw error;
     errors.push("The response stopped before the full request was completed; the sources below are the data that was read.");

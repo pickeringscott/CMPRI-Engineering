@@ -113,6 +113,40 @@ for (const reason of ['INVALID_ARGUMENT', 'API_KEY_INVALID']) {
   });
 }
 
+test('model fallback starts with the primary on every request and stops after three attempts', async () => {
+  const h = fixture((_request, count) => {
+    if (count === 3) return providerResponse([{ text: JSON.stringify(answer) }]);
+    if (count === 1) return Response.json({ error: {
+      code: 503, status: 'UNAVAILABLE', message: 'Model unavailable',
+    } }, { status: 503 });
+    return Response.json({ error: {
+      code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Model quota exhausted',
+      details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [
+        { quotaDimensions: { model: 'gemini-3.5-flash-lite' } },
+      ] }],
+    } }, { status: 429 });
+  });
+  assert.equal((await h.run()).summary, answer.summary);
+  assert.deepEqual(h.requests.map(({ url }) => url.split('/').at(-1)), [
+    'gemini-3.5-flash:generateContent', 'gemini-3.5-flash-lite:generateContent', 'gemini-3.8-flash:generateContent',
+  ]);
+  await assert.rejects(h.run(), { statusCode: 429 });
+  assert.match(h.requests[3].url, /gemini-3\.5-flash:generateContent$/);
+  assert.equal(h.requests.length, 6);
+  assert.equal(h.nativeCalls.length, 0);
+});
+
+test('model fallback does not replay a request after a tool runs', async () => {
+  const h = fixture((_request, count) => count === 1
+    ? providerResponse([{ functionCall: { name: 'readCmpri', args: { operation: 'room_operations.read' } }, thoughtSignature: 'fixture-thought' }])
+    : Response.json({ error: { code: 503, status: 'UNAVAILABLE', message: 'Model unavailable' } }, { status: 503 }));
+  const result = await h.run();
+  assert.match(result.summary, /stopped before the full request/);
+  assert.equal(h.requests.length, 2);
+  assert.equal(h.nativeCalls.length, 1);
+  assert.equal(h.requests[0].url, h.requests[1].url);
+});
+
 test('real tool-loop and Google response serialization discover, describe, read and query native data', async () => {
   const steps = [
     ['discoverOperations', { query: 'room' }],
