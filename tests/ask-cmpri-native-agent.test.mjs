@@ -73,6 +73,7 @@ function fixture({ operations, script, pmRead, originalFiles = {}, fileInspectio
     ai: {
       tool: options => options, Output: { object: options => options },
       isStepCount: value => ({ steps: value }), hasToolCall: value => ({ tool: value }),
+      wrapLanguageModel: ({ model }) => model,
       ToolLoopAgent: class {
         constructor(options) { this.options = options; }
         async generate(input) {

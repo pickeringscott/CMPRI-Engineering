@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { ToolLoopAgent, Output, hasToolCall, isStepCount, tool } from "ai";
+import { ToolLoopAgent, Output, hasToolCall, isStepCount, tool, wrapLanguageModel } from "ai";
 import { z } from "zod";
 import type { AskContext, AskLanguage, AskProposal, AskResponse, AskResultItem, AskTable } from "@/lib/ask-cmpri/types";
 import type { AuthAttempt } from "@/lib/server/auth";
@@ -34,6 +34,16 @@ const querySchema = z.object({
   offset: z.number().int().nonnegative().default(0), limit: z.number().int().min(1).max(200).default(50),
 });
 const answerSchema = z.object({ title: z.string(), summary: z.string(), itemIds: z.array(z.string()), format: z.enum(["default", "brief", "bullets", "table"]) });
+
+function simplifyGeminiToolSchema(schema: object) {
+  for (const key of ["minItems", "maxItems", "minimum", "maximum", "minLength", "maxLength", "pattern", "format", "default"]) {
+    Reflect.deleteProperty(schema, key);
+  }
+  const { properties, items } = schema as { properties?: Record<string, unknown>; items?: unknown };
+  for (const child of [...Object.values(properties ?? {}), ...(Array.isArray(items) ? items : [items])]) {
+    if (child && typeof child === "object") simplifyGeminiToolSchema(child);
+  }
+}
 
 function parsedCall(input: z.infer<typeof nativeCall>, files: ReadonlyMap<string, AskStagedFile> = new Map()): AskNativeRequest {
   const fileToken = (id: string) => {
@@ -512,7 +522,23 @@ export async function runNativeAsk(input: {
   if (!apiKey) throw new Error("Ask CMPRI is not configured for this environment.");
   const google = createGoogleGenerativeAI({ apiKey });
   const agent = new ToolLoopAgent({
-    model: google(process.env.CMPRI_GEMINI_MODEL?.trim() || "gemini-3.5-flash"),
+    model: wrapLanguageModel({
+      model: google(process.env.CMPRI_GEMINI_MODEL?.trim() || "gemini-3.5-flash"),
+      middleware: {
+        specificationVersion: "v4",
+        async transformParams({ params }) {
+          // Gemini rejects the combined constraints. Simplify only its copy;
+          // the SDK still parses tool calls using the original Zod schemas.
+          const tools = params.tools?.map(tool => {
+            if (tool.type !== "function") return tool;
+            const inputSchema = structuredClone(tool.inputSchema);
+            simplifyGeminiToolSchema(inputSchema);
+            return { ...tool, inputSchema };
+          });
+          return { ...params, tools };
+        },
+      },
+    }),
     maxRetries: 0, maxOutputTokens: 4500, tools, stopWhen: [isStepCount(12), hasToolCall("proposeChange")],
     output: Output.object({ schema: answerSchema }),
     instructions: `You are Ask CMPRI, the signed-in CMPRI engineering and hotel operations assistant. Cover any question about CMPRI, not a preset list of questions. Every application domain and native action is available subject to the current user's role, property and record access. The native handlers are the authority; do not invent additional assistant role restrictions. Discover operations and read their contracts to answer unfamiliar requests. Combine sources and retain follow-up context. Available domains: ${domains.join(", ")}.
