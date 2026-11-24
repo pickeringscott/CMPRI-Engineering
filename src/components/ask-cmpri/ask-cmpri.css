@@ -76,8 +76,6 @@
 .cmpri-ask :focus-visible { outline: 1px solid var(--ask-gold-light); outline-offset: 2px; }
 .cmpri-ask .ask-tabs button:focus-visible, .ask-result-table-scroll:focus-visible { outline-offset: -2px; }
 .ask-body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 12px clamp(10px, 2.3vw, 20px) 20px; }
-.ask-body[data-view=staff] { padding: 0; overflow: hidden; }
-.ask-staff-view:not([hidden]) { display: flex; height: 100%; flex-direction: column; }
 .ask-search-view { min-height: 100%; }
 .ask-search-view:has(.ask-welcome) { display: grid; }
 
@@ -89,7 +87,6 @@
 @media (prefers-reduced-motion: no-preference) {
   .cmpri-ask :is(
     #ask-cmpri-search-view,
-    #ask-cmpri-staff-view,
     #ask-cmpri-history-view,
     #ask-cmpri-files-view
   ):not([hidden]),

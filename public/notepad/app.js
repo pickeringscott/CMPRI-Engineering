@@ -40,7 +40,7 @@ const privateAudience = () => ({all:false,roles:[],people:[]});
 const engineeringAudience = () => ({all:false,roles:['engineer','technician','system_admin'],people:[]});
 let VIEW_STORE = '';
 const bridgeToken = new URLSearchParams(location.search).get('bridge');
-let initialized=false, suppressSave=false, savedMessage='Saved', accountGeneration=0;
+let initialized=false, suppressSave=false, accountGeneration=0;
 const sentDocuments=new Map(), dirtyNotes=new Set(), sequences=new Map(), requests=new Map(), deferredNotes=new Map(), baseRevisions=new Map(), baseLegacyVersions=new Map();
 let lastOrder='', legacyAliases={}, bridgeScope='';
 function sendHost(type,payload){if(bridgeToken&&parent!==window)parent.postMessage({channel:'cmpri-notepad',token:bridgeToken,scope:bridgeScope,type,payload},location.origin);}
@@ -61,7 +61,7 @@ let notes=[], orders={}, currentPerson='', activeNote='', query='', mode='text',
 let inkColor='#ffffff',penWidth=4,textColor='#f6ebff',textSize=16;
 let inkController=null, popoverAnchor=null, selectionRange=null, toastTimer, mentionSession=null, draggedNote=null, pointerDrag=null, suppressNoteClick=false;
 let recipientDraft=null, recipientSession=null, deleteSession=null, deleteGesture=null, isComposing=false;
-let formattingController=null, attachmentController=null, titleResizeObserver=null, paperResizeObserver=null, resizeGesture=null, paneWidths={desktop:220,mobile:110}, noteTransition=0;
+let formattingController=null, attachmentController=null, titleResizeObserver=null, paperResizeObserver=null, resizeGesture=null, paneWidths={desktop:220,mobile:110}, noteTransition=0, activeNoteTransition=0;
 const replyTargets={};
 function sanitizeContent(html) {
   const template=document.createElement('template');template.innerHTML=String(html||'');
@@ -112,7 +112,6 @@ function save() {
   const order=orders[currentPerson]||orderedNotes().map(n=>n.id),serialized=JSON.stringify(order);
   if(lastOrder!==serialized){lastOrder=serialized;sendHost('order',{order});}
   if(VIEW_STORE)try{localStorage.setItem(VIEW_STORE,JSON.stringify({activeNote,paneWidths}));}catch{}
-  const label=$('.save-label');if(label)label.textContent=dirtyNotes.size?'Saving…':savedMessage;
 }
 function toast(message) {const el=$('#preview-toast');el.textContent=message;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),2200);}
 function syncEditor() {
@@ -139,14 +138,14 @@ function editor() {
   const n=note();if(!n)return '<div class="editor-empty"><strong>Your Notepad</strong><p>Use + in the search bar to create a note.</p></div>';
   const author=n.authorName?{name:n.authorName,short:n.authorName}:personById(n.authorId);
   return '<article class="general-notes-editor">'+
-    '<div class="title-row"><div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="Edit title · Choose its font in the toolbar" placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div><div class="title-identity"><div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="Delete note"'+(n.authorId===currentPerson?'':' disabled')+'>'+icon('trash')+'</button></div><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.short)+'</span></div></div>'+
-    '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select><time datetime="'+escape(n.createdAt)+'" title="'+escape(fullTime(n.createdAt))+'">'+shortTime(n.createdAt)+'</time><span class="save-label" role="status" aria-live="polite">'+escape(dirtyNotes.size?'Saving…':savedMessage)+'</span></div>'+
+    '<div class="title-row"><div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="Edit title · Choose its font in the toolbar" placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div><div class="title-identity"><div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="Delete note"'+(n.authorId===currentPerson?'':' disabled')+'>'+icon('trash')+'</button></div><div class="note-attribution"><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.name)+'</span><time datetime="'+escape(n.createdAt)+'" title="'+escape(fullTime(n.createdAt))+'">'+shortTime(n.createdAt)+'</time></div></div></div>'+
+    '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select></div>'+
     window.NotepadFormatting.html()+
     '<div class="general-notes-scroll"><div class="general-notes-paper '+(mode!=='text'?'is-drawing':'')+'"><div class="note-content" style="font-size:'+(n.fontSize||16)+'px;font-family:&quot;'+escape(n.fontFamily||'Comic Sans MS')+'&quot;,&quot;Comic Sans MS&quot;,cursive" role="textbox" aria-label="Notepad writing area" aria-multiline="true" contenteditable="'+(mode==='text')+'" spellcheck="true" data-placeholder="Write a note, add a checklist, or type @…">'+n.content+'</div><svg class="note-ink" xmlns="http://www.w3.org/2000/svg" aria-label="Handwriting canvas"></svg></div></div>'+
     '<div class="editor-attachments">'+attachmentMarkup(n)+'</div>'+tools()+'</article>';
 }
 function render() {
-  noteTransition++;
+  noteTransition++;activeNoteTransition=0;
   closePopover();closeMentions();selectionRange=null;
   formattingController?.destroy();formattingController=null;attachmentController?.destroy();attachmentController=null;
   titleResizeObserver?.disconnect();titleResizeObserver=null;
@@ -177,16 +176,26 @@ function render() {
   applyPaneWidth();save();
 }
 async function selectNote(id) {
-  if(id===activeNote){noteTransition++;const current=$('.general-notes-editor');current?.getAnimations().forEach(a=>a.cancel());if(current)current.style.pointerEvents='';return;}
+  if(id===activeNote){
+    noteTransition++;activeNoteTransition=0;
+    const current=$('.general-notes-editor');current?.getAnimations().forEach(a=>a.cancel());if(current)current.style.pointerEvents='';
+    const incoming=deferredNotes.get(id);if(incoming&&!dirtyNotes.has(id))installRemote(incoming);
+    return;
+  }
+  // Keep acknowledgements from replacing the closing editor and invalidating
+  // this selection. The old note stays active until all input has finished.
+  const token=++noteTransition;activeNoteTransition=token;
   syncEditor();closeMentions();closePopover();
-  const token=++noteTransition,old=$('.general-notes-editor'),reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const old=$('.general-notes-editor'),reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
   old?.getAnimations().forEach(a=>a.cancel());
   if(old)old.style.pointerEvents='none';
   const attachmentsClosing=attachmentController?.close({restoreFocus:false});
   const closing=old&&!reduced?old.animate([{transform:'scaleX(1)',opacity:1},{transform:'scaleX(0.015)',opacity:0}],{duration:130,easing:'ease-in',fill:'forwards'}).finished.catch(()=>{}):Promise.resolve();
   await Promise.all([closing,attachmentsClosing]);
   if(token!==noteTransition)return;
-  inkController?.destroy();inkController=null;activeNote=id;mode='text';render();sendHost('refresh');
+  inkController?.destroy();inkController=null;
+  for(const [deferredId,incoming]of deferredNotes)if(!dirtyNotes.has(deferredId))installRemote(incoming,false);
+  activeNote=id;mode='text';render();sendHost('refresh');
   const opened=$('.general-notes-editor');
   if(opened&&!reduced)opened.animate([{transform:'scaleX(0.015)',opacity:0},{transform:'scaleX(1)',opacity:1}],{duration:160,easing:'ease-out'});
 }
@@ -250,7 +259,6 @@ function showPopover(content,anchor,cls='') {
   $('#popover-layer').innerHTML='<section class="preview-popover '+cls+'">'+content+'</section>';
   const el=$('.preview-popover');positionPopover(el,anchor,cls==='tool-bubble');anchor.setAttribute('aria-expanded','true');return el;
 }
-const popHeader=title=>'<div class="popover-header"><strong>'+title+'</strong><button data-action="close-popover" aria-label="Close">'+icon('close')+'</button></div>';
 function recipientForm(a) {
   const isPrivate=!a.all&&!a.roles.length&&!a.people.length;
   const pill=(kind,label,value='',checked=false)=>'<label class="recipient-pill"><input type="checkbox" data-recipient="'+kind+'"'+(value?' value="'+escape(value)+'"':'')+(checked?' checked':'')+'><span>'+escape(label)+'</span></label>';
@@ -527,8 +535,8 @@ function clearDragMarks() {$$('.note-row').forEach(r=>{r.classList.remove('is-dr
 function markDrop(row,y) {$$('.note-row[data-drop-position]').forEach(r=>r.removeAttribute('data-drop-position'));if(!row)return;const r=row.getBoundingClientRect();row.dataset.dropPosition=y>r.top+r.height/2?'after':'before';}
 function toolBubble(anchor,tool) {
   if(tool!=='pen')return;
-  const swatches='<div class="color-swatches" aria-label="Ink color">'+colors.map(([name,color])=>'<button type="button" data-color="'+color+'" data-color-mode="pen" aria-label="'+name+' ink" title="'+name+'" aria-pressed="'+(inkColor===color)+'" style="background:'+color+'"></button>').join('')+'</div>';
-  showPopover(popHeader('Pen')+'<label class="width-control"><span>Stroke</span><input type="range" aria-label="Pen width" min="1" max="12" step="1" value="'+penWidth+'" style="--pen-size:'+penWidth+'px"><output>'+penWidth+'</output></label>'+swatches,anchor,'tool-bubble');
+  const swatches='<div class="color-swatches" aria-label="Ink color">'+colors.map(([name,color])=>'<button type="button" data-color="'+color+'" data-color-mode="pen" aria-label="'+name+' ink" title="'+name+'" aria-pressed="'+(inkColor===color)+'" style="background:'+color+';--swatch-check:'+(['Orange','Yellow','White'].includes(name)?'#000000':'#ffffff')+'"></button>').join('')+'</div>';
+  showPopover('<label class="width-control"><span>Stroke</span><input type="range" aria-label="Pen width" min="1" max="12" step="1" value="'+penWidth+'" style="--pen-size:'+penWidth+'px"><output>'+penWidth+'</output></label>'+swatches,anchor,'tool-bubble');
 }
 function changeMode(next,anchor) {
   rememberSelection();closeMentions();
@@ -593,6 +601,62 @@ function handleAction(action,button) {
     case 'reopen-window':$('#notepad-modal').hidden=false;$('#reopen-window').hidden=true;break;
   }
 }
+let blankLineGesture=null;
+function lastWritingPosition(editor) {
+  const range=document.createRange();
+  function endOf(node) {
+    if(node.nodeType===Node.TEXT_NODE){
+      if(!node.length||(!node.textContent.trim()&&node.parentElement?.matches('.note-content,ul,ol')))return false;
+      range.setStart(node,node.length);return true;
+    }
+    if(node.nodeType!==Node.ELEMENT_NODE||node.matches('.item-thread,.item-reply-actions,.task-completion,.task-stamp,input,button'))return false;
+    if(node.matches('.note-check')){const label=$(':scope > .task-label',node);return label?endOf(label):false;}
+    if(node.matches('.mention')){range.setStartAfter(node);return true;}
+    if(node.getAttribute('contenteditable')==='false')return false;
+    if(node.tagName==='BR'){range.setStartBefore(node);return true;}
+    for(let child=node.lastChild;child;child=child.previousSibling)if(endOf(child))return true;
+    if(node===editor||node.matches('p,div,li,h1,h2,h3,h4,h5,h6,blockquote,.task-label')){range.setStart(node,0);return true;}
+    return false;
+  }
+  if(!endOf(editor))range.setStart(editor,0);
+  range.collapse(true);
+  const point=range.getBoundingClientRect();
+  if(point.height)return {range,bottom:point.bottom};
+  if(range.startContainer.nodeType===Node.ELEMENT_NODE){
+    const next=range.startContainer.childNodes[range.startOffset];
+    if(next?.nodeType===Node.ELEMENT_NODE&&next.tagName==='BR'){
+      const rect=next.getBoundingClientRect();if(rect.height)return {range,bottom:rect.bottom};
+    }
+  }
+  const element=range.startContainer.nodeType===Node.ELEMENT_NODE?range.startContainer:range.startContainer.parentElement;
+  const line=element?.closest('.task-label,p,li,h1,h2,h3,h4,h5,h6,blockquote,div');
+  if(line&&line!==editor&&editor.contains(line)){const rect=line.getBoundingClientRect();if(rect.height)return {range,bottom:rect.bottom};}
+  const style=getComputedStyle(editor),rect=editor.getBoundingClientRect();
+  const height=parseFloat(style.lineHeight)||parseFloat(style.fontSize)*1.5||24;
+  return {range,bottom:rect.top+(parseFloat(style.paddingTop)||0)+height};
+}
+function rememberBlankLineClick(event) {
+  blankLineGesture=null;
+  const editor=$('.note-content');
+  if(mode!=='text'||!editor||event.defaultPrevented||event.button!==0||event.isPrimary===false||event.shiftKey||event.ctrlKey||event.metaKey||event.altKey)return;
+  if(!editor.contains(event.target)||event.target.closest('.item-thread,.item-reply-actions,.task-completion,input,button,a'))return;
+  if(event.clientY<=lastWritingPosition(editor).bottom+1)return;
+  // Let the browser start normal selection. Only a completed click below the
+  // text moves to the last existing line; dragging must remain native.
+  blankLineGesture={editor,id:activeNote,pointerId:event.pointerId,x:event.clientX,y:event.clientY,moved:false};
+}
+document.addEventListener('pointermove',event=>{
+  const click=blankLineGesture;if(click&&click.pointerId===event.pointerId&&Math.hypot(event.clientX-click.x,event.clientY-click.y)>4)click.moved=true;
+});
+document.addEventListener('pointerup',event=>{
+  const click=blankLineGesture;if(!click||click.pointerId!==event.pointerId)return;
+  blankLineGesture=null;
+  if(click.moved||Math.hypot(event.clientX-click.x,event.clientY-click.y)>4||mode!=='text'||activeNote!==click.id||!click.editor.isConnected)return;
+  const {range}=lastWritingPosition(click.editor),element=range.startContainer.nodeType===Node.ELEMENT_NODE?range.startContainer:range.startContainer.parentElement;
+  (element?.closest('[contenteditable="true"]')||click.editor).focus({preventScroll:true});
+  const selection=getSelection();selection.removeAllRanges();selection.addRange(range);rememberSelection();
+});
+document.addEventListener('pointercancel',()=>{blankLineGesture=null;});
 document.addEventListener('pointerdown',e=>{
   const target=e.target;
   if(target.closest('.mention-option')){e.preventDefault();return;}
@@ -605,7 +669,7 @@ document.addEventListener('pointerdown',e=>{
     suppressNoteClick=false;
     e.preventDefault();drag.setPointerCapture(e.pointerId);pointerDrag={id:drag.dataset.dragNote,startY:e.clientY,pointerId:e.pointerId,handle:drag,moved:false,target:null,after:false};
   }
-  if(target.closest('.note-content'))return;
+  if(target.closest('.note-content')){rememberBlankLineClick(e);return;}
   rememberSelection();
   if(target.closest('.tool-bubble')&&target.closest('button'))e.preventDefault();
 });
@@ -630,8 +694,15 @@ function finishPointerDrag(e) {
   if(resizeGesture?.pointerId===e.pointerId){const divider=resizeGesture.divider;resizeGesture=null;if(divider.hasPointerCapture(e.pointerId))divider.releasePointerCapture(e.pointerId);save();return;}
   const drag=pointerDrag;if(!drag||drag.pointerId!==e.pointerId)return;pointerDrag=null;
   if(drag.handle.hasPointerCapture(e.pointerId))drag.handle.releasePointerCapture(e.pointerId);
-  suppressNoteClick=drag.moved;
-  clearDragMarks();if(drag.moved&&drag.target){moveNote(drag.id,drag.target,drag.after);$('[data-drag-note="'+drag.id+'"]')?.focus();}
+  // Pointer capture can retarget the browser's follow-up click. Complete this
+  // gesture here and consume that click so opening a note is reliable once.
+  suppressNoteClick=true;
+  clearDragMarks();
+  if(drag.moved&&drag.target){moveNote(drag.id,drag.target,drag.after);$('[data-drag-note="'+drag.id+'"]')?.focus();}
+  else if(!drag.moved&&drag.handle.isConnected){
+    const bounds=drag.handle.getBoundingClientRect();
+    if(e.clientX>=bounds.left&&e.clientX<=bounds.right&&e.clientY>=bounds.top&&e.clientY<=bounds.bottom){drag.handle.focus({preventScroll:true});void selectNote(drag.id);}
+  }
 }
 document.addEventListener('pointerup',finishPointerDrag);
 document.addEventListener('pointercancel',e=>{if(deleteGesture?.pointerId===e.pointerId)deleteGesture=null;if(pointerDrag?.pointerId===e.pointerId){pointerDrag=null;clearDragMarks();}if(resizeGesture?.pointerId===e.pointerId){applyPaneWidth(resizeGesture.startWidth);resizeGesture=null;save();}});
@@ -720,7 +791,7 @@ function applyPalette(values) {
 }
 function editingCurrent() {
   const element=document.activeElement;
-  return isComposing||mode!=='text'||attachmentController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog'));
+  return activeNoteTransition!==0||isComposing||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover'));
 }
 function installRemote(incoming,renderCurrent=true) {
   const index=notes.findIndex(n=>n.id===incoming.id),previous=notes[index];
@@ -742,12 +813,12 @@ window.addEventListener('message',event=>{
   }
   if(data.type==='palette'){applyPalette(payload);return;}
   if(data.type==='clear'){
-    initialized=false;accountGeneration++;noteTransition++;closeRecipients({immediate:true,restoreFocus:false});closeDelete({restoreFocus:false});closePopover();closeMentions();
+    initialized=false;accountGeneration++;noteTransition++;activeNoteTransition=0;closeRecipients({immediate:true,restoreFocus:false});closeDelete({restoreFocus:false});closePopover();closeMentions();
     inkController?.destroy();formattingController?.destroy();attachmentController?.destroy();inkController=null;formattingController=null;attachmentController=null;
     titleResizeObserver?.disconnect();titleResizeObserver=null;
     paperResizeObserver?.disconnect();paperResizeObserver=null;
     notes=[];people=[];roles=[];mentionChoices=[];currentPerson='';activeNote='';query='';mode='text';orders={};VIEW_STORE='';lastOrder='';legacyAliases={};bridgeScope='';
-    selectionRange=null;draggedNote=null;pointerDrag=null;resizeGesture=null;recipientDraft=null;isComposing=false;suppressNoteClick=false;
+    selectionRange=null;draggedNote=null;pointerDrag=null;resizeGesture=null;blankLineGesture=null;recipientDraft=null;isComposing=false;suppressNoteClick=false;
     Object.keys(replyTargets).forEach(key=>delete replyTargets[key]);dirtyNotes.clear();sentDocuments.clear();sequences.clear();deferredNotes.clear();baseRevisions.clear();baseLegacyVersions.clear();
     clearTimeout(toastTimer);$('#preview-toast').textContent='';$('#preview-toast').classList.remove('visible');$('#reorder-status').textContent='';
     for(const pending of requests.values())pending.reject(Error('Your CMPRI session changed.'));requests.clear();
@@ -768,9 +839,7 @@ window.addEventListener('message',event=>{
     applyPalette(payload.palette);initialized=true;suppressSave=true;render();suppressSave=false;return;
   }
   if(!initialized)return;
-  if(data.type==='status'){
-    savedMessage=String(payload.message||'Saved');const label=$('.save-label');if(label)label.textContent=savedMessage;return;
-  }
+  if(data.type==='status')return;
   if(data.type==='saved'){
     const current=notes.find(n=>n.id===payload.id);if(current)current.revision=payload.revision;baseRevisions.set(payload.id,payload.revision);if(payload.revision>0){baseLegacyVersions.delete(payload.id);if(current)delete current.legacyVersion;}
     if(sequences.get(payload.id)!==payload.sequence)return;
@@ -781,7 +850,7 @@ window.addEventListener('message',event=>{
         if(current){current.authorId=payload.note.authorId;current.createdAt=payload.note.createdAt;current.updatedAt=payload.note.updatedAt;}
       }else installRemote(payload.note);
     }else{sentDocuments.delete(payload.id);deferredNotes.delete(payload.id);}
-    const label=$('.save-label');if(label)label.textContent=dirtyNotes.size?'Saving…':savedMessage;return;
+    return;
   }
   if(data.type==='discard'){
     for(const id of payload.ids||[]){dirtyNotes.delete(id);sentDocuments.delete(id);deferredNotes.delete(id);}

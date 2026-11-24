@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
 import { usePathname } from "next/navigation";
-import Notepad from "@/components/Notepad";
-import { requestNotepadClose } from "@/lib/ui/notepad-close";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { authorizationHeaders, type CmpriClientSession } from "@/lib/auth/client-session";
 import { SESSION_KEY } from "@/lib/auth/session-storage";
@@ -38,12 +36,11 @@ const examples = [
 ];
 const views = [
   { id: "search", label: "Search", panel: "ask-cmpri-search-view" },
-  { id: "staff", label: "Notepad", panel: "ask-cmpri-staff-view" },
   { id: "history", label: "History", panel: "ask-cmpri-history-view" },
   { id: "files", label: "Files", panel: "ask-cmpri-files-view" },
 ] as const;
 type View = typeof views[number]["id"];
-type OpenDetail = { query?: string; voice?: boolean; opener?: HTMLElement; tab?: View | "notepad"; noteId?: string; practice?: boolean; prompts?: string[] };
+type OpenDetail = { query?: string; voice?: boolean; opener?: HTMLElement; tab?: View | "staff" | "notepad"; noteId?: string; practice?: boolean; prompts?: string[] };
 type NormalizedOpenDetail = Omit<OpenDetail, "tab"> & { tab?: View };
 type Authorized = { headers: Record<string, string>; scope: string };
 type Attachments = NonNullable<AskTurn["attachments"]>;
@@ -84,7 +81,7 @@ function recordPath(record: AskRecordReference) {
   if (record.kind === "order") return "/work-orders/" + encodeURIComponent(record.id);
   if (record.kind === "asset") return "/management/equipment?asset=" + encodeURIComponent(record.id);
   if (record.kind === "roomRank") return "/engineering/room-ranking?room=" + encodeURIComponent(record.id);
-  if (record.kind === "personalNote") return "/notepad?note=" + encodeURIComponent(record.id);
+  if (record.kind === "staffNote" || record.kind === "personalNote") return "/notepad?note=" + encodeURIComponent(record.id);
   return null;
 }
 
@@ -119,8 +116,6 @@ export default function AskCmpri() {
   const [fileSelectionReset, setFileSelectionReset] = useState(0);
   const [focusFile, setFocusFile] = useState<{ id: string; file?: AskCmpriLocalFile }>();
   const [recoveries, setRecoveries] = useState<AskAttachmentRecovery[]>([]);
-  const [staffScope, setStaffScope] = useState("");
-  const [staffNoteId, setStaffNoteId] = useState<string>();
   const [recap, setRecap] = useState<string[]>([]);
   const [draftNote, setDraftNote] = useState("");
   const [reviewDraft, setReviewDraft] = useState(false);
@@ -279,8 +274,6 @@ export default function AskCmpri() {
     voiceOwner.current = "";
     voiceNameRef.current = DEFAULT_ASK_OPENAI_VOICE;
     setVoiceName(DEFAULT_ASK_OPENAI_VOICE);
-    setStaffScope("");
-    setStaffNoteId(undefined);
     setCallEngaged(false);
     setRecap([]);
     setDraftNote("");
@@ -348,10 +341,9 @@ export default function AskCmpri() {
     return result;
   }
 
-  function pickSample(hasStaff = viewRef.current === "staff") {
-    const available = hasStaff ? ["What are the latest Notepad updates?", "Where are the spare filters?"] : examples;
+  function pickSample() {
     setSample(current => {
-      const choices = available.filter(example => example !== current);
+      const choices = examples.filter(example => example !== current);
       return choices[Math.floor(Math.random() * choices.length)];
     });
   }
@@ -625,7 +617,6 @@ export default function AskCmpri() {
     if (practiceRef.current && next !== "search") return;
     opening.current += 1;
     currentView(next);
-    if (next === "staff" && authRef.current) setStaffScope(authRef.current.scope);
     if (results.current) results.current.scrollTop = 0;
   }
 
@@ -643,7 +634,6 @@ export default function AskCmpri() {
     const expected = carry ? callRef.current?.scope : authRef.current?.scope;
     void authorize(undefined, expected).then(async auth => {
       if (!openRef.current || practiceRef.current || authRef.current?.scope !== auth.scope) return;
-      if (detail.tab === "staff") setStaffScope(auth.scope);
       if (ticket === opening.current) {
         const recent = historyRef.current[0];
         currentView(detail.tab || "search");
@@ -661,9 +651,18 @@ export default function AskCmpri() {
   }
 
   function showModal(request: OpenDetail) {
-    // Keep historical Staff Notes launch events compatible with the Notepad tab.
-    const detail: NormalizedOpenDetail = { ...request, tab: request.tab === "notepad" ? "staff" : request.tab };
     if (closing.current || confirmation.current) return;
+    const notebookRequest = request.tab === "staff" || request.tab === "notepad";
+    // Old launch events now target the same independent Daily Work window.
+    if (notebookRequest && !request.practice) {
+      if (practiceRef.current) return;
+      const opener = request.opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
+      const openerRect = opener?.getBoundingClientRect();
+      dismiss({ focus: false, animate: false });
+      launchRecord("/notepad" + (request.noteId ? "?note=" + encodeURIComponent(request.noteId) : ""), opener, openerRect, t("Notepad"));
+      return;
+    }
+    const detail: NormalizedOpenDetail = { ...request, tab: notebookRequest ? "search" : request.tab as View | undefined };
     if (detail.voice && !detail.practice && !openRef.current) {
       startVoice("launcher");
       return;
@@ -701,10 +700,6 @@ export default function AskCmpri() {
       currentView(detail.tab || "search");
       prepareOpen(detail);
     }
-    if (detail.tab === "staff") {
-      setStaffNoteId(detail.noteId);
-      activeTab("staff");
-    }
     if (detail.query) {
       currentView("search");
       queryText(detail.query);
@@ -713,14 +708,12 @@ export default function AskCmpri() {
     void voice.refreshMicrophone();
   }
 
-  function dismiss({ focus = true, animate = true, force = false, notepadReady = false } = {}) {
+  function dismiss({ focus = true, animate = true, force = false } = {}) {
     if (!openRef.current || closing.current) return;
     if (confirmation.current && !force) {
       setAlert(t("Wait for the confirmed change to finish saving."));
       return;
     }
-    if (!force && !notepadReady && !practiceRef.current
-      && !requestNotepadClose(dialog.current, () => dismiss({ focus, animate, notepadReady: true }))) return;
     closing.current = true;
     const origin = launcher.current;
     const wasPractice = practiceRef.current;
@@ -936,11 +929,6 @@ export default function AskCmpri() {
         }
         return;
       }
-      if (record.kind === "staffNote" || record.kind === "personalNote") {
-        setStaffNoteId(record.id);
-        activeTab("staff");
-        return;
-      }
       if (record.kind === "file") {
         setFocusFile({ id: record.id, file: conversationFiles.current.get(record.id) });
         activeTab("files");
@@ -951,18 +939,6 @@ export default function AskCmpri() {
       dismiss({ focus: false, animate: false });
       launchRecord(href, opener, openerRect, record.label);
     } catch (error) { manualWindow?.close(); sessionProblem(error); }
-  }
-
-  function openStaffWorkOrder(id: string) {
-    if (!verified || confirmation.current || !/^[a-z0-9][a-z0-9_-]{0,199}$/i.test(id)) return;
-    const href = "/work-orders/" + encodeURIComponent(id);
-    const opener = document.querySelector<HTMLElement>("#ask-cmpri-staff-view iframe") || undefined;
-    const openerRect = opener?.getBoundingClientRect();
-    void authorize(undefined, scope).then(() => {
-      if (!openRef.current) return;
-      dismiss({ focus: false, animate: false });
-      launchRecord(href, opener, openerRect);
-    }).catch(sessionProblem);
   }
 
   async function saveAttachments(batch: AskAttachmentRecovery, order: NonNullable<AskResponse["savedOrder"]>, signal: AbortSignal) {
@@ -1065,7 +1041,7 @@ export default function AskCmpri() {
     field.current?.blur();
     closeProposals(t("Proposal closed."));
     clearSearch();
-    pickSample(false);
+    pickSample();
     if (voice.active) voice.newTopic();
     else {
       setCallEngaged(false);
@@ -1176,7 +1152,7 @@ export default function AskCmpri() {
     <div ref={results} className="ask-body" data-view={view} hidden={view === "files" && (verified || !authProblem)} tabIndex={0} aria-label={t("Ask CMPRI results")}>
       {authProblem && <div className="ask-request-status" role="alert">
         <p>{authProblem}</p>
-        <button type="button" className="ask-quiet" onClick={() => openVerified({ tab: viewRef.current === "staff" ? "staff" : "search" }, false)}>{t("Try again")}</button>
+        <button type="button" className="ask-quiet" onClick={() => openVerified({ tab: "search" }, false)}>{t("Try again")}</button>
       </div>}
       {alert && !authProblem && <p className="ask-request-status" role="alert">{alert}</p>}
       {verified && manualLink && <p className="ask-request-status"><a className="ask-text-action" href={manualLink.href} target="_blank" rel="noopener noreferrer">{manualLink.name}</a></p>}
@@ -1216,9 +1192,6 @@ export default function AskCmpri() {
             {turn.outcome && <p id={`ask-outcome-${turn.id}`} tabIndex={-1} className="ask-outcome" role="status">{turn.outcome}</p>}
           </article>)}
         </div>}
-      </div>
-      <div id="ask-cmpri-staff-view" className="ask-staff-view" role="tabpanel" aria-labelledby="ask-cmpri-staff-tab" hidden={view !== "staff" || !verified}>
-        {!practice && scope && staffScope === scope && <Notepad key={scope} targetNoteId={staffNoteId} onOpenWorkOrder={openStaffWorkOrder} />}
       </div>
       <div id="ask-cmpri-history-view" className="ask-history-view" role="tabpanel" aria-labelledby="ask-cmpri-history-tab" hidden={view !== "history"}>
         <h3>{t("Saved searches")}</h3>

@@ -30,7 +30,7 @@
       '<div class="fmt-group"><select class="fmt-font" aria-label="Font" data-format-select="font">'+FONTS.map(f=>'<option value="'+escape(f)+'">'+escape(f)+'</option>').join('')+'<option value="__installed__">Installed fonts…</option></select>'+
       '<select class="fmt-size" aria-label="Font Size" data-format-select="size">'+SIZES.map(n=>'<option value="'+n+'"'+(n===16?' selected':'')+'>'+n+'</option>').join('')+'</select></div>'+
       '<div class="fmt-group">'+button('bold','Bold')+button('italic','Italic')+button('underline','Underline')+
-      '<label class="fmt-color-control" title="Font Color"><span aria-hidden="true">A<span class="fmt-color-line"></span></span><select aria-label="Font Color" data-format-select="color">'+COLORS.map(c=>'<option value="'+c[1]+'"'+(c[0]==='White'?' selected':'')+'>'+c[0]+'</option>').join('')+'</select></label></div>'+
+      '<button type="button" class="fmt-color-control" data-format-color-trigger aria-label="Font Color" title="Font Color" aria-haspopup="listbox" aria-expanded="false"><span aria-hidden="true">A<span class="fmt-color-line"></span></span></button></div>'+
       '<div class="fmt-group">'+button('align-left','Align Left')+button('align-center','Center')+button('align-right','Align Right')+button('align-justify','Justify')+'</div>'+
       '<div class="fmt-group">'+button('check','Checklist')+button('bullet','Bullets')+button('number','Numbers')+button('letter','Letters')+'</div>'+
       '<div class="fmt-group">'+button('outdent','Decrease Indent')+button('indent','Increase Indent')+'</div><span class="fmt-status" role="status" aria-live="polite"></span></div>';
@@ -46,7 +46,8 @@
     if(!editor||!toolbar)throw new TypeError('Formatting needs editor and toolbar elements.');
     const doc=editor.ownerDocument, win=doc.defaultView||global;
     let saved=null,composing=false,destroyed=false,blocked=false,refreshing=false,fontRequest=0,selectedFamily=FONT_DEFAULT;
-    let titleActive=false,titleSelection=null,titleFontFamily='Arial';
+    let titleActive=false,titleSelection=null,titleFontFamily='Arial',colorMenu=null,selectedColor=null;
+    const colorTrigger=$('[data-format-color-trigger]',toolbar);
     const removers=[];
     function listen(node,type,fn,capture=false){node.addEventListener(type,fn,capture);removers.push(()=>node.removeEventListener(type,fn,capture));}
     const element=node=>node?.nodeType===1?node:node?.parentElement;
@@ -80,7 +81,7 @@
       titleSelection={start:titleInput.selectionStart,end:titleInput.selectionEnd,direction:titleInput.selectionDirection};
     }
     function capture() {
-      if(destroyed)return;
+      if(destroyed||colorMenu)return;
       if(titleInput&&doc.activeElement===titleInput){captureTitle();return;}
       if(annotation(doc.activeElement)){blocked=true;saved=null;return;}
       // Native inputs keep a separate selection. Do not reuse the body's last range
@@ -386,6 +387,51 @@
       }
     }
     function status(text){$('.fmt-status',toolbar).textContent=text;}
+    function closeColors(restoreFocus=false) {
+      colorMenu?.remove();colorMenu=null;
+      colorTrigger.setAttribute('aria-expanded','false');colorTrigger.removeAttribute('aria-controls');
+      if(restoreFocus&&!destroyed&&colorTrigger.isConnected)colorTrigger.focus({preventScroll:true});
+    }
+    function chooseColor(value) {
+      if(destroyed||!COLORS.some(color=>color[1]===value))return;
+      closeColors();run('color',value);
+      if(titleActive&&titleInput){
+        titleInput.focus({preventScroll:true});
+        if(titleSelection)titleInput.setSelectionRange(titleSelection.start,titleSelection.end,titleSelection.direction||'none');
+      }else if(!blocked){
+        const range=restore(),surface=element(range?.startContainer)?.closest('.task-label')||editor;
+        surface.focus({preventScroll:true});restore();capture();
+      }else colorTrigger.focus({preventScroll:true});
+      refresh();
+    }
+    function openColors() {
+      if(destroyed||composing)return;
+      if(doc.activeElement===titleInput||editor.contains(doc.activeElement))capture();
+      if(colorMenu){closeColors(true);return;}
+      const menu=doc.createElement('div');menu.className='notepad-color-popover';menu.id='notepad-colors-'+win.crypto.randomUUID();
+      menu.setAttribute('role','listbox');menu.setAttribute('aria-label','Text colors');menu.setAttribute('aria-orientation','horizontal');
+      menu.innerHTML=COLORS.map(([name,value])=>'<button type="button" role="option" data-format-color="'+value+'" aria-label="'+name+'" title="'+name+'" aria-selected="'+(selectedColor===value)+'" tabindex="-1"><span class="fmt-color-dot" aria-hidden="true" style="background:'+value+'"></span></button>').join('');
+      colorMenu=menu;doc.body.appendChild(menu);colorTrigger.setAttribute('aria-expanded','true');colorTrigger.setAttribute('aria-controls',menu.id);
+      const anchor=colorTrigger.getBoundingClientRect(),rect=menu.getBoundingClientRect();
+      menu.style.left=Math.max(4,Math.min(win.innerWidth-rect.width-4,anchor.left))+'px';
+      menu.style.top=Math.max(4,Math.min(win.innerHeight-rect.height-4,anchor.bottom+rect.height+6<=win.innerHeight?anchor.bottom+2:anchor.top-rect.height-2))+'px';
+      const buttons=$$('button',menu),selected=buttons.find(button=>button.dataset.formatColor===selectedColor)||buttons[0];
+      selected.tabIndex=0;selected.focus({preventScroll:true});
+      menu.addEventListener('pointerdown',event=>{if(event.target.closest('button'))event.preventDefault();});
+      menu.addEventListener('click',event=>{const option=event.target.closest('[data-format-color]');if(option)chooseColor(option.dataset.formatColor);});
+      menu.addEventListener('keydown',event=>{
+        const option=event.target.closest('[data-format-color]');if(!option)return;
+        if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeColors(true);return;}
+        if(event.key==='Enter'||event.key===' '){event.preventDefault();chooseColor(option.dataset.formatColor);return;}
+        if(event.key==='Tab'){
+          event.preventDefault();const controls=$$('button,select',toolbar),index=controls.indexOf(colorTrigger);
+          closeColors();(controls[index+(event.shiftKey?-1:1)]||colorTrigger).focus({preventScroll:true});return;
+        }
+        if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+        event.preventDefault();const index=buttons.indexOf(option),next=event.key==='Home'?0:event.key==='End'?buttons.length-1:(index+(event.key==='ArrowRight'?1:-1)+buttons.length)%buttons.length;
+        buttons.forEach((button,i)=>button.tabIndex=i===next?0:-1);buttons[next].focus({preventScroll:true});
+      });
+    }
     async function installedFonts() {
       const request=++fontRequest;
       $('[data-format-select=font]',toolbar).value=selectedFamily;
@@ -439,7 +485,7 @@
     function refresh() {
       if(destroyed||refreshing)return;refreshing=true;
       try{
-        const selection=win.getSelection(),node=selection?.anchorNode;
+        const selection=win.getSelection(),node=colorMenu?saved?.start.node:selection?.anchorNode;
         const current=titleActive?null:editor.contains(node)&&!annotation(node)?canonical(node):saved?.start.item;
         const sample=element(node);
         const computed=win.getComputedStyle(titleActive&&titleInput?titleInput:sample&&editor.contains(sample)&&!annotation(sample)?sample:editor);
@@ -459,12 +505,12 @@
         const record=items().find(r=>r.node===current);
         for(const kind of ['check','bullet','number','letter'])$('[data-format-command='+kind+']',toolbar).setAttribute('aria-pressed',String(record?.kind===kind));
         const color=computed.color.match(/\d+/g)?.slice(0,3).map(n=>Number(n).toString(16).padStart(2,'0')).join('');
-        const colorSelect=$('[data-format-select=color]',toolbar);
-        if(doc.activeElement!==colorSelect&&COLORS.some(c=>c[1]==='#'+color))colorSelect.value='#'+color;
+        selectedColor=COLORS.some(c=>c[1]==='#'+color)?'#'+color:null;
+        if(colorMenu)$$('[data-format-color]',colorMenu).forEach(option=>option.setAttribute('aria-selected',String(option.dataset.formatColor===selectedColor)));
         $('.fmt-color-line',toolbar).style.backgroundColor=computed.color;
       }finally{refreshing=false;}
     }
-    function destroy(){if(destroyed)return;destroyed=true;fontRequest++;removers.forEach(remove=>remove());}
+    function destroy(){if(destroyed)return;destroyed=true;fontRequest++;closeColors();removers.forEach(remove=>remove());}
     editor.spellcheck=true;
     const note=typeof getNote==='function'?getNote():null;
     editor.style.fontFamily=family(note?.fontFamily||FONT_DEFAULT);
@@ -476,6 +522,7 @@
       listen(titleInput,'compositionend',()=>{composing=false;captureTitle();refresh();});
     }
     listen(doc,'focusin',event=>{
+      if(colorMenu&&!colorMenu.contains(event.target)&&!colorTrigger.contains(event.target))closeColors();
       if(titleInput&&event.target===titleInput){captureTitle();refresh();}
       else if(editor.contains(event.target)){
         titleActive=false;blocked=annotation(event.target);capture();refresh();
@@ -486,8 +533,12 @@
       const button=event.target.closest('button');
       if(button){event.preventDefault();button.focus({preventScroll:true});}
     });
-    listen(toolbar,'click',event=>{const button=event.target.closest('[data-format-command]');if(button)run(button.dataset.formatCommand);});
+    listen(toolbar,'click',event=>{if(event.target.closest('[data-format-color-trigger]')){openColors();return;}const button=event.target.closest('[data-format-command]');if(button)run(button.dataset.formatCommand);});
     listen(toolbar,'change',event=>{const select=event.target.closest('[data-format-select]');if(select)run(select.dataset.formatSelect,select.value);});
+    listen(colorTrigger,'keydown',event=>{if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();openColors();}});
+    listen(doc,'pointerdown',event=>{if(colorMenu&&!colorMenu.contains(event.target)&&!colorTrigger.contains(event.target))closeColors();},true);
+    listen(doc,'scroll',event=>{if(colorMenu&&!colorMenu.contains(event.target))closeColors();},true);
+    listen(win,'resize',()=>closeColors());
     listen(editor,'keydown',keydown,true);
     listen(editor,'input',event=>{if(annotation(event.target))return;if(!event.isComposing)cleanupCarriers();capture();refresh();});
     listen(editor,'compositionstart',event=>{if(!annotation(event.target))composing=true;});
@@ -497,7 +548,7 @@
     });
     listen(doc,'selectionchange',()=>{if(!composing){capture();refresh();}});
     refresh();
-    return {destroy,refresh,run};
+    return {destroy,refresh,run,isInteracting:()=>!!colorMenu};
   }
   global.NotepadFormatting=Object.freeze({html,attach});
 })(window);

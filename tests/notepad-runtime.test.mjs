@@ -182,14 +182,21 @@ test('urgent images replace the text marker while approved metadata and borderle
     const editor = s.find('.general-notes-editor'), details = s.find('.note-details');
     assert.ok(editor.firstElementChild.classList.contains('title-row'));
     assert.equal(editor.children[1], details);
-    assert.deepEqual(Array.from(details.children, node => node.tagName), ['LABEL', 'SELECT', 'TIME', 'SPAN']);
-    assert.equal(details.lastElementChild, s.find('.save-label'));
+    assert.deepEqual(Array.from(details.children, node => node.tagName), ['LABEL', 'SELECT']);
     assert.equal(details.nextElementSibling, s.find('.notepad-formatting'));
     assert.equal(s.find('.title-identity').firstElementChild, s.find('.title-actions'));
-    assert.equal(s.find('.title-actions').nextElementSibling, s.find('.note-creator'));
+    assert.equal(s.find('.title-actions').nextElementSibling, s.find('.note-attribution'));
+    assert.equal(s.find('.note-attribution').firstElementChild, s.find('.note-creator'));
+    assert.equal(s.find('.note-creator').textContent, user.name);
+    assert.equal(s.find('.note-creator').nextElementSibling, s.find('.note-attribution time'));
+    assert.equal(s.find('.note-attribution time').getAttribute('datetime'),s.bootstrap.notes[0].createdAt);
+    assert.equal(s.find('.note-attribution time').textContent,'11/23 14:30');
     assert.equal(s.document.querySelector('.general-notes-save'), null);
+    s.send('status', {message: 'Saving…'});
     s.send('status', {message: 'Saved 14:42'});
-    assert.equal(details.lastElementChild.textContent, 'Saved 14:42');
+    assert.equal(s.document.querySelector('.save-label'), null);
+    assert.ok(!s.document.body.textContent.includes('Saved 14:42'));
+    assert.ok(!s.document.body.textContent.includes('Saving…'));
     assert.equal(s.find('[data-action=share]').textContent, 'Shared with…');
     assert.equal(s.find('[data-action=share]').querySelectorAll('svg').length, 1);
     const priority = s.find('#note-priority'); priority.value = 'Urgent'; s.event(priority, 'change');
@@ -215,6 +222,30 @@ test('urgent images replace the text marker while approved metadata and borderle
     assert.equal(s.find('.note-heading .note-urgent').hidden, true);
     assert.equal(s.find('.note-item .note-urgent').hidden, true);
   } finally {s.cleanup();}
+});
+
+test('pen controls keep the chosen swatch and live stroke width without extra heading or close button',()=>{
+  const s=setup();
+  try{
+    s.click('[data-mode=pen]');
+    const popover=s.find('.tool-bubble');
+    assert.equal(popover.querySelector('.popover-header,[data-action=close-popover]'),null);
+    assert.deepEqual(Array.from(popover.querySelectorAll('.color-swatches button'),el=>el.getAttribute('aria-label')),['Black ink','Red ink','Green ink','Blue ink','Orange ink','Yellow ink','Purple ink','White ink']);
+    for(const name of ['Orange','Yellow','White'])assert.equal(s.find(`[aria-label="${name} ink"]`).style.getPropertyValue('--swatch-check'),'#000000');
+    s.click('[aria-label="Orange ink"]');
+    assert.equal(s.find('[aria-label="Orange ink"]').getAttribute('aria-pressed'),'true');
+    assert.equal(s.find('[aria-label="White ink"]').getAttribute('aria-pressed'),'false');
+    const slider=s.find('[aria-label="Pen width"]');slider.value='9';s.event(slider,'input');
+    assert.equal(slider.style.getPropertyValue('--pen-size'),'9px');
+    assert.equal(s.find('.width-control output').value,'9');
+    s.event(s.find('.note-heading'),'pointerdown');
+    assert.equal(s.document.querySelector('.tool-bubble'),null);
+    assert.equal(s.find('[data-mode=pen]').getAttribute('aria-pressed'),'true');
+    s.click('[data-mode=pen]');
+    assert.equal(s.find('[aria-label="Pen width"]').value,'9');
+    assert.equal(s.find('[aria-label="Orange ink"]').getAttribute('aria-pressed'),'true');
+    assert.equal(s.saves().length,0,'Choosing pen tools does not change note content before drawing');
+  }finally{s.cleanup();}
 });
 
 test('new notes default to Just me, and Engineering and All Roles serialize canonical recipients', () => {

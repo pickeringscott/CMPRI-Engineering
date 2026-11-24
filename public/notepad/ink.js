@@ -11,6 +11,10 @@
   const NS = 'http://www.w3.org/2000/svg';
   const PAGE_WIDTH = 800;
   const PAGE_HEIGHT = 1100;
+  const drawingCursor = {
+    pen: 'url("/notepad/pencil-cursor.svg") 3 21, crosshair',
+    eraser: 'url("/notepad/eraser-cursor.svg") 5 19, crosshair',
+  };
   const validMode = value => ['text', 'pen', 'eraser'].includes(value);
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -155,7 +159,7 @@
     function applyMode(value) {
       selectedMode = value;
       svg.style.pointerEvents = value === 'text' ? 'none' : 'auto';
-      svg.style.cursor = value === 'text' ? 'default' : 'crosshair';
+      svg.style.cursor = drawingCursor[value] || 'auto';
       // Never hide the ink when text is selected.
       textLayer.setAttribute('contenteditable', String(value === 'text'));
       textLayer.style.pointerEvents = value === 'text' ? 'auto' : 'none';
