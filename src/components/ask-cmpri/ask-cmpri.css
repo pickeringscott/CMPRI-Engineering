@@ -230,6 +230,13 @@
   }
   .cmpri-ask .ask-tabs button { height: 24px; line-height: 22px; }
   .ask-body { padding-top: 8px; }
+  /* Keep the empty query readable beside its first control; voice and action
+     controls use the next row inside the same pill on narrow screens. */
+  .ask-search-pill:has(.ask-voice-picker:not([hidden])) { flex-wrap: wrap; }
+  .ask-search-pill:has(.ask-voice-picker:not([hidden])) .ask-query-box {
+    flex-basis: calc(100% - var(--ask-control-size) - 2px);
+  }
+  .ask-search-pill:has(.ask-voice-picker:not([hidden])) .ask-voice-picker { flex: 1; min-width: 0; }
 }
 @media (pointer: coarse) { .cmpri-ask { --ask-control-size: 41px; } }
 @media (max-width: 380px) {

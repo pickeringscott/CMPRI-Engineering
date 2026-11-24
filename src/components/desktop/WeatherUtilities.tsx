@@ -17,9 +17,9 @@ const REFRESH_INTERVAL = 10 * 60 * 1000;
 const CENTER_X = 51.6, CENTER_Y = 49, RADIUS = 42.5;
 const ARC_START = 210, ARC_SPAN = 300, HIGH_ANGLE = 321, LOW_ANGLE = 498;
 const UNKNOWN_COLOR = "#373a40";
-// The 100-unit artboard stays 225 CSS pixels wide. Two typographic points are
-// 8/3 CSS pixels; dilating the alpha adds that exact dark edge to text and lines.
-const LIGHT_INK_OUTLINE = (2 * 96 / 72) / (225 / 100);
+// The 100-unit artboard stays 225 CSS pixels wide. A one-point dark edge
+// keeps light text and lines readable without the previous heavy outline.
+const LIGHT_INK_OUTLINE = (96 / 72) / (225 / 100);
 const WIND_INDICATOR_BOTTOM = 62.4 + 4.2 + 0.55 / 2;
 
 function onArc(angle: number, radius = RADIUS) {

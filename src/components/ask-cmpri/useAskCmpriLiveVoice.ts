@@ -29,6 +29,7 @@ const MESSAGES = {
     blocked: "Microphone access is blocked in your browser", missing: "No microphone detected",
     unsupported: "Live voice is unavailable in this browser",
     starting: "Connecting live voice…", listening: "Listening. Say “goodbye” to end the call.",
+    connected: "Connected to Ask CMPRI. I'm listening.",
     ended: "Voice call ended.", failed: "Live voice could not connect. Type your question to continue.",
     disconnected: "The voice connection ended. Start a new call or type your question.",
     playback: "Audio playback is blocked. Start the call again or type your question.",
@@ -39,6 +40,7 @@ const MESSAGES = {
     blocked: "Tu navegador bloqueó el acceso al micrófono", missing: "No se detectó ningún micrófono",
     unsupported: "La conversación de voz no está disponible en este navegador",
     starting: "Conectando la conversación de voz…", listening: "Escuchando. Di «adiós» para finalizar la llamada.",
+    connected: "Conectado a Ask CMPRI. Te escucho.",
     ended: "Llamada de voz finalizada.", failed: "No se pudo conectar la voz. Escribe tu pregunta para continuar.",
     disconnected: "Se perdió la conexión de voz. Inicia otra llamada o escribe tu pregunta.",
     playback: "La reproducción de audio está bloqueada. Inicia otra llamada o escribe tu pregunta.",
@@ -70,6 +72,11 @@ type LiveConnection = {
   inputItemId?: string;
   handledInputItems: Set<string>;
   eventIds: Set<string>;
+  connectedEventId?: string;
+  connectedResponseId?: string;
+  connectedCancelEventId?: string;
+  connectedInterrupted?: boolean;
+  connectedDone?: boolean;
   setupTimer?: number;
 };
 
@@ -129,6 +136,28 @@ export function createAskCmpriLiveVoiceController(options: AskCmpriLiveVoiceOpti
     if (current !== connection || !connection.ready || connection.channel.readyState !== "open") return false;
     try { connection.channel.send(JSON.stringify({ event_id: crypto.randomUUID(), ...event })); return true; }
     catch { fail(text.disconnected); return false; }
+  }
+  function announceConnection(connection: LiveConnection) {
+    if (current !== connection || !connection.ready || connection.channel.readyState !== "open" || connection.connectedEventId) return;
+    const eventId = crypto.randomUUID();
+    connection.connectedEventId = eventId;
+    // A separate, empty-context response cannot read prior records or invoke
+    // Ask tools. Session updates and duplicate open events must not repeat it.
+    send(connection, { event_id: eventId, type: "response.create", response: {
+      conversation: "none", input: [], output_modalities: ["audio"],
+      tools: [], tool_choice: "none", max_output_tokens: 256,
+      metadata: { cmpri: "connected" },
+      instructions: `Say exactly this brief connection confirmation and nothing else: ${text.connected}`,
+    } });
+  }
+  function interruptAnnouncement(connection: LiveConnection) {
+    connection.connectedInterrupted = true;
+    if (!connection.connectedResponseId || connection.connectedCancelEventId || connection.connectedDone) return;
+    const eventId = crypto.randomUUID();
+    connection.connectedCancelEventId = eventId;
+    // Cancel only the announcement, never the caller's VAD response. WebRTC
+    // clears unheard output when speech starts; keep the input track open.
+    send(connection, { event_id: eventId, type: "response.cancel", response_id: connection.connectedResponseId });
   }
   function release(connection: LiveConnection) {
     connection.controller.abort();
@@ -197,6 +226,17 @@ export function createAskCmpriLiveVoiceController(options: AskCmpriLiveVoiceOpti
       connection.eventIds.add(event.event_id);
       if (connection.eventIds.size > 4000) connection.eventIds.delete(connection.eventIds.values().next().value!);
     }
+    const notice = event.response as { id?: string; metadata?: { cmpri?: string } } | undefined;
+    if (connection.connectedResponseId && event.response_id === connection.connectedResponseId) return;
+    if (notice?.metadata?.cmpri === "connected" || notice?.id && notice.id === connection.connectedResponseId) {
+      if (event.type === "response.created") {
+        connection.connectedResponseId = notice.id;
+        if (connection.connectedInterrupted) interruptAnnouncement(connection);
+      }
+      if (event.type === "response.done") connection.connectedDone = true;
+      // Even unexpected tool output in this announcement is never executable.
+      return;
+    }
     if (event.type === "session.created" || event.type === "session.updated") {
       const first = !connection.ready;
       connection.ready = true;
@@ -209,9 +249,11 @@ export function createAskCmpriLiveVoiceController(options: AskCmpriLiveVoiceOpti
         connection.history = undefined;
       }
       update({ status: text.listening });
+      announceConnection(connection);
     } else if (event.type === "input_audio_buffer.speech_started") {
       connection.speaking = true;
       connection.inputItemId = typeof event.item_id === "string" ? event.item_id : undefined;
+      interruptAnnouncement(connection);
       // WebRTC cancels/truncates unheard model audio. Never mute or discard the caller.
       update({ draft: "", reply: "" });
     } else if (event.type === "input_audio_buffer.speech_stopped") {
@@ -241,7 +283,9 @@ export function createAskCmpriLiveVoiceController(options: AskCmpriLiveVoiceOpti
       if (finished && response?.status === "failed") { fail(text.disconnected); return; }
       continueResponse(connection);
     } else if (event.type === "error") {
-      const error = event.error as { code?: unknown } | undefined;
+      const error = event.error as { code?: unknown; event_id?: unknown } | undefined;
+      if (connection.connectedEventId && error?.event_id === connection.connectedEventId) return;
+      if (connection.connectedCancelEventId && error?.event_id === connection.connectedCancelEventId) return;
       // A VAD response can start while the browser is returning a tool result.
       // Keep that result queued instead of hanging up on the overlap.
       if (error?.code === "conversation_already_has_active_response") {
@@ -268,6 +312,7 @@ export function createAskCmpriLiveVoiceController(options: AskCmpriLiveVoiceOpti
       current = connection;
       const active = connection;
       connection.setupTimer = window.setTimeout(() => { if (current === active && !active.ready) fail(text.failed); }, 30_000);
+      channel.onopen = () => announceConnection(active);
       channel.onmessage = event => receive(active, event.data);
       channel.onerror = () => { if (current === connection) fail(text.disconnected); };
       channel.onclose = () => { if (current === connection) fail(text.disconnected); };
