@@ -1,7 +1,8 @@
 {
   "git": {
     "deploymentEnabled": {
-      "codex/ask-cmpri-runtime-fix": false
+      "codex/ask-cmpri-runtime-fix": false,
+      "codex/ask-cmpri-preview-diagnostic": false
     }
   },
   "crons": [
