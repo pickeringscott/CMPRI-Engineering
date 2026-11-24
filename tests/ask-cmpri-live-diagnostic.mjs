@@ -21,4 +21,4 @@ source=source.replace('process: { env: {} }', 'process: { env: { CMPRI_GEMINI_MO
 source+="\nconst diagnostic=fixture(); await diagnostic.run('What can Ask CMPRI help with?').catch(e=>console.log('CMPRI_GEMINI_DIAGNOSTIC_END '+e.name));\n";
 const scratch='tests/.ask-cmpri-live-diagnostic.mjs';
 fs.writeFileSync(scratch,source);
-try { await import('./'+scratch); } finally { fs.unlinkSync(scratch); }
+try { await import('./.ask-cmpri-live-diagnostic.mjs'); } finally { fs.unlinkSync(scratch); }
