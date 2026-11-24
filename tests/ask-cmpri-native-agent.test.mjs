@@ -626,6 +626,35 @@ test("native file inspection rejects invented and prior-request handles and neve
   assert.equal(denied.downloads, undefined); assert.equal(denied.proposal, undefined); assert.match(denied.summary, /role does not permit/);
 });
 
+test("property clock requests answer from Central Time without calling Gemini", async () => {
+  let keyChecks = 0, authorized = true;
+  class FixedDate extends Date { constructor() { super("2026-11-24T14:21:00Z"); } }
+  const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected clock failure") },
+    "next/server": { NextResponse: { json: Response.json } }, zod,
+    "@/lib/server/roles": { profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
+    "@/lib/server/auth": { requireUserAttempt: async () => authorized ? { ok: true, mcp: false, principal } : { ok: false } },
+    "@/lib/work-order-attribution": {},
+    "@/lib/server/ask-cmpri-data": { askContextSchema: zod.z.object({}).passthrough() },
+    "@/lib/server/ask-cmpri-gemini": { askGeminiKey: () => { keyChecks++; return null; } },
+    "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}) },
+  }, { TextDecoder, AbortSignal, Error, Date: FixedDate, Intl, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-signing-secret" } } });
+  for (const [question, summary] of [
+    ["What time is it right now?", "It is 08:21 Central Time in Champaign."],
+    ["¿Qué hora es ahora?", "Son las 08:21, hora central de Champaign."],
+  ]) {
+    const response = await handler.POST(request({ question }));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).summary, summary);
+  }
+  assert.equal(keyChecks, 0);
+  const roomQuestion = await handler.POST(request({ question: "What time is room 420 checking out?" }));
+  assert.equal(roomQuestion.status, 503, "room checkout times must still use authorized data");
+  assert.equal(keyChecks, 1);
+  authorized = false;
+  assert.equal((await handler.POST(request({ question: "What time is it right now?" }))).status, 401);
+});
+
 test("the exact reported PM year-end question bypasses Gemini and returns the deterministic PM helper result", async () => {
   let keyChecks = 0, plannerCalls = 0;
   const pmCalls = [];

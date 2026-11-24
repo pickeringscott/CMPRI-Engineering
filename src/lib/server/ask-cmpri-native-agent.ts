@@ -1,7 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { ToolLoopAgent, Output, hasToolCall, isStepCount, tool } from "ai";
+import { APICallError, ToolLoopAgent, Output, hasToolCall, isStepCount, tool } from "ai";
 import { z } from "zod";
 import type { AskContext, AskLanguage, AskProposal, AskResponse, AskResultItem, AskTable } from "@/lib/ask-cmpri/types";
 import type { AuthAttempt } from "@/lib/server/auth";
@@ -508,8 +508,10 @@ export async function runNativeAsk(input: {
   const apiKey = askGeminiKey();
   if (!apiKey) throw new Error("Ask CMPRI is not configured for this environment.");
   const google = createGoogleGenerativeAI({ apiKey });
-  const agent = new ToolLoopAgent({
-    model: google(process.env.CMPRI_GEMINI_MODEL?.trim() || "gemini-3.5-flash"),
+  const primaryModel = process.env.CMPRI_GEMINI_MODEL?.trim() || "gemini-3.6-flash";
+  const fallbackModel = ["gemini-3.5-flash", "gemini-3.6-flash"].includes(primaryModel) ? "gemini-3.5-flash-lite" : undefined;
+  const createAgent = (model: string) => new ToolLoopAgent({
+    model: google(model),
     maxRetries: 0, maxOutputTokens: 4500, tools, stopWhen: [isStepCount(12), hasToolCall("proposeChange")],
     output: Output.object({ schema: answerSchema }),
     instructions: `You are Ask CMPRI, the signed-in CMPRI engineering and hotel operations assistant. Cover any question about CMPRI, not a preset list of questions. Every application domain and native action is available subject to the current user's role, property and record access. The native handlers are the authority; do not invent additional assistant role restrictions. Discover operations and read their contracts to answer unfamiliar requests. Combine sources and retain follow-up context. Available domains: ${domains.join(", ")}.
@@ -523,12 +525,29 @@ For an explicitly requested change, first resolve current targets and revisions 
   });
   let rendered: z.infer<typeof answerSchema> | undefined;
   try {
-    const result = await agent.generate({ abortSignal: input.signal, prompt: JSON.stringify({
+    const prompt = JSON.stringify({
       question: input.question, language: input.language, chief: input.chief, date: today,
       previous: input.previous ? { ...input.previous, native: input.previous.native ? { ...input.previous.native, files: undefined } : undefined } : undefined,
       files: [...files.entries()].map(([fileId, file]) => ({ fileId, name: file.name, type: file.type, size: file.size, sha256: file.sha256 })),
       filePreviews: input.files?.map(file => ({ name: file.name, text: file.text, coverage: "Preview only; inspect the selected original for complete source content." })),
-    }) });
+    });
+    let startedSteps = 0;
+    let toolStarted = false;
+    const generate = (model: string) => createAgent(model).generate({
+      abortSignal: input.signal, prompt,
+      onStepStart: () => { startedSteps++; },
+      onToolExecutionStart: () => { toolStarted = true; },
+    });
+    let result;
+    try {
+      result = await generate(primaryModel);
+    } catch (error) {
+      // A single in-request fallback is safe only before any tool execution.
+      // Never restart a later step, a proposed change, or an aborted request.
+      if (!fallbackModel || startedSteps !== 1 || toolStarted || proposal || evidence.size || input.signal.aborted
+        || !APICallError.isInstance(error) || error.statusCode !== 503) throw error;
+      result = await generate(fallbackModel);
+    }
     if (!proposal) rendered = result.output;
   } catch (error) {
     if (!proposal && !evidence.size) throw error;
