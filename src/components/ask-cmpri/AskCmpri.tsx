@@ -1266,7 +1266,7 @@ export default function AskCmpri() {
         <div className="ask-query-box"><i className="ask-gemini-mark" aria-hidden="true" />
           <label className="sr-only" htmlFor="ask-cmpri-query">{t("Ask CMPRI")}</label>
           <textarea ref={field} id="ask-cmpri-query" rows={1} maxLength={650} enterKeyHint="search" placeholder={t("Ask CMPRI")}
-            value={canSearch || authProblem ? query : ""} disabled={saving} onChange={event => queryText(event.target.value)} onKeyDown={event => {
+            value={query} disabled={saving} onChange={event => queryText(event.target.value)} onKeyDown={event => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(textRef.current); }
             }} />
         </div>
