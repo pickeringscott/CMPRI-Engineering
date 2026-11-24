@@ -181,9 +181,9 @@ test('urgent images replace the text marker while approved metadata and borderle
   try {
     const editor = s.find('.general-notes-editor'), details = s.find('.note-details');
     assert.ok(editor.firstElementChild.classList.contains('title-row'));
-    assert.equal(editor.children[1], details);
+    assert.equal(details.parentElement, editor.firstElementChild);
     assert.deepEqual(Array.from(details.children, node => node.tagName), ['LABEL', 'SELECT']);
-    assert.equal(details.nextElementSibling, s.find('.notepad-formatting'));
+    assert.equal(editor.firstElementChild.nextElementSibling, s.find('.notepad-formatting'));
     assert.equal(s.find('.title-identity').firstElementChild, s.find('.title-actions'));
     assert.equal(s.find('.title-actions').nextElementSibling, s.find('.note-attribution'));
     assert.equal(s.find('.note-attribution').firstElementChild, s.find('.note-creator'));
@@ -445,6 +445,42 @@ test('a close flush commits an accepted recipient submit before acknowledgement 
   }
 });
 
+test('the first trash click after a save acknowledgement survives focusout and deletes only the confirmed note', async () => {
+  const s=setup({notes:[makeNote(),makeNote({id:uuid(11),title:'Keep this note'})],order:[uuid(10),uuid(11)]});
+  try{
+    s.focus('#note-title');s.input('#note-title','Note to delete');
+    const sent=s.latestSave(),canonical={...s.bootstrap.notes[0],...sent.document,revision:2};
+    s.send('saved',{id:canonical.id,sequence:sent.sequence,revision:2,note:canonical});
+    const trash=s.find('[data-action=delete]');
+    s.event(trash,'pointerdown');trash.focus();
+    // A real pointer can remain down after focusout's deferred refresh runs.
+    await settleFocus(s);
+    assert.equal(trash.isConnected,true,'A save refresh must not replace the pending trash click target');
+    assert.equal(s.find('[data-action=delete]'),trash);
+    trash.click();
+    assert.equal(s.find('#delete-message').textContent,'Remove Note to delete from Notepad');
+    s.click('[data-action=confirm-delete]');
+    const deletion=s.latestSave(uuid(10));
+    assert.equal(deletion.document,null);assert.equal(deletion.baseRevision,2);
+    assert.equal(s.find('#note-title').value,'Keep this note');
+    assert.equal(s.document.querySelectorAll('.note-row').length,1);
+  }finally{s.cleanup();}
+});
+
+test('a restricted trash click explains ownership and cannot delete through a normal or synthetic click', () => {
+  const s=setup({notes:[makeNote({authorId:colleague.id,audience:{all:true,roles:[],people:[]}})]});
+  try{
+    const trash=s.find('[data-action=delete]');assert.equal(trash.getAttribute('aria-disabled'),'true');
+    trash.click();
+    assert.equal(s.find('#preview-toast').textContent,'Only the note’s creator can delete it.');
+    assert.equal(s.find('#preview-toast').classList.contains('visible'),true);
+    s.event(trash,'click');
+    assert.equal(s.document.querySelector('.delete-dialog'),null);
+    assert.equal(s.document.querySelectorAll('.note-row').length,1);
+    assert.equal(s.saves().length,0);
+  }finally{s.cleanup();}
+});
+
 test('delete confirmation has the requested wording, drags without a title bar, and deletes its captured note only', async () => {
   const title='Pump <repair> & follow-up';
   const s=setup({notes:[makeNote({title}),makeNote({id:uuid(11),title:'Keep this note'})],order:[uuid(10),uuid(11)]});
@@ -468,6 +504,60 @@ test('delete confirmation has the requested wording, drags without a title bar, 
     s.click('[data-action=confirm-delete]');
     assert.equal(s.latestSave(uuid(10)).document,null);
     assert.equal(s.find('#note-title').value,'Keep this note');
+    assert.equal(s.document.querySelectorAll('.note-row').length,1);
+  }finally{s.cleanup();}
+});
+
+test('a slower refresh cannot restore a note after its deletion is acknowledged', () => {
+  for(const legacy of [false,true])for(const keepSibling of [false,true]){
+    const deleted=makeNote(legacy?{revision:0,legacySource:'staff',legacyVersion:'staff:'+'a'.repeat(64)}:{});
+    const kept=makeNote({id:uuid(11),title:'Keep this note'}),notes=keepSibling?[deleted,kept]:[deleted];
+    const s=setup({notes,order:notes.map(n=>n.id)});
+    try{
+      s.click('[data-action=delete]');s.click('[data-action=confirm-delete]');
+      const pending=s.latestSave(deleted.id);
+      assert.equal(pending.document,null);
+      assert.equal(pending.baseRevision,deleted.revision);
+      if(legacy)assert.equal(pending.baseLegacyVersion,deleted.legacyVersion);
+      s.send('remote',{notes});
+      assert.equal(s.document.querySelector(`[data-note="${deleted.id}"]`),null,'Pending deletion survives a refresh');
+      s.send('saved',{id:deleted.id,sequence:pending.sequence,note:null,revision:deleted.revision+1});
+      // A GET begun before the delete can finish after its PUT acknowledgement.
+      s.send('remote',{notes});s.send('remote',{notes});
+      assert.equal(s.document.querySelector(`[data-note="${deleted.id}"]`),null,'Acknowledged deletion survives later stale snapshots');
+      if(keepSibling)assert.equal(s.find('#note-title').value,kept.title);
+      else assert.ok(s.find('.editor-empty'),'Deleting the last note leaves the empty editor');
+      assert.equal(s.document.querySelectorAll('.note-row').length,keepSibling?1:0);
+      assert.equal(s.saves().filter(save=>save.id===deleted.id).length,1,'Stale snapshots must not cause a new save');
+    }finally{s.cleanup();}
+  }
+});
+
+test('a rejected deletion can restore the saved note after its pending draft is discarded', () => {
+  const saved=makeNote(),s=setup({notes:[saved]});
+  try{
+    s.click('[data-action=delete]');s.click('[data-action=confirm-delete]');
+    assert.equal(s.document.querySelector('.note-row'),null);
+    s.send('discard',{ids:[saved.id]});
+    s.send('remote',{notes:[saved]});
+    assert.equal(s.find('.note-row').dataset.row,saved.id);
+    assert.equal(s.document.querySelectorAll('.note-row').length,1);
+    assert.equal(s.saves().length,1);
+  }finally{s.cleanup();}
+});
+
+test('confirmed deletion state clears before another account initializes', () => {
+  const saved=makeNote(),s=setup({notes:[saved]});
+  try{
+    s.click('[data-action=delete]');s.click('[data-action=confirm-delete]');
+    const pending=s.latestSave(saved.id);
+    s.send('saved',{id:saved.id,sequence:pending.sequence,note:null,revision:2});
+    s.send('clear');
+    s.send('initialize',{...s.bootstrap,hotelId:uuid(91),userId:colleague.id,notes:[],order:[]});
+    const otherNote=makeNote({id:saved.id,authorId:colleague.id,title:'Another property note',revision:1});
+    s.send('remote',{notes:[otherNote]});
+    assert.equal(s.find('.note-row').dataset.row,otherNote.id);
+    assert.equal(s.find('.note-item strong').textContent,otherNote.title);
     assert.equal(s.document.querySelectorAll('.note-row').length,1);
   }finally{s.cleanup();}
 });

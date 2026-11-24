@@ -41,7 +41,7 @@ const engineeringAudience = () => ({all:false,roles:['engineer','technician','sy
 let VIEW_STORE = '';
 const bridgeToken = new URLSearchParams(location.search).get('bridge');
 let initialized=false, suppressSave=false, accountGeneration=0;
-const sentDocuments=new Map(), dirtyNotes=new Set(), sequences=new Map(), requests=new Map(), deferredNotes=new Map(), baseRevisions=new Map(), baseLegacyVersions=new Map();
+const sentDocuments=new Map(), dirtyNotes=new Set(), sequences=new Map(), requests=new Map(), deferredNotes=new Map(), baseRevisions=new Map(), baseLegacyVersions=new Map(), confirmedDeletions=new Map();
 let lastOrder='', legacyAliases={}, bridgeScope='';
 function sendHost(type,payload){if(bridgeToken&&parent!==window)parent.postMessage({channel:'cmpri-notepad',token:bridgeToken,scope:bridgeScope,type,payload},location.origin);}
 function hostRequest(action,payload){return new Promise((resolve,reject)=>{const requestId=crypto.randomUUID();requests.set(requestId,{resolve,reject});parent.postMessage({channel:'cmpri-notepad',token:bridgeToken,scope:bridgeScope,type:'request',requestId,action,payload},location.origin);});}
@@ -138,8 +138,8 @@ function editor() {
   const n=note();if(!n)return '<div class="editor-empty"><strong>Your Notepad</strong><p>Use + in the search bar to create a note.</p></div>';
   const author=n.authorName?{name:n.authorName,short:n.authorName}:personById(n.authorId);
   return '<article class="general-notes-editor">'+
-    '<div class="title-row"><div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="Edit title · Choose its font in the toolbar" placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div><div class="title-identity"><div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="Delete note"'+(n.authorId===currentPerson?'':' disabled')+'>'+icon('trash')+'</button></div><div class="note-attribution"><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.name)+'</span><time datetime="'+escape(n.createdAt)+'" title="'+escape(fullTime(n.createdAt))+'">'+shortTime(n.createdAt)+'</time></div></div></div>'+
-    '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select></div>'+
+    '<div class="title-row"><div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="Edit title · Choose its font in the toolbar" placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div><div class="title-identity"><div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="'+(n.authorId===currentPerson?'Delete note':'Only the note’s creator can delete it.')+'" aria-disabled="'+(n.authorId!==currentPerson)+'">'+icon('trash')+'</button></div><div class="note-attribution"><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.name)+'</span><time datetime="'+escape(n.createdAt)+'" title="'+escape(fullTime(n.createdAt))+'">'+shortTime(n.createdAt)+'</time></div></div>'+
+    '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select></div></div>'+
     window.NotepadFormatting.html()+
     '<div class="general-notes-scroll"><div class="general-notes-paper '+(mode!=='text'?'is-drawing':'')+'"><div class="note-content" style="font-size:'+(n.fontSize||16)+'px;font-family:&quot;'+escape(n.fontFamily||'Comic Sans MS')+'&quot;,&quot;Comic Sans MS&quot;,cursive" role="textbox" aria-label="Notepad writing area" aria-multiline="true" contenteditable="'+(mode==='text')+'" spellcheck="true" data-placeholder="Write a note, add a checklist, or type @…">'+n.content+'</div><svg class="note-ink" xmlns="http://www.w3.org/2000/svg" aria-label="Handwriting canvas"></svg></div></div>'+
     '<div class="editor-attachments">'+attachmentMarkup(n)+'</div>'+tools()+'</article>';
@@ -563,7 +563,8 @@ function closeDelete({restoreFocus=true}={}) {
   if(restoreFocus&&session.generation===accountGeneration&&session.origin?.isConnected)session.origin.focus({preventScroll:true});
 }
 function openDelete(origin) {
-  const n=note();if(!initialized||!n||n.authorId!==currentPerson)return;
+  const n=note();if(!initialized||!n)return;
+  if(n.authorId!==currentPerson){toast('Only the note’s creator can delete it.');return;}
   syncEditor();closePopover();closeMentions();closeDelete({restoreFocus:false});
   const dialog=document.createElement('dialog');dialog.className='delete-dialog';dialog.setAttribute('aria-labelledby','delete-heading');dialog.setAttribute('aria-describedby','delete-message');
   dialog.innerHTML='<h2 id="delete-heading">Delete this note</h2><p id="delete-message">Remove <strong>'+escape(n.title||'Untitled')+'</strong> from Notepad</p><div class="delete-actions"><button type="button" data-action="cancel-delete">Cancel</button><button type="button" data-action="confirm-delete">Delete</button></div>';
@@ -791,9 +792,12 @@ function applyPalette(values) {
 }
 function editingCurrent() {
   const element=document.activeElement;
-  return activeNoteTransition!==0||isComposing||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover'));
+  return activeNoteTransition!==0||isComposing||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.title-actions,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover'));
 }
 function installRemote(incoming,renderCurrent=true) {
+  // A refresh started before deletion may arrive after the save acknowledgement.
+  // Keep its older document from making the deleted note reappear.
+  if((confirmedDeletions.get(incoming.id)??-1)>=Number(incoming.revision))return;
   const index=notes.findIndex(n=>n.id===incoming.id),previous=notes[index];
   if(previous&&Number(previous.revision)>Number(incoming.revision))return;
   const next={...prepareNote(incoming),openThreads:previous?.openThreads||[],inkUndo:previous?.inkUndo||[],inkRedo:previous?.inkRedo||[]};
@@ -819,7 +823,7 @@ window.addEventListener('message',event=>{
     paperResizeObserver?.disconnect();paperResizeObserver=null;
     notes=[];people=[];roles=[];mentionChoices=[];currentPerson='';activeNote='';query='';mode='text';orders={};VIEW_STORE='';lastOrder='';legacyAliases={};bridgeScope='';
     selectionRange=null;draggedNote=null;pointerDrag=null;resizeGesture=null;blankLineGesture=null;recipientDraft=null;isComposing=false;suppressNoteClick=false;
-    Object.keys(replyTargets).forEach(key=>delete replyTargets[key]);dirtyNotes.clear();sentDocuments.clear();sequences.clear();deferredNotes.clear();baseRevisions.clear();baseLegacyVersions.clear();
+    Object.keys(replyTargets).forEach(key=>delete replyTargets[key]);dirtyNotes.clear();sentDocuments.clear();sequences.clear();deferredNotes.clear();baseRevisions.clear();baseLegacyVersions.clear();confirmedDeletions.clear();
     clearTimeout(toastTimer);$('#preview-toast').textContent='';$('#preview-toast').classList.remove('visible');$('#reorder-status').textContent='';
     for(const pending of requests.values())pending.reject(Error('Your CMPRI session changed.'));requests.clear();
     $('#layout-body').innerHTML='<p class="editor-empty">Sign in to open Notepad.</p>';return;
@@ -849,7 +853,7 @@ window.addEventListener('message',event=>{
         if(!deferredNotes.has(payload.id)||Number(deferredNotes.get(payload.id).revision)<=Number(payload.note.revision))deferredNotes.set(payload.id,payload.note);
         if(current){current.authorId=payload.note.authorId;current.createdAt=payload.note.createdAt;current.updatedAt=payload.note.updatedAt;}
       }else installRemote(payload.note);
-    }else{sentDocuments.delete(payload.id);deferredNotes.delete(payload.id);}
+    }else{confirmedDeletions.set(payload.id,Math.max(confirmedDeletions.get(payload.id)||0,Number(payload.revision)));sentDocuments.delete(payload.id);deferredNotes.delete(payload.id);}
     return;
   }
   if(data.type==='discard'){

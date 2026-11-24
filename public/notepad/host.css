@@ -5,19 +5,26 @@ body{margin:0}
 .window-wrap,.window-wrap.is-mobile{width:100%;max-width:none;height:100%;min-height:0}
 .notepad-modal,.window-wrap.is-mobile .notepad-modal{height:100%;min-height:0;border:0;border-radius:0;box-shadow:none}
 .layout-1 .attachment-chip .attachment-open{min-width:0;padding:0;border:0;background:transparent;color:inherit;font:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left}
-.layout-1 .title-actions button:disabled{opacity:.35;cursor:default}
+.layout-1 .title-actions button[aria-disabled=true]{opacity:.55;cursor:help}
 
-/* A wrapping title grows with its text, font, window and sidebar width. */
-.layout-1 .title-row,.layout-1 .note-heading{align-items:flex-start}
-.layout-1 #note-title{height:auto;min-height:30px;max-height:none;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;line-height:1.2}
-.layout-1 .title-identity{display:flex;flex:0 0 auto;flex-direction:column;align-items:flex-end;gap:0;max-width:52%}
-.layout-1 .title-actions{padding-top:0}
-.layout-1 .note-attribution{display:flex;align-items:baseline;justify-content:flex-end;flex-wrap:wrap;gap:0 4px;max-width:100%;padding-right:3px;text-align:right;color:var(--cmpri-modal-muted);font:10px/1.2 Arial,Helvetica,sans-serif}
+/* Consistent gutters and two rows align the title, priority and note actions. */
+.layout-1 .np-sidebar{padding:4px;gap:4px}
+.layout-1 .notes-list{gap:3px}
+.layout-1 .note-item{padding:4px}
+.layout-1 .np-main,.is-mobile .layout-1 .np-main{padding:0}
+.layout-1 .title-row{display:grid;grid-template-columns:minmax(0,1fr) fit-content(48%);align-items:center;gap:2px 8px;padding:3px 4px 4px}
+.layout-1 .note-heading{grid-column:1;grid-row:1;align-items:center;gap:3px;min-height:30px}
+.layout-1 #note-title{height:auto;min-height:30px;max-height:none;resize:none;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;line-height:28px;padding:1px 2px}
+.layout-1 .title-identity{display:contents}
+.layout-1 .title-actions{grid-column:2;grid-row:1;justify-self:end;min-width:0;max-width:100%;padding-top:0}
+.layout-1 .title-actions .scope-button{min-width:0}
+.layout-1 .title-actions .scope-button span{overflow:hidden;text-overflow:ellipsis}
+.layout-1 .note-attribution{grid-column:2;grid-row:2;display:flex;align-items:baseline;justify-content:flex-end;flex-wrap:wrap;gap:0 4px;min-width:0;max-width:100%;padding-right:3px;text-align:right;color:var(--cmpri-modal-muted);font:10px/1.2 Arial,Helvetica,sans-serif}
 .layout-1 .note-attribution .note-creator{min-width:0;overflow-wrap:anywhere}
 .layout-1 .note-attribution time{white-space:nowrap}
-.layout-1 .priority-row.note-details{display:flex;justify-content:flex-start;gap:0 5px;min-height:18px;padding:0 2px}
+.layout-1 .priority-row.note-details{grid-column:1;grid-row:2;display:flex;flex-wrap:wrap;justify-content:flex-start;gap:0 5px;min-height:18px;padding:0 2px}
 .layout-1 .general-notes-editor{gap:0}
-.layout-1 .notepad-formatting{margin-top:0;padding-top:0;padding-bottom:0;gap:0}
+.layout-1 .notepad-formatting{margin-top:0;padding-top:3px;padding-bottom:3px;gap:2px 0}
 /* Keep the approved controls together in the normal CMPRI window by removing
    spare group spacing, without shrinking their fonts, buttons or dropdowns. */
 .layout-1 .notepad-formatting .fmt-group{gap:0;padding-right:1px;margin-right:0}
@@ -25,6 +32,7 @@ body{margin:0}
 /* Only real text/ink extends the page. The unchanged 800×1100 ink layer keeps
    its coordinate system, with its unused blank area clipped out of scrolling. */
 .layout-1 .general-notes-scroll,.layout-1 .np-notes-slot{overflow:auto;scrollbar-gutter:auto}
+.layout-1 .note-content,.is-mobile .layout-1 .note-content{padding:4px 6px}
 .layout-1 .general-notes-paper{display:grid;grid-template-columns:minmax(0,1fr);min-height:max(100%,var(--ink-content-height,0px));overflow:clip}
 .layout-1 .note-content{position:relative;inset:auto;grid-area:1/1;height:auto;min-height:0;overflow:visible}
 .layout-1 .note-ink{position:absolute;inset:0 auto auto 0;width:100%;height:auto;aspect-ratio:800/1100}
@@ -32,7 +40,7 @@ body{margin:0}
 /* Use Scott's original glossy image without repainting or flattening it. The
    circular viewport omits the JPEG's surrounding checkerboard, not its bevel. */
 .layout-1 .note-urgent{display:inline-flex;position:relative;width:16px;height:16px;flex:0 0 16px;margin-right:2px;vertical-align:-3px;line-height:0;filter:drop-shadow(0 1px 1px #0008)}
-.layout-1 .note-heading .note-urgent{width:20px;height:20px;flex-basis:20px;margin-top:5px;line-height:0}
+.layout-1 .note-heading .note-urgent{width:20px;height:20px;flex-basis:20px;margin-top:0;line-height:0}
 .note-urgent-crop{display:block;position:relative;width:100%;height:100%;overflow:hidden;border-radius:50%}
 .note-urgent-crop img{position:absolute;display:block;left:50%;top:50%;width:230.1%;height:auto;max-width:none;transform:translate(-50%,-50%);pointer-events:none;user-select:none}
 
