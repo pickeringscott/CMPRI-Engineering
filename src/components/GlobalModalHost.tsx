@@ -1,5 +1,4 @@
 "use client";
-import { isNotepadPath, notepadTargetId } from "@/lib/ui/notepad-navigation";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 
 
@@ -67,13 +66,6 @@ function needsNonmodalDashboardShell() {
   const launcher = document.querySelector<HTMLElement>("#desktop-ask-search");
   return Boolean(launcher && typeof launcher.showPopover !== "function" && typeof window.matchMedia === "function"
     && window.matchMedia("(min-width: 701px) and (hover: hover)").matches);
-}
-
-function openDashboardStaffNotes(href: string, opener?: HTMLElement) {
-  const url = new URL(href, window.location.origin);
-  if (url.origin !== window.location.origin || !isNotepadPath(url.pathname) || !document.querySelector("header.cmpri-dashboard-titlebar [data-cmpri-ask-launcher]")) return false;
-  window.dispatchEvent(new CustomEvent("cmpri-ask-open", { detail: { tab: "notepad", noteId: notepadTargetId(url), opener } }));
-  return true;
 }
 
 type ModalPanelStyle = CSSProperties & {
@@ -898,7 +890,6 @@ export default function GlobalModalHost() {
       const desktop = technicianDesktopRef.current;
       const clickedAt = Number.isFinite(detail.clickedAt) ? detail.clickedAt : undefined;
       const opener = detail.opener instanceof HTMLElement ? detail.opener : undefined;
-      if (openDashboardStaffNotes(detail.href, opener)) return;
       if (detail.href === WORK_ORDER_LIST_PATH) {
         if (desktop?.anchor.dataset.canViewWorkOrders === "true") openWorkOrderList(clickedAt, opener);
         return;
@@ -936,7 +927,6 @@ export default function GlobalModalHost() {
           return;
         }
         event.preventDefault();
-        if (openDashboardStaffNotes(href, anchor)) return;
         openEntry({
           id: crypto.randomUUID(),
           ...modalHref(href),
@@ -960,7 +950,6 @@ export default function GlobalModalHost() {
         return;
       }
       event.preventDefault();
-      if (openDashboardStaffNotes(href, button)) return;
       openEntry({
         id: crypto.randomUUID(),
         ...modalHref(href),

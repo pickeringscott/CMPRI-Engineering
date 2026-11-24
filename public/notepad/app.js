@@ -35,7 +35,7 @@ function titleFontFamily(n) {
   const name=String(n.titleFontFamily||'Arial').replace(/[\u0000-\u001f\u007f]/g,'').slice(0,120);
   return '"'+name.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'", "Comic Sans MS", cursive';
 }
-const urgentMark = n => '<span class="note-urgent" aria-hidden="true"'+(n.priority==='Urgent'?'':' hidden')+'>!</span>';
+const urgentMark = n => '<span class="note-urgent" aria-hidden="true"'+(n.priority==='Urgent'?'':' hidden')+'><span class="note-urgent-crop"><img src="/notepad/urgent-button.jpg" width="2048" height="1143" alt="" draggable="false"></span></span>';
 const privateAudience = () => ({all:false,roles:[],people:[]});
 const engineeringAudience = () => ({all:false,roles:['engineer','technician','system_admin'],people:[]});
 let VIEW_STORE = '';
@@ -61,7 +61,7 @@ let notes=[], orders={}, currentPerson='', activeNote='', query='', mode='text',
 let inkColor='#ffffff',penWidth=4,textColor='#f6ebff',textSize=16;
 let inkController=null, popoverAnchor=null, selectionRange=null, toastTimer, mentionSession=null, draggedNote=null, pointerDrag=null, suppressNoteClick=false;
 let recipientDraft=null, recipientPurpose='new', isComposing=false;
-let formattingController=null, attachmentController=null, resizeGesture=null, paneWidths={desktop:220,mobile:110}, noteTransition=0;
+let formattingController=null, attachmentController=null, titleResizeObserver=null, resizeGesture=null, paneWidths={desktop:220,mobile:110}, noteTransition=0;
 const replyTargets={};
 function sanitizeContent(html) {
   const template=document.createElement('template');template.innerHTML=String(html||'');
@@ -132,7 +132,7 @@ function editor() {
   const n=note();if(!n)return '<div class="editor-empty"><strong>Your Notepad</strong><p>Use + in the search bar to create a note.</p></div>';
   const author=n.authorName?{name:n.authorName,short:n.authorName}:personById(n.authorId);
   return '<article class="general-notes-editor">'+
-    '<div class="title-row"><div class="note-heading">'+urgentMark(n)+'<input id="note-title" aria-label="Note title" title="Edit title · Choose its font in the toolbar" placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'" value="'+escape(n.title)+'"></div><div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="Delete note"'+(n.authorId===currentPerson?'':' disabled')+'>'+icon('trash')+'</button></div></div>'+
+    '<div class="title-row"><div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="Edit title · Choose its font in the toolbar" placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div><div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="Delete note"'+(n.authorId===currentPerson?'':' disabled')+'>'+icon('trash')+'</button></div></div>'+
     '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.short)+'</span><time datetime="'+escape(n.createdAt)+'" title="'+escape(fullTime(n.createdAt))+'">'+shortTime(n.createdAt)+'</time></div>'+
     '<div class="general-notes-save"><span class="save-label">'+escape(savedMessage)+'</span></div>'+
     window.NotepadFormatting.html()+
@@ -143,6 +143,7 @@ function render() {
   noteTransition++;
   closePopover();closeMentions();selectionRange=null;
   formattingController?.destroy();formattingController=null;attachmentController?.destroy();attachmentController=null;
+  titleResizeObserver?.disconnect();titleResizeObserver=null;
   inkController?.destroy();inkController=null;
   if(!note()||!canView(note()))activeNote=orderedNotes()[0]?.id||'';
   $('#layout-body').innerHTML='<section class="np-layout layout-1" aria-label="Familiar Sidebar"><aside class="np-sidebar" aria-label="Saved notes"><div class="search-box"><button class="search-new" data-action="new" aria-label="New note" title="New note">'+icon('plus')+'</button><input type="search" aria-label="Search notes" placeholder="Search notes" value="'+escape(query)+'"></div><div class="np-notes-slot">'+renderNotes()+'</div><div class="np-sidebar-summary"><span class="note-count">'+orderedNotes().length+' notes</span></div></aside><div class="pane-divider" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><main class="np-main" aria-label="Selected note">'+editor()+'</main></section>';
@@ -154,7 +155,12 @@ function render() {
     $$('.task-label').forEach(el=>el.contentEditable=String(mode==='text'));
     inkController=window.NotepadInk.attach({paper:$('.general-notes-paper'),textLayer:$('.note-content'),svg:$('.note-ink'),getNote:note,getMode:()=>mode,getColor:()=>inkColor,getWidth:()=>penWidth,onSave:()=>save(),onModeChange:next=>setMode(next)});
     normalizeSharedItems();
-    formattingController=window.NotepadFormatting.attach({editor:$('.note-content'),toolbar:$('.notepad-formatting'),titleInput:$('#note-title'),getNote:note,onTitleFontChange:family=>{const n=note();n.titleFontFamily=family;n.updatedAt=new Date().toISOString();$('#note-title').style.fontFamily=titleFontFamily(n);save();refreshSidebar();},onChange:()=>{normalizeSharedItems();syncEditor();}});
+    formattingController=window.NotepadFormatting.attach({editor:$('.note-content'),toolbar:$('.notepad-formatting'),titleInput:$('#note-title'),getNote:note,onTitleFontChange:family=>{const n=note();n.titleFontFamily=family;n.updatedAt=new Date().toISOString();$('#note-title').style.fontFamily=titleFontFamily(n);sizeNoteTitle();save();refreshSidebar();},onChange:()=>{normalizeSharedItems();syncEditor();}});
+    if(typeof ResizeObserver==='function'){
+      let titleWidth=-1;
+      titleResizeObserver=new ResizeObserver(entries=>{const width=entries[0]?.contentRect.width;if(width!==undefined&&width!==titleWidth){titleWidth=width;sizeNoteTitle();}});
+      titleResizeObserver.observe($('#note-title'));
+    }
     const generation=accountGeneration;
     attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),onChange:changed=>{if(generation!==accountGeneration)return;save();if(changed.noteId===activeNote)$('.editor-attachments').innerHTML=attachmentMarkup(note());}});
     $$('.note-check').forEach(updateTaskAccessibleLabel);
@@ -182,6 +188,13 @@ function applyPaneWidth(value) {
   layout.style.setProperty('--sidebar-width',current+'px');paneWidths[device]=current;
   divider.setAttribute('aria-valuemin',String(min));divider.setAttribute('aria-valuemax',String(max));divider.setAttribute('aria-valuenow',String(current));
   $$('.reply-input').forEach(sizeReplyInput);
+  sizeNoteTitle();
+}
+
+function sizeNoteTitle() {
+  const title=$('#note-title');if(!title)return;
+  title.style.height='auto';
+  title.style.height=Math.max(30,title.scrollHeight)+'px';
 }
 
 function setMode(next) {
@@ -537,7 +550,7 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('input',e=>{
   const t=e.target;
-  if(t.matches('#note-title')){note().title=t.value;note().updatedAt=new Date().toISOString();save();refreshSidebar();}
+  if(t.matches('#note-title')){sizeNoteTitle();note().title=t.value;note().updatedAt=new Date().toISOString();save();refreshSidebar();}
   if(t.closest('.note-content')&&!t.closest('.item-thread')){if(!e.isComposing&&!isComposing)normalizeSharedItems();note().updatedAt=new Date().toISOString();if(t.closest('.note-check'))updateTaskAccessibleLabel(t.closest('.note-check'));syncEditor();if(!e.isComposing)detectMention();}
   if(t.matches('.search-box input')){query=t.value;refreshSidebar();}
   if(t.matches('.width-control input')){penWidth=Number(t.value);t.style.setProperty('--pen-size',penWidth+'px');const out=t.parentElement.querySelector('output');if(out)out.value=penWidth;}
@@ -547,7 +560,7 @@ document.addEventListener('change',e=>{
   const t=e.target;
   if(t.matches('[data-recipient]'))changeRecipient(t);
   if(t.matches('.note-check input[type=checkbox]'))completeTask(t);
-  if(t.matches('#note-priority')){note().priority=t.value;$('.note-heading .note-urgent').hidden=t.value!=='Urgent';save();refreshSidebar();}
+  if(t.matches('#note-priority')){note().priority=t.value;$('.note-heading .note-urgent').hidden=t.value!=='Urgent';sizeNoteTitle();save();refreshSidebar();}
   if(t.matches('.obsolete-text-settings select')){
     textSize=Number(t.value);restoreSelection();const sel=getSelection();
     if(sel?.rangeCount&&!sel.isCollapsed){document.execCommand('fontSize',false,'7');$$('.note-content font[size="7"]').forEach(f=>{f.removeAttribute('size');f.style.fontSize=textSize+'px';});}
@@ -618,6 +631,7 @@ window.addEventListener('message',event=>{
   if(data.type==='clear'){
     initialized=false;accountGeneration++;noteTransition++;closeRecipients();closePopover();closeMentions();
     inkController?.destroy();formattingController?.destroy();attachmentController?.destroy();inkController=null;formattingController=null;attachmentController=null;
+    titleResizeObserver?.disconnect();titleResizeObserver=null;
     notes=[];people=[];roles=[];mentionChoices=[];currentPerson='';activeNote='';query='';mode='text';orders={};VIEW_STORE='';lastOrder='';legacyAliases={};bridgeScope='';
     selectionRange=null;draggedNote=null;pointerDrag=null;resizeGesture=null;recipientDraft=null;recipientPurpose='new';isComposing=false;suppressNoteClick=false;
     Object.keys(replyTargets).forEach(key=>delete replyTargets[key]);dirtyNotes.clear();sentDocuments.clear();sequences.clear();deferredNotes.clear();baseRevisions.clear();baseLegacyVersions.clear();

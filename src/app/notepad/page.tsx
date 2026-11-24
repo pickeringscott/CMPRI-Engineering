@@ -6,6 +6,7 @@ import ModalDashboardLink from "@/components/ModalDashboardLink";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { notepadTargetId } from "@/lib/ui/notepad-navigation";
 import { requestNotepadClose } from "@/lib/ui/notepad-close";
+import { modalThemeStyle, modalTitleStyle } from "@/lib/ui/header-palette";
 import "./notepad.css";
 
 function finishClose() {
@@ -13,7 +14,7 @@ function finishClose() {
   else window.history.back();
 }
 
-/** The same approved Notepad used by Ask CMPRI; legacy note URLs re-export this page. */
+/** The independent Notepad window; legacy note URLs re-export this page. */
 export default function NotepadPage() {
   const { t } = useUiLanguage();
   const page = useRef<HTMLElement>(null);
@@ -38,13 +39,13 @@ export default function NotepadPage() {
     if (!requestNotepadClose(page.current, finishClose)) return;
     finishClose();
   }
-  return <main ref={page} className="notepad-page" onClickCapture={event => {
+  return <main ref={page} className="notepad-page" style={modalThemeStyle("Notepad")} onClickCapture={event => {
     const button = (event.target as Element).closest<HTMLButtonElement>("[data-cmpri-modal-dashboard='true']");
     if (event.defaultPrevented || !button || window.parent !== window) return;
     const href = button.dataset.cmpriModalDashboardHref || "/engineering";
     if (!requestNotepadClose(page.current, () => window.location.assign(href))) event.preventDefault();
   }}>
-    <header className="notepad-page-heading" data-cmpri-page-heading>
+    <header className="notepad-page-heading" data-cmpri-page-heading style={modalTitleStyle("Notepad")}>
       <h1>{t("Notepad")}</h1>
       <div><ModalDashboardLink className="text-xs" /><button type="button" data-cmpri-modal-close="true" aria-label={t("Close Notepad")} onClick={close}>×</button></div>
     </header>

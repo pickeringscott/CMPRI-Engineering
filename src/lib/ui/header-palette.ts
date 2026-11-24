@@ -1,9 +1,16 @@
 /** Shared seasonal palette with the established header v23 inventory order. */
 import { sitePalette, paletteToken } from './site-palette-defaults';
 const names = ["Work Order List", "Daily Room Ops", "Staff Notes", "Pool Log", "Room Ranker", "Preventive Maintenance", "Pool", "Manage Profile", "Connect ChatGPT", "Sign Out", "Front Desk Quick Guides", "Preventative Maintenance", "Manage Rooms", "GSS Reports", "Enseo Assignments", "Room Ranker Old", "Candidate questionnaires", "PO", "Inventory", "Assets", "Manage Users", "Feedback", "Hours Tracker", "Refresh", "All Work Orders", "Notes"];
+const notepadPalette = {
+  '--action-rgb': '67,151,100',
+  '--modal-base': '#0b2117',
+  'background-color': '#1f5137',
+  'border-color': '#3d7954',
+  color: '#edf7ef',
+};
 export function headerActionStyle(label: string): Record<string,string> {
   label = label.replace(/ \(\d+\)$/,'');
-  if (label === 'Notepad') label = 'Staff Notes';
+  if (label === 'Notepad') return { ...notepadPalette, 'box-shadow': 'none' };
   if (label === 'Manage Locations') label = 'Manage Rooms';
   if (label === "Sign Out") return {"background-color":paletteToken('sign-out-background',sitePalette.signOut.background),"border-color":paletteToken('sign-out-border',sitePalette.signOut.border),color:paletteToken('sign-out-text',sitePalette.signOut.text),"--action-rgb":paletteToken('sign-out-rgb',sitePalette.signOut.rgb),"box-shadow":"none"};
   const index = names.indexOf(label);
@@ -18,6 +25,7 @@ export function headerActionStyle(label: string): Record<string,string> {
 
 /** Shared work-order modal schemes; dashboard actions keep their inventory mapping. */
 function modalPaletteStyle(action: string): Record<string,string> {
+  if (action === 'Notepad') return { ...notepadPalette };
   const name = action === 'Create Work Order' || action === '+ Work Order'
     ? 'create'
     : action === 'Work Order Detail' || action === 'Work Order'

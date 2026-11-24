@@ -6,7 +6,7 @@ import { dashboardMenuGroups } from "../src/lib/dashboard/menu-groups.ts";
 import { anchoredHeaderLayoutForGroups } from "../src/lib/header-layout.ts";
 import { canResumeWorkspaceView } from "../src/lib/ui/workspace-route-access.ts";
 import { desktopWindowKeyForHref, isAskRecordRoute } from "../src/lib/ui/desktop-windows.ts";
-import { modalActionForRoute, headerActionStyle } from "../src/lib/ui/header-palette.ts";
+import { modalActionForRoute, headerActionStyle, modalLauncherStyle, modalThemeStyle, modalTitleStyle } from "../src/lib/ui/header-palette.ts";
 
 const origin = "https://cmpri.test";
 const id = "b9c12f09-608b-4504-a55a-d44f27d35ec6";
@@ -27,7 +27,19 @@ test("Notepad and both retired URLs resolve the original note target and retain 
   assert.equal(notepadTargetId(new URL("/notepad#note-%E0%A4", origin)), undefined);
   assert.equal(notepadTargetId(new URL("/notepad?note=../private", origin)), undefined);
   assert.equal(isAskRecordRoute("https://other.test/notepad?note=" + id, origin), false);
-  assert.deepEqual(headerActionStyle("Notepad"), headerActionStyle("Staff Notes"), "Notepad retains the existing CMPRI palette color");
+});
+
+test("Notepad has its own forest-green launcher, title bar, and window palette", () => {
+  const button = headerActionStyle("Notepad"), theme = modalThemeStyle("Notepad");
+  assert.notDeepEqual(button, headerActionStyle("Staff Notes"));
+  assert.equal(button["background-color"], "#1f5137");
+  assert.equal(theme["--cmpri-modal-base"], "#0b2117");
+  assert.equal(theme["--cmpri-action-rgb"], "67,151,100");
+  for (const route of ["/notepad", "/notes", "/staff-notes"]) {
+    const launcher = modalLauncherStyle(route, "Notepad");
+    assert.equal(launcher["background-color"], modalTitleStyle(modalActionForRoute(route)).backgroundColor);
+    assert.equal(launcher.color, theme["--cmpri-modal-text"]);
+  }
 });
 
 test("each role menu offers one Notepad and legacy saved note positions collapse into that launcher", () => {
@@ -41,6 +53,7 @@ test("each role menu offers one Notepad and legacy saved note positions collapse
     assert.deepEqual(notebooks, [{ key: "/notepad", label: "Notepad" }], role);
   }
   const groups = dashboardMenuGroups("engineer", actions);
+  assert.deepEqual(groups.find(group => group.label === "Daily Work").items, [{ key: "/notepad", label: "Notepad" }]);
   const oldKeys = ["/profile::Manage Profile", "/notes::Notes", "/staff-notes::Staff Notes"];
   const mapped = [...new Set(oldKeys.map(notepadLayoutKey))];
   assert.deepEqual(mapped, ["/profile::Manage Profile", "/notepad::Notepad"]);

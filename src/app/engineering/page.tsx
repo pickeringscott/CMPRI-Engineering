@@ -1,5 +1,5 @@
 "use client";
-import { isNotepadPath, notepadTargetId } from "@/lib/ui/notepad-navigation";
+import { isNotepadPath } from "@/lib/ui/notepad-navigation";
 import BeginnerGuide from "@/components/beginners-guide/BeginnerGuide";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 
@@ -124,6 +124,9 @@ function DashboardLauncherButton({
 }
 
 const ROUTE_WINDOWS: Record<string, { title: string; accent: string; preferred?: WindowSize }> = {
+  "/notepad": { title: "Notepad", accent: "bg-green-500", preferred: { width: 1040, height: 720 } },
+  "/notes": { title: "Notepad", accent: "bg-green-500", preferred: { width: 1040, height: 720 } },
+  "/staff-notes": { title: "Notepad", accent: "bg-green-500", preferred: { width: 1040, height: 720 } },
   [WEATHER_PREVIEW_PATH]: { title: "Weather", accent: "bg-amber-400", preferred: { width: 1280, height: 800 } },
   "/engineering/room-ranking": { title: "Room Ranker", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
   "/work-orders": { title: "Create Work Order", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
@@ -764,7 +767,7 @@ export default function EngineeringDashboardPage() {
     if (notification.target_path && isDesktopRoute(notification.target_path, window.location.origin)) {
       const target = new URL(notification.target_path, window.location.origin);
       if (isNotepadPath(target.pathname)) {
-        window.dispatchEvent(new CustomEvent("cmpri-ask-open", { detail: { tab: "notepad", noteId: notepadTargetId(target), opener } }));
+        openRoute(notification.target_path, "Notepad", undefined, captureWindowLauncher(opener));
       } else openRoute(notification.target_path, "Daily Room Ops", undefined, captureWindowLauncher(opener));
     } else if (notification.work_order_id) openWorkOrder(notification.work_order_id, opener);
   }
@@ -776,7 +779,7 @@ export default function EngineeringDashboardPage() {
     process.env.NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW === "1" && canOpenWeather(session.user) && { key: WEATHER_PREVIEW_PATH, label: "Weather", href: `${WEATHER_PREVIEW_PATH}?weather=open`, tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 1280, height: 800 } },
     canUseWinterPreparedness(session.user) && { key: "/engineering/winter-preparedness", label: "Winter Preparedness 2026", href: "/engineering/winter-preparedness", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
     canReviewEmployment(session.user,session.user) && { key: "/engineering/employment", label: "Candidate questionnaires", href: "/engineering/employment", tone: "border-yellow-400 bg-slate-900 text-yellow-300", accent: "bg-yellow-400", preferred: { width: 850, height: 700 } },
-    { key: "/notepad", label: "Notepad", href: "/notepad", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400" },
+    { key: "/notepad", label: "Notepad", href: "/notepad", tone: "border-green-700 bg-green-950 text-green-100", accent: "bg-green-500" },
     hasCapability(session, "view_pool_log") && { key: "/engineering/pool-log", label: "Pool Log", href: "/engineering/pool-log", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
     canOpenRoomOperations(session.user) && { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
     canOpenGss(session.user) && { key: "/engineering/gss", label: "GSS Reports", href: "/engineering/gss", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400", preferred: { width: 820, height: 600 } },

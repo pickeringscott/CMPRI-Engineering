@@ -15,14 +15,15 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const layout = width => layouts.normalizeHeaderLayout({ groups: ["Account"], widths: { Account: width } });
 
-async function fixture() {
+async function fixture(askEnabled = false) {
   window.localStorage.clear();
   document.body.classList.remove("drag-active");
   const container = document.createElement("div"); document.body.append(container);
-  const root = createRoot(container), calls = [], mounted = [];
-  let server = layout(200), notify, save, element, readGate, writeGate, stopped = false;
+  const root = createRoot(container), calls = [], mounted = [], launches = [];
+  let server = layout(200), notify, save, element, readGate, writeGate, stopped = false, launch;
   const translator = value => value;
   const mount = (host, _groups, _launch, value, changed) => {
+    launch = _launch;
     element = host; save = changed; host.textContent = JSON.stringify(value); mounted.push(value);
     const dispose = () => { host.replaceChildren(); }; dispose.setPresentation = () => {};
     return dispose;
@@ -52,9 +53,9 @@ async function fixture() {
   }).default;
   await act(async () => {
     root.render(React.createElement(Component, { groups: [{ label: "Account", items: [{ key: "/profile", label: "Manage Profile" }] }],
-      onLaunch: () => {}, userId: "actor", hotelId: "hotel" })); await flush(); await flush();
+      onLaunch: (...args) => launches.push(args), askEnabled, userId: "actor", hotelId: "hotel" })); await flush(); await flush();
   });
-  return { calls, mounted, displayed: () => JSON.parse(element.textContent), server: width => { server = layout(width); },
+  return { calls, mounted, launches, launch: (...args) => launch(...args), displayed: () => JSON.parse(element.textContent), server: width => { server = layout(width); },
     holdRead: () => { readGate = deferred(); return readGate; }, holdWrite: () => { writeGate = deferred(); return writeGate; },
     async release(gate) { await act(async () => { gate.resolve(); await flush(); await flush(); }); },
     async signal(count = 1) { await act(async () => { for (let index = 0; index < count; index++) void notify(); await flush(); await flush(); }); },
@@ -63,6 +64,21 @@ async function fixture() {
     async close() { await act(async () => { root.unmount(); await flush(); }); assert.equal(stopped, true); container.remove(); },
   };
 }
+
+test("the Notepad button launches its own window even when Ask CMPRI is enabled", async () => {
+  const f = await fixture(true), asks = [];
+  const onAsk = event => asks.push(event.detail);
+  window.addEventListener("cmpri-ask-open", onAsk);
+  try {
+    const action = { key: "/notepad", label: "Notepad" }, opener = document.createElement("button");
+    f.launch(action, 100, opener);
+    assert.equal(f.launches.length, 1);
+    assert.equal(f.launches[0][0], action);
+    assert.equal(f.launches[0][1], 100);
+    assert.equal(f.launches[0][2], opener);
+    assert.deepEqual(asks, []);
+  } finally { window.removeEventListener("cmpri-ask-open", onAsk); await f.close(); }
+});
 
 test("a confirmed Ask resource event applies the current saved dashboard layout without a focus/reload event", async () => {
   const f = await fixture();

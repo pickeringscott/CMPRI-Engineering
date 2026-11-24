@@ -114,10 +114,6 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
    ...group,items:group.items.map(action=>({...action,style:modalLauncherStyle(action.key,action.label)})),
   }));
   const launch=(action:T,at:number,opener?:HTMLButtonElement)=>{
-   if(askEnabled&&action.key==='/notepad'){
-    window.dispatchEvent(new CustomEvent('cmpri-ask-open',{detail:{tab:'notepad',opener}}));
-    return;
-   }
    latest.current(action,at,opener);
   };
   const mount=()=>{

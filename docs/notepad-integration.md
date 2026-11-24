@@ -8,11 +8,15 @@ SHA-256: `7a575540d6f8593285f1c6a3ea4db04c25be24c9b3a2568eb573b4c8a4650b6b`.
 
 The production editor in `public/notepad/` extracts that HTML's Familiar Sidebar, CSS, formatting engine, drawing engine, and attachment controls. The authenticated React host supplies real CMPRI users, notes, palette values, persistence, files, and GIPHY. Preview account switching, sample records, device toggles, and the standalone preview window controls are removed from the production editor; the surrounding CMPRI window provides its existing controls.
 
-The requested final header is present: an editable title at the top, title font reflected in the sidebar, a single compact Priority/creator/time line, palette-colored borderless priority selection, red exclamation marks for urgent titles, and a borderless trash button. The existing paperclip expands into the same equal GIF and media/file choices, with the approved telescope transitions.
+The requested header is present: an editable title at the top, title font reflected in the sidebar, a single compact Priority/creator/time line, palette-colored borderless priority selection, and a borderless trash button. The title now wraps and grows as its text, font, window width, or sidebar width changes, without clipping the full title. The existing paperclip expands into the same equal GIF and media/file choices, with the approved telescope transitions.
 
-## One entry point
+The latest urgent marker uses Scott's supplied glossy 3D button image, unchanged at `public/notepad/urgent-button.jpg` (SHA-256 `899788a84928515be47b5e8407ae04d87a5a7dd4be96c510b936138d870c9a15`). A circular CSS viewport hides the surrounding checkerboard while retaining the original bevel and highlights. It blinks in both the sidebar and open note; reduced-motion preferences show the same image steadily.
 
-Ask CMPRI's former Staff Notes tab is now Notepad. Dashboard actions use Notepad. `/notepad` is the canonical page; `/notes` and `/staff-notes` open that same component, preserving bookmarked URLs and notification targets. Legacy staff reply anchors resolve to their containing note. Ask's native note tools read and write the same authorized Notepad records, preserving fields omitted from a requested edit.
+## Notepad window and entry points
+
+Daily Work has a dedicated green **Notepad** button. It opens a separate Notepad window with the established move/resize and close-flush behavior, styled in shades of forest green. Saved dashboard placements remain available. Dashboard and notification launches no longer redirect into Ask CMPRI. Ask's existing Notepad tab remains another way to reach the same records.
+
+`/notepad` is the canonical page; `/notes` and `/staff-notes` open that same component, preserving bookmarked URLs and notification targets. Legacy staff reply anchors resolve to their containing note. Ask's native note tools read and write the same authorized Notepad records, preserving fields omitted from a requested edit.
 
 ## Records and access
 
@@ -31,7 +35,7 @@ Device-only Notes and old unsaved Notes outboxes transfer to the new outbox with
 
 ## Deployment
 
-Apply `supabase/migrations/20261123135141_notepad_shared_documents.sql` before activating this application version. It adds the Notepad tables, atomic save function, legacy-write protection, private-upload associations, and resource signals. The release schema check includes the new requirements. This PR does not apply the migration to a live database.
+Apply `supabase/migrations/20261123135141_notepad_shared_documents.sql` before activating this application version in an environment that does not yet have it. It adds the Notepad tables, atomic save function, legacy-write protection, private-upload associations, and resource signals. The release schema check includes the new requirements. After Scott authorized fixing the missing-storage error, this exact migration was applied to the shared CMPRI database on 2026-11-23. Existing personal notes, staff-note records, and legacy upload records retained matching before/after checksums; migration history matches the repository version. No further database changes are required for the green window, wrapping title, or urgent-image update.
 
 GIPHY uses the existing `requestGiphy` transport and existing deployment configuration. Files use the existing private `staff-note-files` bucket and native browser picker. Signed access URLs are transient and are not persisted inside note documents. Live GIPHY credentials and actual S Pen hardware remain deployment/device verification items.
 

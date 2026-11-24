@@ -111,6 +111,8 @@ test('editing and formatting the title updates the sidebar and emitted document 
   const s = setup();
   try {
     const title = s.focus('#note-title');
+    assert.equal(title.tagName, 'TEXTAREA');
+    assert.equal(title.getAttribute('wrap'), 'soft');
     s.input('#note-title', 'Pump repair'); title.setSelectionRange(2, 6); s.event(title, 'select');
     const font = s.find('[data-format-select=font]');
     s.event(font, 'pointerdown'); font.focus(); font.value = 'Georgia'; s.event(font, 'change');
@@ -127,7 +129,29 @@ test('editing and formatting the title updates the sidebar and emitted document 
   } finally {s.cleanup();}
 });
 
-test('title, urgent markers, metadata and borderless actions retain the approved markup and styles', () => {
+test('the title grows and shrinks after editing or narrowing without losing its text or selection', () => {
+  const s = setup();
+  try {
+    const title = s.focus('#note-title');
+    let contentHeight = 86;
+    Object.defineProperty(title, 'scrollHeight', {get: () => contentHeight});
+    const text = 'Shared engineering project: review the lobby lighting and equipment before the holiday weekend';
+    s.input('#note-title', text);
+    assert.equal(title.style.height, '86px');
+    title.setSelectionRange(7, 18);
+    contentHeight = 170;
+    s.window.dispatchEvent(new s.window.Event('resize'));
+    assert.equal(title.style.height, '170px');
+    assert.equal(title.value, text);
+    assert.equal(s.latestSave().document.title, text);
+    assert.equal(title.selectionStart, 7); assert.equal(title.selectionEnd, 18);
+    contentHeight = 30;
+    s.window.dispatchEvent(new s.window.Event('resize'));
+    assert.equal(title.style.height, '30px');
+  } finally {s.cleanup();}
+});
+
+test('urgent images replace the text marker while approved metadata and borderless actions stay intact', () => {
   const s = setup();
   try {
     const editor = s.find('.general-notes-editor'), details = s.find('.note-details');
@@ -140,8 +164,13 @@ test('title, urgent markers, metadata and borderless actions retain the approved
     assert.equal(priority.selectedOptions[0].textContent, 'Urgent!');
     assert.equal(s.find('.note-heading .note-urgent').hidden, false);
     assert.equal(s.find('.note-item .note-urgent').hidden, false);
+    for (const selector of ['.note-heading .note-urgent', '.note-item .note-urgent']) {
+      const marker = s.find(selector);
+      assert.equal(marker.textContent, '');
+      assert.equal(marker.querySelector('img').getAttribute('src'), '/notepad/urgent-button.jpg');
+    }
     assert.equal(s.latestSave().document.priority, 'Urgent');
-    const selectors = ['.layout-1 .priority-row.note-details', '.layout-1 .priority-row.note-details > *', '.layout-1 .priority-row.note-details #note-priority', '.layout-1 .title-actions button', '.layout-1 .note-urgent'];
+    const selectors = ['.layout-1 .priority-row.note-details', '.layout-1 .priority-row.note-details > *', '.layout-1 .priority-row.note-details #note-priority', '.layout-1 .title-actions button'];
     for (const selector of selectors) {
       const rule = css.split('\n').find(line => line.startsWith(selector + ' {'));
       assert.ok(rule, selector); assert.ok(approved.includes(rule), `Approved rule changed: ${selector}`);
@@ -150,7 +179,9 @@ test('title, urgent markers, metadata and borderless actions retain the approved
     assert.match(css, /\.priority-row\.note-details > \* \{[^}]*font: inherit/);
     assert.match(css, /\.priority-row\.note-details #note-priority \{[^}]*border: 0[^}]*color: var\(--accent\)[^}]*font: inherit/);
     assert.match(css, /\.title-actions button \{[^}]*border: 0/);
-    assert.match(css, /\.note-urgent \{[^}]*color: #ff3b3b/);
+    priority.value = 'Normal'; s.event(priority, 'change');
+    assert.equal(s.find('.note-heading .note-urgent').hidden, true);
+    assert.equal(s.find('.note-item .note-urgent').hidden, true);
   } finally {s.cleanup();}
 });
 
