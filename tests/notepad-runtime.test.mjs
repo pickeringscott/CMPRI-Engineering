@@ -79,6 +79,31 @@ function setup(extra = {}, initialize = true) {
   };
 }
 
+function controlledAnimations(s) {
+  const animations = [];
+  s.window.matchMedia = () => ({matches: false});
+  const rectangle = (left,top,width,height) => ({left,top,width,height,right:left+width,bottom:top+height,x:left,y:top});
+  s.window.Element.prototype.getBoundingClientRect = function () {
+    if (this.matches('[data-action=new]')) return rectangle(12,18,24,24);
+    if (this.matches('[data-action=share]')) return rectangle(800,32,100,28);
+    if (this.matches('.recipient-dialog')) return rectangle(300,120,440,300);
+    return rectangle(230,20,750,600);
+  };
+  s.window.Element.prototype.animate = function (keyframes,options) {
+    let resolve, reject;
+    const finished = new Promise((yes,no) => {resolve=yes;reject=no;});
+    // Observe cancellation even for a reveal animation whose caller need not await it.
+    finished.catch(() => {});
+    const animation = {element:this,keyframes:plain(keyframes),options:plain(options),finished,running:true,
+      finish() {this.running=false;resolve();},
+      cancel() {this.running=false;this.cancelled=true;reject(new Error('Animation cancelled'));},
+    };
+    animations.push(animation);return animation;
+  };
+  s.window.Element.prototype.getAnimations = function () {return animations.filter(a => a.element===this&&a.running);};
+  return animations;
+}
+
 test('the approved Familiar Sidebar boots from authenticated data with the exact toolbar and no preview accounts', () => {
   const s = setup({}, false);
   try {
@@ -157,7 +182,14 @@ test('urgent images replace the text marker while approved metadata and borderle
     const editor = s.find('.general-notes-editor'), details = s.find('.note-details');
     assert.ok(editor.firstElementChild.classList.contains('title-row'));
     assert.equal(editor.children[1], details);
-    assert.deepEqual(Array.from(details.children, node => node.tagName), ['LABEL', 'SELECT', 'SPAN', 'TIME']);
+    assert.deepEqual(Array.from(details.children, node => node.tagName), ['LABEL', 'SELECT', 'TIME', 'SPAN']);
+    assert.equal(details.lastElementChild, s.find('.save-label'));
+    assert.equal(details.nextElementSibling, s.find('.notepad-formatting'));
+    assert.equal(s.find('.title-identity').firstElementChild, s.find('.title-actions'));
+    assert.equal(s.find('.title-actions').nextElementSibling, s.find('.note-creator'));
+    assert.equal(s.document.querySelector('.general-notes-save'), null);
+    s.send('status', {message: 'Saved 14:42'});
+    assert.equal(details.lastElementChild.textContent, 'Saved 14:42');
     assert.equal(s.find('[data-action=share]').textContent, 'Shared with…');
     assert.equal(s.find('[data-action=share]').querySelectorAll('svg').length, 1);
     const priority = s.find('#note-priority'); priority.value = 'Urgent'; s.event(priority, 'change');
@@ -203,6 +235,210 @@ test('new notes default to Just me, and Engineering and All Roles serialize cano
     s.event(s.find('#recipient-form'), 'submit');
     assert.deepEqual(s.latestSave().document.audience, {all: true, roles: [], people: []});
   } finally {s.cleanup();}
+});
+
+test('New Note silently reopens a named old untouched draft and a first-save pre-update draft', async () => {
+  for (const extra of [{untouchedDraft:true,revision:7},{revision:1,content:'<p><br></p>'}]) {
+    const draft=makeNote({id:uuid(11),title:'Project saved long ago',content:'',createdAt:'2020-01-01T00:00:00.000Z',updatedAt:'2020-01-01T00:00:00.000Z',...extra});
+    const s=setup({notes:[makeNote(),draft],order:[uuid(10),draft.id]});
+    try {
+      s.input('.search-box input','parts');
+      s.click('[data-action=new]');await tick();
+      assert.equal(s.document.querySelector('.recipient-dialog'),null);
+      assert.equal(s.document.querySelector('.delete-dialog'),null);
+      assert.equal(s.find('#preview-toast').textContent,'');
+      assert.equal(s.find('#note-title').value,draft.title);
+      assert.equal(s.document.activeElement,s.find('#note-title'));
+      assert.equal(s.find('.search-box input').value,'');
+      assert.equal(s.document.querySelectorAll('.note-row').length,2);
+      assert.equal(s.find('.note-row[data-current=true]').dataset.row,draft.id);
+      if (draft.untouchedDraft!==true) assert.equal(s.latestSave(draft.id).document.untouchedDraft,true);
+    } finally {s.cleanup();}
+  }
+});
+
+test('a new draft is reusable until a title or body edit, even when that edit is cleared before saving', () => {
+  for (const field of ['title','body']) {
+    const s=setup();
+    try {
+      s.click('[data-action=new]');s.event(s.find('#recipient-form'),'submit');
+      const created=s.latestSave(),draftId=created.id;
+      assert.equal(created.document.untouchedDraft,true);
+      assert.equal(created.baseRevision,null);
+      s.click('[data-action=new]');
+      assert.equal(s.document.querySelector('.recipient-dialog'),null);
+      assert.equal(s.find('.note-row[data-current=true]').dataset.row,draftId);
+      if(field==='title'){s.input('#note-title','Temporary title');s.input('#note-title','');}
+      else{const body=s.find('.note-content');body.innerHTML='<p>Temporary body</p>';s.event(body,'input');body.innerHTML='';s.event(body,'input');}
+      assert.equal(s.latestSave(draftId).document.untouchedDraft,false);
+      s.click('[data-action=new]');assert.ok(s.find('.recipient-dialog'));
+      s.event(s.find('#recipient-form'),'submit');
+      assert.notEqual(s.latestSave().id,draftId);
+      assert.equal(s.document.querySelectorAll('.note-row').length,3);
+    } finally {s.cleanup();}
+  }
+});
+
+test('New Note does not reuse collaborators, legacy records, edited empty notes, or empty list structures', () => {
+  const candidates=[
+    {authorId:colleague.id,audience:{all:true,roles:[],people:[]},untouchedDraft:true},
+    {legacySource:'general',revision:0,untouchedDraft:true},
+    {untouchedDraft:false},
+    {revision:2},
+    {content:'<ul><li></li></ul>',untouchedDraft:true},
+    {content:'<input type="checkbox">',untouchedDraft:true},
+    {ink:[{id:'ink',color:'#000000',size:2,points:[{x:1,y:2,p:.5}]}],untouchedDraft:true},
+  ];
+  for(const extra of candidates){
+    const s=setup({notes:[makeNote({content:'',...extra})]});
+    try{s.click('[data-action=new]');assert.ok(s.find('#recipient-form'),JSON.stringify(extra));assert.equal(s.document.querySelectorAll('.note-row').length,1);}
+    finally{s.cleanup();}
+  }
+});
+
+test('sharing pills let creators add and remove recipients without duplicating names, while hidden identities stay absent', () => {
+  const hidden={...colleague,id:uuid(300),name:'Scott Pickering',role:'System Admin',roles:['system_admin'],recipientSelectable:false};
+  const chief={...user,id:uuid(301),name:'Scott P',role:'chief_engineer',recipientSelectable:true};
+  const s=setup({people:[user,colleague,hidden,chief]});
+  try{
+    s.click('[data-action=share]');
+    assert.equal(s.find('#recipient-heading').textContent,'Who’s it for?');
+    assert.equal(s.document.querySelector('.recipient-summary'),null);
+    assert.equal(s.document.querySelector(`[data-recipient=person][value="${hidden.id}"]`),null);
+    assert.equal(s.find(`[data-recipient=person][value="${chief.id}"]`).closest('.recipient-pill').textContent,'Scott P (Chief Engineer)');
+    assert.equal(s.document.querySelectorAll(`[data-recipient=person][value="${colleague.id}"]`).length,1);
+    s.click(`[data-recipient=person][value="${colleague.id}"]`);
+    s.event(s.find('#recipient-form'),'submit');
+    assert.deepEqual(s.latestSave().document.audience,{all:false,roles:[],people:[colleague.id]});
+    s.click('[data-action=share]');assert.equal(s.find(`[data-recipient=person][value="${colleague.id}"]`).checked,true);
+    s.click(`[data-recipient=person][value="${colleague.id}"]`);
+    assert.equal(s.find('[data-recipient=private]').checked,true);
+    s.event(s.find('#recipient-form'),'submit');
+    assert.deepEqual(s.latestSave().document.audience,{all:false,roles:[],people:[]});
+  }finally{s.cleanup();}
+  const shared=setup({notes:[makeNote({authorId:colleague.id,audience:{all:true,roles:[],people:[]}})]});
+  try{
+    shared.click('[data-action=share]');
+    assert.ok(Array.from(shared.find('.recipient-dialog').querySelectorAll('input,button[type=submit]')).every(el=>el.disabled));
+    const privateChoice=shared.find('[data-recipient=private]');privateChoice.checked=true;shared.event(privateChoice,'change');
+    shared.event(shared.find('#recipient-form'),'submit');
+    assert.ok(shared.find('.recipient-dialog'),'A synthetic submit cannot change sharing without ownership');
+    assert.equal(shared.saves().length,0);
+  }finally{shared.cleanup();}
+});
+
+test('sharing telescopes from and back to the control that opened it', async () => {
+  const s=setup(),animations=controlledAnimations(s),origins=[];
+  try{
+    for(const action of ['new','share']){
+      const origin=s.find(`[data-action=${action}]`);origin.click();
+      const dialog=s.find('.recipient-dialog'),opening=animations.at(-1);
+      assert.equal(opening.element,dialog);assert.equal(opening.keyframes[0].opacity,0);
+      origins.push(opening.keyframes[0].transform);
+      opening.finish();await tick();
+      s.click('[data-action=cancel-recipients]');
+      const closing=animations.at(-1);
+      assert.equal(closing.element,dialog);
+      assert.deepEqual(closing.keyframes,[opening.keyframes[1],opening.keyframes[0]]);
+      assert.equal(dialog.isConnected,true,'Dialog remains until the closing telescope finishes');
+      closing.finish();await tick();
+      assert.equal(dialog.isConnected,false);assert.equal(s.document.activeElement,origin);
+    }
+    assert.notEqual(origins[0],origins[1],'New Note and Shared with use their distinct origins');
+  }finally{s.cleanup();}
+});
+
+test('Create Note waits for the dialog to collapse, creates once, and expands the new note from its center', async () => {
+  const s=setup(),animations=controlledAnimations(s);
+  try{
+    s.click('[data-action=new]');const opening=animations.at(-1);opening.finish();await tick();
+    const form=s.find('#recipient-form');s.event(form,'submit');s.event(form,'submit');
+    const closing=animations.at(-1);
+    assert.equal(animations.length,2,'Duplicate submits share one closing animation');
+    assert.equal(s.document.querySelectorAll('.note-row').length,1);
+    assert.equal(s.saves().length,0,'Creation waits for telescope completion');
+    assert.deepEqual(closing.keyframes,[opening.keyframes[1],opening.keyframes[0]]);
+    closing.finish();await tick();
+    assert.equal(s.document.querySelector('.recipient-dialog'),null);
+    assert.equal(s.document.querySelectorAll('.note-row').length,2);
+    const created=s.saves().filter(save=>save.baseRevision===null);
+    assert.equal(created.length,1);assert.equal(created[0].document.untouchedDraft,true);
+    const expanding=animations.at(-1);
+    assert.equal(expanding.element,s.find('.general-notes-editor'));
+    assert.equal(expanding.keyframes[0].transformOrigin,'center center');
+    assert.equal(expanding.keyframes[1].transformOrigin,'center center');
+    assert.equal(expanding.keyframes[0].opacity,0);assert.equal(expanding.keyframes[1].opacity,1);
+    assert.equal(s.document.activeElement,s.find('#note-title'));
+    expanding.finish();await tick();
+  }finally{s.cleanup();}
+});
+
+test('account clear cancels a closing Create Note dialog before it can create in the next account', async () => {
+  const s=setup(),animations=controlledAnimations(s);
+  try{
+    s.click('[data-action=new]');animations.at(-1).finish();await tick();
+    s.event(s.find('#recipient-form'),'submit');const closing=animations.at(-1);
+    s.send('clear');
+    assert.equal(closing.cancelled,true);assert.equal(s.document.querySelector('.recipient-dialog'),null);
+    const nextUser={...user,id:uuid(302),name:'Next account'};
+    s.send('initialize',{...s.bootstrap,userId:nextUser.id,people:[nextUser],notes:[],order:[]});
+    closing.finish();await tick();
+    assert.equal(s.document.querySelector('.note-row'),null);
+    assert.equal(s.saves().length,0);
+  }finally{s.cleanup();}
+});
+
+test('a close flush commits an accepted recipient submit before acknowledgement and late animation completion cannot duplicate it', async () => {
+  for(const action of ['new','share']){
+    const s=setup(),animations=controlledAnimations(s);
+    try{
+      s.click(`[data-action=${action}]`);animations.at(-1).finish();await tick();
+      s.click(`[data-recipient=person][value="${colleague.id}"]`);
+      s.event(s.find('#recipient-form'),'submit');const closing=animations.at(-1);
+      assert.equal(s.saves().length,0);
+      const requestId=uuid(500);s.send('flush',{requestId});
+      assert.equal(closing.cancelled,true);
+      assert.equal(s.document.querySelector('.recipient-dialog'),null);
+      const saveIndex=s.outgoing.findIndex(({data})=>data.type==='save');
+      const acknowledgementIndex=s.outgoing.findIndex(({data})=>data.type==='flushed'&&data.payload.requestId===requestId);
+      assert.ok(saveIndex>=0&&acknowledgementIndex>saveIndex,'The accepted note change enters the host outbox before closing is acknowledged');
+      assert.equal(s.saves().length,1);
+      assert.deepEqual(s.latestSave().document.audience,{all:false,roles:[],people:[colleague.id]});
+      assert.equal(s.latestSave().document.untouchedDraft,action==='new');
+      closing.finish();await tick();
+      assert.equal(s.saves().length,1);
+      assert.equal(s.document.querySelectorAll('.note-row').length,action==='new'?2:1);
+      for(const animation of animations)if(animation.running)animation.finish();
+      await tick();
+    }finally{s.cleanup();}
+  }
+});
+
+test('delete confirmation has the requested wording, drags without a title bar, and deletes its captured note only', async () => {
+  const title='Pump <repair> & follow-up';
+  const s=setup({notes:[makeNote({title}),makeNote({id:uuid(11),title:'Keep this note'})],order:[uuid(10),uuid(11)]});
+  try{
+    s.click('[data-action=delete]');const dialog=s.find('.delete-dialog');
+    assert.equal(s.find('#delete-heading').textContent,'Delete this note');
+    assert.equal(s.find('#delete-message').textContent,`Remove ${title} from Notepad`);
+    assert.equal(dialog.querySelector('.popover-header,.recipient-heading'),null);
+    assert.deepEqual(Array.from(dialog.querySelectorAll('button'),el=>el.textContent),['Cancel','Delete']);
+    assert.equal(s.document.activeElement,s.find('[data-action=cancel-delete]'));
+    dialog.getBoundingClientRect=()=>({left:100,top:100,width:330,height:120});
+    const captured=new Set();dialog.setPointerCapture=id=>captured.add(id);dialog.hasPointerCapture=id=>captured.has(id);dialog.releasePointerCapture=id=>captured.delete(id);
+    const pointer=(target,type,x,y)=>{const event=new s.window.MouseEvent(type,{bubbles:true,cancelable:true,button:0,clientX:x,clientY:y});Object.defineProperty(event,'pointerId',{value:8});target.dispatchEvent(event);};
+    pointer(s.find('#delete-heading'),'pointerdown',120,120);pointer(s.document,'pointermove',170,145);
+    assert.equal(dialog.style.left,'150px');assert.equal(dialog.style.top,'125px');
+    pointer(s.document,'pointerup',170,145);assert.equal(captured.size,0);
+    s.click('[data-action=cancel-delete]');assert.equal(s.document.querySelector('.delete-dialog'),null);assert.equal(s.saves().length,0);
+    s.click('[data-action=delete]');
+    s.send('select',{id:uuid(11)});await tick();
+    assert.equal(s.find('#note-title').value,'Keep this note');
+    s.click('[data-action=confirm-delete]');
+    assert.equal(s.latestSave(uuid(10)).document,null);
+    assert.equal(s.find('#note-title').value,'Keep this note');
+    assert.equal(s.document.querySelectorAll('.note-row').length,1);
+  }finally{s.cleanup();}
 });
 
 test('mentions and individual recipients exclude deactivated and six test accounts', () => {

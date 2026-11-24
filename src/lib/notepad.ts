@@ -13,13 +13,15 @@ export const NOTEPAD_ROLES = [
 ] as const;
 export type NotepadRole = typeof NOTEPAD_ROLES[number]['id'];
 export type NotepadAudience = { all: boolean; roles: string[]; people: string[] };
-export type NotepadPerson = { id: string; name: string; short: string; initials: string; role: string; roles: string[]; active: boolean; taggable: boolean };
+export type NotepadPerson = { id: string; name: string; short: string; initials: string; role: string; roles: string[]; active: boolean; taggable: boolean; recipientSelectable: boolean };
 export type NotepadAttachment = { id: string; kind: 'file' | 'gif'; name: string; type?: string; size?: number; gifId?: string; url?: string };
 export type NotepadReply = { id: string; authorId: string; authorName?: string; at: string; text: string; replies: NotepadReply[] };
 export type NotepadDocument = {
   title: string; audience: NotepadAudience; content: string; priority: 'Low' | 'Normal' | 'High' | 'Urgent';
   fontSize: number; fontFamily: string; titleFontFamily: string; ink: InkStroke[];
   itemThreads: Record<string, NotepadReply[]>; attachments: NotepadAttachment[];
+  /** New drafts remain reusable until the first edit, even after being cleared. */
+  untouchedDraft?: boolean;
 };
 export type NotepadNote = NotepadDocument & {
   id: string; authorId: string; authorName?: string; createdAt: string; updatedAt: string; revision: number;
@@ -39,5 +41,6 @@ export function notepadDocument(note: NotepadDocument): NotepadDocument {
   return { title: note.title, audience: note.audience, content: note.content, priority: note.priority,
     fontSize: note.fontSize, fontFamily: note.fontFamily, titleFontFamily: note.titleFontFamily,
     ink: note.ink, itemThreads: note.itemThreads,
+    ...(typeof note.untouchedDraft === 'boolean' ? { untouchedDraft: note.untouchedDraft } : {}),
     attachments: note.attachments.map(attachment => { const copy = { ...attachment }; delete copy.url; return copy; }) };
 }

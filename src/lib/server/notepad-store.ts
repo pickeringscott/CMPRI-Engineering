@@ -37,7 +37,15 @@ export async function notepadDirectory(admin: SupabaseClient,hotelId: string) {
   if(members.error)throw Error('Notepad recipients could not be loaded.');
   const profiles:Profile[]=[];
   for(let at=0;at<(members.data||[]).length;at+=200){const result=await admin.from('profiles').select('id,full_name,role,secondary_roles,email,active').in('id',members.data!.slice(at,at+200).map(m=>m.user_id));if(result.error)throw Error('Notepad recipients could not be loaded.');profiles.push(...(result.data||[]) as Profile[])}
-  return profiles.map(p=>{const name=p.full_name?.trim()||p.role||'Staff',parts=name.split(/\s+/),active=p.active===true&&members.data!.some(m=>m.user_id===p.id&&m.active);return{id:p.id,name,short:parts[0],initials:parts.map(part=>part[0]).slice(0,2).join('').toUpperCase(),role:p.role,roles:NOTEPAD_ROLES.filter(r=>profileHasRole(p,r.id)).map(r=>r.id),active,taggable:active&&!NOTEPAD_TEST_EMAILS.has((p.email||'').trim().toLowerCase())} satisfies NotepadPerson}).sort((a,b)=>a.name.localeCompare(b.name));
+  return profiles.map(p=>{
+    const name=p.full_name?.trim()||p.role||'Staff',parts=name.split(/\s+/);
+    const active=p.active===true&&members.data!.some(m=>m.user_id===p.id&&m.active);
+    const taggable=active&&!NOTEPAD_TEST_EMAILS.has((p.email||'').trim().toLowerCase());
+    // Hide the duplicate administrative identity only from individual sharing.
+    // Keep it in the directory for existing authors, mentions, and role access.
+    const duplicateAdmin=name.replace(/\s+/g,' ').toLowerCase()==='scott pickering'&&profileHasRole(p,'system_admin');
+    return{id:p.id,name,short:parts[0],initials:parts.map(part=>part[0]).slice(0,2).join('').toUpperCase(),role:p.role,roles:NOTEPAD_ROLES.filter(r=>profileHasRole(p,r.id)).map(r=>r.id),active,taggable,recipientSelectable:taggable&&!duplicateAdmin} satisfies NotepadPerson;
+  }).sort((a,b)=>a.name.localeCompare(b.name));
 }
 export async function loadNotepad(admin:SupabaseClient,hotelId:string,userId:string,media=true) {
   const [people,overrides,personal,staff,order]=await Promise.all([

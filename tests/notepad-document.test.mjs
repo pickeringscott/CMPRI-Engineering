@@ -49,3 +49,46 @@ test('audience access never grants private notes by manager status or inactive m
  assert.equal(notepadCanRead({...note,audience:{all:false,roles:['technician'],people:[]}},{id:b,roles:['technician'],active:true}),true);
  assert.equal(notepadCanRead({...note,audience:{all:true,roles:[],people:[]}},{id:b,roles:['technician'],active:false}),false);
 });
+test('untouched drafts persist through document projection and older callers without relying on their title or age',()=>{
+ const draft=validateNotepadDocument({...base(),title:'Future project',content:'',untouchedDraft:true},null,a,now);
+ assert.equal(draft.untouchedDraft,true);
+ assert.equal(notepadDocument(draft).untouchedDraft,true);
+ const older=notepadDocument(draft);delete older.untouchedDraft;
+ const reread=validateNotepadDocument(older,draft,a,'2027-12-31T01:00:00.000Z');
+ assert.equal(reread.untouchedDraft,true);
+ const reordered={...older,audience:{...older.audience,roles:[...older.audience.roles].reverse()}};
+ assert.equal(validateNotepadDocument(reordered,draft,a,now).untouchedDraft,true);
+ const unflagged={...base(),content:''};
+ assert.equal(validateNotepadDocument(unflagged,unflagged,a,now).untouchedDraft,undefined,'Existing untracked notes are not silently classified as drafts');
+ assert.equal(notepadDocument(unflagged).untouchedDraft,undefined);
+ assert.equal(validateNotepadDocument({...unflagged,untouchedDraft:true},unflagged,a,now).untouchedDraft,true,'A known untouched pre-update draft may be marked without altering its content');
+ for(const content of ['<p><br></p>','<p>\u00a0\u200b </p>']) {
+  const blank={...unflagged,content};
+  const inferred=validateNotepadDocument({...blank,untouchedDraft:true},blank,a,now);
+  assert.equal(inferred.untouchedDraft,true,'Browser empty paragraphs stay reusable');
+  assert.equal(inferred.content,sanitizeNotepadHTML(content),'Draft tracking does not rewrite the sanitized body');
+ }
+});
+test('the first change retires an untouched draft even for omitted flags, and clearing edits cannot resurrect it',()=>{
+ const draft=validateNotepadDocument({...base(),content:'',untouchedDraft:true},null,a,now);
+ const older=notepadDocument(draft);delete older.untouchedDraft;
+ for(const patch of [
+  {title:'Renamed'}, {content:'<p>Started work</p>'}, {priority:'High'}, {fontSize:18}, {fontFamily:'Arial'}, {titleFontFamily:'Arial'},
+  {audience:{all:true,roles:[],people:[]}}, {ink:[{id:'stroke',color:'#ff0000',size:3,points:[{x:3,y:4,p:.5}]}]},
+  {attachments:[{id:'gif:sample',kind:'gif',gifId:'sample',name:'GIPHY GIF'}]},
+ ])assert.equal(validateNotepadDocument({...older,...patch},draft,a,now).untouchedDraft,false,JSON.stringify(patch));
+ const edited=validateNotepadDocument({...draft,content:'<p>Started work</p>'},draft,a,now);
+ assert.equal(edited.untouchedDraft,false);
+ const cleared=validateNotepadDocument({...draft,untouchedDraft:true},edited,a,now);
+ assert.equal(cleared.content,'');assert.equal(cleared.untouchedDraft,false);
+ assert.equal(notepadDocument(cleared).untouchedDraft,false);
+ const oldClear={...cleared};delete oldClear.untouchedDraft;
+ assert.equal(validateNotepadDocument(oldClear,cleared,a,now).untouchedDraft,false);
+ assert.equal(validateNotepadDocument({...draft,untouchedDraft:false},null,a,now).untouchedDraft,false,'An edit reverted before the first server save remains edited');
+});
+test('draft state rejects malformed values and never treats a populated new note as untouched',()=>{
+ for(const value of ['true',1,null,{}])assert.throws(()=>validateNotepadDocument({...base(),untouchedDraft:value},null,a,now),/draft state/);
+ assert.equal(validateNotepadDocument({...base(),untouchedDraft:true},null,a,now).untouchedDraft,false);
+ assert.equal(validateNotepadDocument({...base(),content:'',attachments:[{id:'gif:sample',kind:'gif',gifId:'sample',name:'GIPHY GIF'}],untouchedDraft:true},null,a,now).untouchedDraft,false);
+ for(const content of ['<ul><li></li></ul>','<input type="checkbox">','<span class="mention"></span>'])assert.equal(validateNotepadDocument({...base(),content,untouchedDraft:true},null,a,now).untouchedDraft,false,'Empty structural items still count as edited');
+});

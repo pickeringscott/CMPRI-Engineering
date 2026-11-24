@@ -52,10 +52,37 @@ test('sidebar order is private to the current user and accepts only visible uniq
  assert.equal((await f.route.PATCH(request({order:[id]}))).status,200);const row=f.calls.find(([key])=>key==='order')[1];assert.equal(row.hotel_id,hotel);assert.equal(row.user_id,actor);
  assert.equal((await f.route.PATCH(request({order:[id,id]}))).status,400);assert.equal((await f.route.PATCH(request({order:[owner]}))).status,403);
 });
+test('hidden individual recipients cannot be added while existing sharing remains editable',async()=>{
+ const f=fixture();f.state.people.push({id:owner,active:true,taggable:true,recipientSelectable:false});
+ const audience={all:false,roles:[],people:[owner]},body={...f.body(),document:{...document(),audience}};
+ assert.equal((await f.route.PUT(request(body))).status,400);
+ assert.ok(!f.calls.some(([key])=>key==='cmpri_save_notepad'));
+ f.state.notes=[{...body.document,id,authorId:actor,revision:1,createdAt:at,updatedAt:at}];
+ f.state.rows=[{id,revision:1,author_user_id:actor,change_id:owner}];
+ assert.equal((await f.route.PUT(request({...body,expectedRevision:1,document:{...body.document,content:'<p>Edited safely</p>'}}))).status,200);
+ assert.equal((await f.route.PUT(request({...body,expectedRevision:1,document:{...body.document,audience:{all:false,roles:[],people:[]}}}))).status,200);
+ assert.equal((await f.route.PUT(request({...body,expectedRevision:1,document:{...body.document,audience:{all:true,roles:[],people:[]}}}))).status,200);
+});
 test('mention directory keeps display identities but excludes inactive accounts and all six test emails from tagging',async()=>{
  const emails=[...model.NOTEPAD_TEST_EMAILS],profiles=[...emails.map((email,i)=>({id:'test'+i,full_name:'Test '+i,email,role:'engineer',secondary_roles:[],active:true})),{id:actor,full_name:'Active Engineer',email:'real@example.invalid',role:'Chief Engineer / Technician',secondary_roles:[],active:true},{id:owner,full_name:'Inactive Account',email:'old@example.invalid',role:'manager',secondary_roles:[],active:false}];
  const admin={from(table){const q={select(){return q},eq(){return q},order(){return q},range:async()=>({data:profiles.map(p=>({user_id:p.id,active:true})),error:null}),in:async()=>({data:profiles,error:null})};assert.ok(['hotel_members','profiles'].includes(table));return q}};
- const people=await notepadDirectory(admin,hotel);assert.equal(people.filter(p=>p.taggable).length,1);const active=people.find(p=>p.id===actor);assert.deepEqual(active.roles,['engineer','technician']);assert.equal(people.find(p=>p.id===owner).active,false);assert.ok(people.every(p=>!('email'in p)));
+ const people=await notepadDirectory(admin,hotel);assert.equal(people.filter(p=>p.taggable).length,1);assert.equal(people.filter(p=>p.recipientSelectable).length,1);const active=people.find(p=>p.id===actor);assert.deepEqual(active.roles,['engineer','technician']);assert.equal(people.find(p=>p.id===owner).active,false);assert.ok(people.every(p=>!('email'in p)));
+});
+test('individual sharing hides Scott Pickering’s admin identity and keeps Scott P’s Chief Engineer identity',async()=>{
+ const profiles=[
+  {id:'scott-admin',full_name:'Scott Pickering',role:'system_admin',secondary_roles:['engineer']},
+  {id:'scott-admin-alias',full_name:'  scott   PICKERING ',role:'System Administrator',secondary_roles:[]},
+  {id:'scott-chief',full_name:'Scott P',role:'chief_engineer',secondary_roles:[]},
+  {id:'other-admin',full_name:'Other Administrator',role:'system_admin',secondary_roles:[]},
+  {id:'same-name-engineer',full_name:'Scott Pickering',role:'engineer',secondary_roles:[]},
+ ].map(p=>({...p,email:p.id+'@example.invalid',active:true}));
+ const admin={from(table){const q={select(){return q},eq(){return q},order(){return q},range:async()=>({data:profiles.map(p=>({user_id:p.id,active:true})),error:null}),in:async()=>({data:profiles,error:null})};assert.ok(['hotel_members','profiles'].includes(table));return q}};
+ const people=await notepadDirectory(admin,hotel),byId=new Map(people.map(p=>[p.id,p]));
+ assert.equal(people.length,profiles.length);
+ for(const hidden of ['scott-admin','scott-admin-alias']){assert.equal(byId.get(hidden).recipientSelectable,false);assert.equal(byId.get(hidden).taggable,true);assert.equal(byId.get(hidden).active,true);}
+ for(const visible of ['scott-chief','other-admin','same-name-engineer'])assert.equal(byId.get(visible).recipientSelectable,true);
+ assert.deepEqual(byId.get('scott-chief').roles,['engineer']);
+ assert.equal(model.notepadCanRead({authorId:actor,audience:{all:true,roles:[],people:[]}},byId.get('scott-admin')),true);
 });
 test('file upload signing derives the storage path from trusted ownership and verifies stored size/type',async()=>{
  let signed=true,row=null,storedSize=10,noteAccess=true;const calls=[];

@@ -1,0 +1,7 @@
+/* One document clock drives every urgent image and insertion caret. */
+.layout-1 .note-urgent{animation:none;opacity:var(--notepad-blink-opacity,1)}
+html[data-notepad-caret="native"] :is(input,textarea,[contenteditable]){caret-animation:manual}
+html[data-notepad-caret="native"][data-notepad-blink-on="false"] :is(input,textarea,[contenteditable]){caret-color:transparent!important}
+html[data-notepad-caret-overlay="true"] :is(input,textarea,[contenteditable]){caret-color:transparent!important}
+.notepad-caret-overlay{position:fixed;z-index:10000;display:block;width:1.5px;min-width:1px;pointer-events:none;user-select:none;background:currentColor;opacity:var(--notepad-blink-opacity,1)}
+.notepad-caret-mirror{position:fixed!important;top:0!important;left:0!important;height:auto!important;min-height:0!important;max-height:none!important;margin:0!important;visibility:hidden!important;pointer-events:none!important;overflow:visible!important;z-index:-1!important}

@@ -39,7 +39,7 @@ export async function PUT(request:NextRequest) {
     if(input.document!==null){
       try { document=validateNotepadDocument(input.document,previous?notepadDocument(previous):null,actor,new Date().toISOString()); } catch(error) { return response({error:error instanceof Error?error.message:'Invalid note.'},400); }
       if(previous&&previous.authorId!==actor&&!sameAudience(document.audience,previous.audience))return response({error:'Only the creator can change sharing.'},403);
-      for(const id of document.audience.people)if(!previous?.audience.people.includes(id)&&!state.people.some(p=>p.id===id&&p.active&&p.taggable))return response({error:'A selected recipient is no longer available.'},400);
+      for(const id of document.audience.people)if(!previous?.audience.people.includes(id)&&!state.people.some(p=>p.id===id&&p.active&&p.taggable&&p.recipientSelectable!==false))return response({error:'A selected recipient is no longer available.'},400);
       const added=document.attachments.filter(file=>file.kind==='file'&&!previous?.attachments.some(old=>old.id===file.id));
       if(added.length>20)return response({error:'Attach at most 20 new files at a time.'},400);
       if(added.length){const files=await auth.admin.from('cmpri_notepad_uploads').select('id,author_user_id,note_id,name,media_type,size_bytes,ready').eq('hotel_id',hotel).in('id',added.map(a=>a.id));

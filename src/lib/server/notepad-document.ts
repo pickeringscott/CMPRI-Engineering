@@ -103,8 +103,16 @@ function attachments(value: unknown): NotepadAttachment[] {
     return { id:item.id, kind:'file', name:item.name, type:item.type, size:item.size };
   });
 }
+function draftSnapshot(document: NotepadDocument) {
+  return JSON.stringify([
+    document.title, {all:document.audience.all,roles:[...document.audience.roles].sort(),people:[...document.audience.people].sort()},
+    sanitizeNotepadHTML(document.content), document.priority, document.fontSize, document.fontFamily, document.titleFontFamily,
+    document.ink, document.itemThreads, document.attachments.map(attachment => { const file = {...attachment}; delete file.url; return file; }),
+  ]);
+}
 export function validateNotepadDocument(value: unknown, previous: NotepadDocument | null, actor: string, now: string): NotepadDocument {
-  if (!record(value) || Object.keys(value).some(k => !['title','audience','content','priority','fontSize','fontFamily','titleFontFamily','ink','itemThreads','attachments'].includes(k))) throw Error('Supply a valid Notepad document.');
+  if (!record(value) || Object.keys(value).some(k => !['title','audience','content','priority','fontSize','fontFamily','titleFontFamily','ink','itemThreads','attachments','untouchedDraft'].includes(k))) throw Error('Supply a valid Notepad document.');
+  if (value.untouchedDraft !== undefined && typeof value.untouchedDraft !== 'boolean') throw Error('Supply a valid draft state.');
   if (typeof value.title !== 'string' || value.title.length > 120 || typeof value.content !== 'string' || value.content.length > 1000000) throw Error('The note title or content is too long.');
   const a = value.audience;
   if (!record(a) || typeof a.all !== 'boolean' || !Array.isArray(a.roles) || !Array.isArray(a.people) || a.roles.length > 20 || a.people.length > 500 || a.roles.some(r => !NOTEPAD_ROLES.some(role => role.id === r)) || a.people.some(id => typeof id !== 'string' || !NOTEPAD_UUID.test(id))) throw Error('Choose valid recipients.');
@@ -127,6 +135,18 @@ export function validateNotepadDocument(value: unknown, previous: NotepadDocumen
   const itemThreads: Record<string, NotepadReply[]> = Object.create(null);
   for (const [id,thread] of Object.entries(value.itemThreads)) if (itemIds.has(id)) itemThreads[id] = replies(thread,0);
   // Deleting a checklist/list item deliberately drops its whole linked thread.
-  return { title:value.title, audience:{all:a.all,roles:[...new Set(a.roles as string[])].sort(),people:[...new Set(a.people as string[])].sort()}, content,
+  const document: NotepadDocument = { title:value.title, audience:{all:a.all,roles:[...new Set(a.roles as string[])].sort(),people:[...new Set(a.people as string[])].sort()}, content,
     priority:value.priority as NotepadDocument['priority'], fontSize:value.fontSize, fontFamily:font(value.fontFamily,'Comic Sans MS'),titleFontFamily:font(value.titleFontFamily,'Arial'), ink:ink(value.ink), itemThreads,attachments:attachments(value.attachments) };
+  if (value.untouchedDraft !== undefined || previous?.untouchedDraft !== undefined) {
+    // Once edited, an empty note never becomes an untouched draft again. Older
+    // clients may omit the flag; preserve it only while the document is unchanged.
+    const body = parse(document.content);
+    const empty = !(body.textContent || '').replace(/[\s\u200b\u00a0]/g,'')
+      && !elements(body).some(el => ['input','ul','ol','li','table','hr'].includes(el.tagName.toLowerCase()) || el.getAttribute('class')?.split(/\s+/).includes('mention'))
+      && !document.ink.length && !document.attachments.length && !Object.keys(document.itemThreads).length;
+    document.untouchedDraft = previous?.untouchedDraft !== false && value.untouchedDraft !== false
+      && (value.untouchedDraft === true || previous?.untouchedDraft === true) && empty
+      && (!previous || draftSnapshot(previous) === draftSnapshot(document));
+  }
+  return document;
 }
