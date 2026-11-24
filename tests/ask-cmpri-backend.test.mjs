@@ -204,6 +204,7 @@ test("signed historical results still format and export exact rows while substan
   const nativeCalls = [];
   let legacyReads = 0;
   const requestHandler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
@@ -249,6 +250,7 @@ test("signed historical table formatting retains ticket identities and exact lin
       record: { kind: "order", id: "ac", label: "WO#261012111" }, facts: [{ label: "Room", value: "212" }, { label: "Priority", value: "Medium" }, { label: "Ticket status", value: "Open" }] },
   ];
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
@@ -286,6 +288,7 @@ test("substantive reads use native data even when the planner selects a legacy s
   };
   const calls = [];
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal: currentPrincipal }) }, "@/lib/work-order-attribution": {},
@@ -330,6 +333,7 @@ test("raw pending data and unsigned, edited or cross-actor historical evidence n
   };
   const calls = [];
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
@@ -366,6 +370,7 @@ test("fresh work-order and Staff Notes changes reach native with every requested
   let legacyPlans = 0;
   const calls = [];
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
@@ -413,6 +418,7 @@ test("new changes beside signed historical results use native instead of the leg
   let planned = basePlan;
   const calls = [];
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},
@@ -450,6 +456,7 @@ test("historical Chief Engineer missing-details and review corrections preserve 
   let summaryCalls = 0;
   const reviews = [];
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal }) }, "@/lib/work-order-attribution": {},

@@ -23,6 +23,7 @@ function handlerFixture({ confirmationResult, documents, files } = {}) {
   let plannerCalls = 0, confirmationCalls = 0;
   const nativeCalls = [], plannedPrevious = [];
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod,
     "@/lib/server/roles": { profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
