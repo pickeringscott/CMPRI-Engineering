@@ -59,26 +59,35 @@ async def verify(browser, role, email="fixture@example.invalid", user_id=UID, se
         weather = page.locator("[data-cmpri-weather-dial]")
         control = page.locator(".cmpri-guide-launchers > .cmpri-animation-control")
         await expect(launcher).to_be_visible(timeout=60000)
-        close_guide = page.get_by_role("button", name="Close Beginner’s Guide")
-        if await close_guide.is_visible():
-            await close_guide.click()
-            await expect(page.locator("[data-cmpri-guide-dialog]")).to_have_count(0)
+        guide_dialog = page.locator("[data-cmpri-guide-dialog]")
+        await expect(guide_dialog).to_have_count(0)
         await expect(page.locator("[data-desktop-ask-tab]")).to_have_count(int(is_chief))
         if secondary_roles:
             await expect(page.locator("[data-dashboard-role]")).to_have_text("Chief Engineer")
         if role == "chief_engineer":
+            await launcher.click()
+            await expect(guide_dialog).to_be_visible()
+            await page.get_by_role("button", name="Close Beginner’s Guide").click()
+            await expect(guide_dialog).to_have_count(0)
             artwork_toggle = page.frame_locator('iframe[title^="Thanksgiving"]').locator("#toggle")
             await artwork_toggle.wait_for(state="attached")
             await expect(artwork_toggle).to_be_hidden()
             await page.add_style_tag(content="nextjs-portal { display: none !important }")
             for width, height in [(1440, 900), (1120, 608), (701, 580), (390, 844)]:
                 await page.set_viewport_size({"width": width, "height": height})
-                await expect(weather).to_be_visible()
                 await expect(control).to_be_visible()
-                dial, guide, toggle = await weather.bounding_box(), await launcher.bounding_box(), await control.bounding_box()
-                assert abs(dial["x"] + dial["width"] - width) < 1 and abs(dial["y"] + dial["height"] - height) < 1, dial
-                assert 0 <= toggle["x"] - guide["x"] - guide["width"] <= 8, (guide, toggle)
-                assert abs((toggle["y"] + toggle["height"] / 2) - (guide["y"] + guide["height"] / 2)) < 1, (guide, toggle)
+                toggle = await control.bounding_box()
+                if width < 701:
+                    await expect(weather).to_have_count(0)
+                    await expect(launcher).to_be_hidden()
+                    assert 0 <= toggle["x"] <= 8, toggle
+                else:
+                    await expect(weather).to_be_visible()
+                    await expect(launcher).to_be_visible()
+                    dial, guide = await weather.bounding_box(), await launcher.bounding_box()
+                    assert abs(dial["x"] + dial["width"] - width) < 1 and abs(dial["y"] + dial["height"] - height) < 1, dial
+                    assert 0 <= toggle["x"] - guide["x"] - guide["width"] <= 8, (guide, toggle)
+                    assert abs((toggle["y"] + toggle["height"] / 2) - (guide["y"] + guide["height"] / 2)) < 1, (guide, toggle)
                 await page.screenshot(path=str(OUT / f"release-desktop-{width}.png"))
             await control.click()
             await expect(control).to_have_attribute("aria-pressed", "true")
