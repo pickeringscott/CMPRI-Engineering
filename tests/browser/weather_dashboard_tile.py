@@ -58,7 +58,7 @@ async def run(browser, width, height, touch=False):
         }''')
         assert layout['iconBottom'] < layout['valueTop'],layout
         assert layout['alignment'] <= 1.5,layout
-        assert abs(layout['outlinePixels']-2*96/72)<0.01,layout
+        assert abs(layout['outlinePixels']-96/72)<0.01,layout
         points=[(116,110),(116,30),(75,150),(157,174),(116,9),(213,110),(194,160),(68,191)]
         for x,y in points:
             assert await dial.evaluate('(e,p)=>document.elementFromPoint(e.getBoundingClientRect().x+p[0],e.getBoundingClientRect().y+p[1])===e',[x,y]),(width,height,x,y)

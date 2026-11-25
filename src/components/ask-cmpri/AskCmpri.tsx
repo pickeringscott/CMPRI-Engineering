@@ -20,7 +20,7 @@ import { askHistoryStorageChanged, deleteAskHistoryEntry, readAskHistory, savedA
 import { makeAskAttachmentRecovery, readAskAttachmentRecoveries, removeAskAttachmentRecovery, saveAskAttachmentRecovery, type AskAttachmentRecovery } from "./ask-attachment-recovery";
 import { useAskCmpriLiveVoice as useAskCmpriVoice } from "./useAskCmpriLiveVoice";
 import { createAskOriginalFileStore } from "./original-file-upload";
-import { ASK_OPENAI_VOICES, DEFAULT_ASK_OPENAI_VOICE, askOpenAIVoice, type AskOpenAIVoice } from "../../lib/ask-cmpri/voices";
+import { ASK_OPENAI_VOICES, DEFAULT_ASK_OPENAI_VOICE, askOpenAIVoice, askOpenAIVoiceLabel, type AskOpenAIVoice } from "../../lib/ask-cmpri/voices";
 import "./ask-cmpri.css";
 
 const examples = [
@@ -1257,15 +1257,16 @@ export default function AskCmpri() {
         <div className="ask-query-box"><i className="ask-gemini-mark" aria-hidden="true" />
           <label className="sr-only" htmlFor="ask-cmpri-query">{t("Ask CMPRI")}</label>
           <textarea ref={field} id="ask-cmpri-query" rows={1} maxLength={650} enterKeyHint="search" placeholder={t("Ask CMPRI")}
-            value={canSearch || authProblem ? query : ""} disabled={saving} onChange={event => queryText(event.target.value)} onKeyDown={event => {
+            value={query} disabled={saving} onChange={event => queryText(event.target.value)} onKeyDown={event => {
               if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(textRef.current); }
             }} />
         </div>
         <label className="ask-voice-picker" hidden={query.length > 0}>
           <span className="sr-only">{language === "es" ? "Voz de OpenAI" : "OpenAI voice"}</span>
           <select value={voiceName} disabled={!verified || practice || saving || voice.active} onChange={event => chooseVoice(event.target.value)}
+            title={language === "es" ? "Las etiquetas describen cómo suena la voz." : "Labels describe how the voice sounds."}
             aria-label={language === "es" ? "Voz de OpenAI" : "OpenAI voice"}>
-            {ASK_OPENAI_VOICES.map(name => <option key={name} value={name}>{name}</option>)}
+            {ASK_OPENAI_VOICES.map(name => <option key={name} value={name}>{askOpenAIVoiceLabel(name, language)}</option>)}
           </select>
         </label>
         {voice.active ? <button className="ask-stop" type="button" onClick={voice.stop}><span aria-hidden="true" />{t("Stop")}</button> : engaged && mic}

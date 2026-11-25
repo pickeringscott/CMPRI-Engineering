@@ -22,7 +22,7 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-async function fixture({ actualUploads = false } = {}) {
+async function fixture({ actualUploads = false, language = "en" } = {}) {
   const container = document.createElement("div");
   document.body.append(container);
   let root = createRoot(container);
@@ -111,7 +111,7 @@ async function fixture({ actualUploads = false } = {}) {
   };
   const component = loadTs("src/components/ask-cmpri/AskCmpri.tsx", {
     react: React, "react/jsx-runtime": jsx, "next/navigation": { usePathname: () => "/engineering" },
-    "@/components/UiLanguageProvider": { useUiLanguage: () => ({ language: "en", t: value => value }) },
+    "@/components/UiLanguageProvider": { useUiLanguage: () => ({ language, t: value => value }) },
     "@/lib/auth/client-session": { authorizationHeaders: async () => ({ Authorization: "Bearer fixture" }) },
     "@/lib/auth/session-storage": { SESSION_KEY: "fixture-session" },
     "@/lib/server/roles": loadTs("src/lib/server/roles.ts"),
@@ -231,6 +231,11 @@ test("OpenAI picker stays attached and hides for any text until the composer is 
     const selector = picker.querySelector('select');
     assert.equal(picker.hidden, false);
     assert.equal(selector.options.length, 10);
+    assert.deepEqual([...selector.options].map(option => [option.value, option.text]), [
+      ["alloy", "alloy · Neutral"], ["ash", "ash · Male"], ["ballad", "ballad · Male"],
+      ["cedar", "cedar · Male"], ["coral", "coral · Female"], ["echo", "echo · Male"],
+      ["marin", "marin · Female"], ["sage", "sage · Female"], ["shimmer", "shimmer · Female"], ["verse", "verse · Male"],
+    ]);
     await act(async () => {
       selector.value = "cedar";
       selector.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
@@ -245,6 +250,23 @@ test("OpenAI picker stays attached and hides for any text until the composer is 
     assert.equal(picker.hidden, false);
     await h.reopen();
     assert.equal(h.container.querySelector('.ask-voice-picker select').value, "cedar");
+  } finally { await h.close(); }
+});
+
+test("voice sound labels translate without changing the saved voice key", async () => {
+  const h = await fixture({ language: "es" });
+  try {
+    const selector = h.container.querySelector('.ask-search-pill .ask-voice-picker select');
+    assert.equal(selector.querySelector('option[value="alloy"]').textContent, "alloy · Neutra");
+    assert.equal(selector.querySelector('option[value="cedar"]').textContent, "cedar · Masculina");
+    assert.equal(selector.querySelector('option[value="marin"]').textContent, "marin · Femenina");
+    await act(async () => {
+      selector.value = "marin";
+      selector.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      await flush();
+    });
+    await h.reopen();
+    assert.equal(h.container.querySelector('.ask-voice-picker select').value, "marin");
   } finally { await h.close(); }
 });
 

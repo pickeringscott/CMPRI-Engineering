@@ -24,6 +24,23 @@ export const ASK_OPENAI_VOICES = [
 export type AskOpenAIVoice = typeof ASK_OPENAI_VOICES[number];
 export const DEFAULT_ASK_OPENAI_VOICE: AskOpenAIVoice = "marin";
 
+// Perceived sound, not a provider-declared identity. Alloy is neutral/balanced;
+// presentation can vary with speech instructions. First-hand listening sources:
+// https://woodstitch.com/text-to-speech/voices/openai--marin (also cedar/coral)
+// https://vocalingo.featurebase.app/en/help/articles/8601932-standard-voices-vs-openai-voices
+// https://community.openai.com/t/feedback-on-voice-models-customization/1272619
+const OPENAI_VOICE_SOUND = {
+  alloy: "neutral", ash: "male", ballad: "male", cedar: "male", coral: "female",
+  echo: "male", marin: "female", sage: "female", shimmer: "female", verse: "male",
+} as const satisfies Record<AskOpenAIVoice, "male" | "female" | "neutral">;
+
+export function askOpenAIVoiceLabel(voice: AskOpenAIVoice, language = "en"): string {
+  const labels = /^es(?:-|$)/i.test(language)
+    ? { male: "Masculina", female: "Femenina", neutral: "Neutra" }
+    : { male: "Male", female: "Female", neutral: "Neutral" };
+  return `${voice} · ${labels[OPENAI_VOICE_SOUND[voice]]}`;
+}
+
 export function askOpenAIVoice(value: unknown): AskOpenAIVoice {
   return typeof value === "string" && ASK_OPENAI_VOICES.includes(value as AskOpenAIVoice)
     ? value as AskOpenAIVoice : DEFAULT_ASK_OPENAI_VOICE;
