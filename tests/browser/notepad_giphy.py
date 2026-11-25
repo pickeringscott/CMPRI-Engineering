@@ -319,6 +319,8 @@ async def main():
         await expect(viewer.locator("img")).to_have_attribute("src", "https://media.giphy.com/pump-0-full.gif")
         await viewer.get_by_role("button", name="Close attachment").click()
 
+        await page.set_viewport_size({"width": 1024, "height": 720})
+        await expect(editor.get_by_role("button", name="Open Fixture pump-0")).to_be_visible()
         await editor.locator(".note-content").evaluate("""body => {
             body.focus();
             const range = document.createRange();
@@ -336,7 +338,7 @@ async def main():
             {"name": "fixture.txt", "mimeType": "text/plain", "buffer": original_text},
         ])
         photo = editor.get_by_role("button", name="Open photo.gif", exact=True)
-        file_button = editor.get_by_role("button", name="Open fixture.txt", exact=True)
+        file_button = editor.get_by_role("link", name="Open fixture.txt", exact=True)
         await expect(photo).to_be_visible()
         await expect(file_button).to_be_visible()
         assert await editor.locator(".note-content p").first.evaluate("""p => {
@@ -344,11 +346,24 @@ async def main():
             return p.firstChild.textContent === 'Rev' && files[0].title === 'photo.gif'
                 && files[1].title === 'clip.webm' && files[2].title === 'fixture.txt';
         }""")
+        await photo.hover()
+        preview = editor.locator(".inline-attachment-preview img")
+        await expect(preview).to_be_visible()
+        assert (await preview.bounding_box())["width"] > (await photo.bounding_box())["width"]
+        await file_button.hover()
+        await expect(editor.locator(".inline-attachment-preview")).to_have_text("fixture.txt")
         await photo.click()
+        await expect(editor.locator(".inline-attachment-preview")).to_have_count(0)
         photo_viewer = editor.get_by_role("dialog", name="photo.gif")
         await photo_viewer.locator("img").evaluate("image => image.decode()")
         await photo_viewer.get_by_role("button", name="Close attachment").click()
-        await editor.get_by_role("button", name="Open clip.webm", exact=True).click()
+        clip = editor.get_by_role("button", name="Open clip.webm", exact=True)
+        await clip.hover()
+        await editor.locator(".inline-attachment-preview video").evaluate("""async video => {
+            if (video.readyState < 2) await Promise.race([new Promise(resolve => video.addEventListener('loadeddata', resolve, { once: true })), new Promise(resolve => setTimeout(resolve, 3000))]);
+            if (video.videoWidth !== 16) throw new Error('Expected the uploaded video in the hover preview');
+        }""", timeout=10000)
+        await clip.click()
         video_viewer = editor.get_by_role("dialog", name="clip.webm")
         await video_viewer.locator("video").evaluate("async video => { await video.play(); }")
         assert await video_viewer.locator("video").evaluate("video => video.videoWidth") == 16

@@ -197,12 +197,12 @@ test('the mobile sidebar grip collapses left and reopens at the saved width', ()
   } finally {s.cleanup();}
 });
 
-for(const switched of [false,true])test(`mobile uploads keep the selected caret${switched?' in the originating note after switching':''}`,async()=>{
+for(const [width,switched] of [[390,false],[390,true],[1024,false]])test(`uploads at ${width}px keep the selected caret${switched?' in the originating note after switching':''}`,async()=>{
   const original=makeNote({content:`<p data-item-id="${uuid(20)}">Left RIGHT</p>`});
   const other=makeNote({id:uuid(11),title:'Other note'});
   const s=setup({notes:[original,other]});
   try{
-    s.window.innerWidth=390;s.window.dispatchEvent(new s.window.Event('resize'));
+    s.window.innerWidth=width;s.window.dispatchEvent(new s.window.Event('resize'));
     const editor=s.focus('.note-content');
     const range=s.document.createRange();range.setStart(editor.firstElementChild.firstChild,5);range.collapse(true);
     const selection=s.window.getSelection();selection.removeAllRanges();selection.addRange(range);
@@ -962,9 +962,9 @@ test('the dock invokes the native file picker, verifies upload through the host,
     assert.equal(s.document.querySelector('.attachment-chip'), null);
     s.send('result', {requestId: request.data.requestId, result: {id: request.data.payload.id, kind: 'file', name: 'pump.png', type: 'image/png', size: file.size, url: 'https://storage.example/signed-private-file'}});
     await tick();
-    assert.equal(s.find('.attachment-open').getAttribute('aria-label'), 'Open pump.png');
-    assert.equal(s.find('.attachment-open img').getAttribute('src'), 'https://storage.example/signed-private-file');
-    s.click('.attachment-open img');
+    assert.equal(s.find('[data-open-inline-attachment]').getAttribute('aria-label'), 'Open pump.png');
+    assert.equal(s.find('[data-open-inline-attachment] img').getAttribute('src'), 'https://storage.example/signed-private-file');
+    s.click('[data-open-inline-attachment] img');
     const open = s.outgoing.find(({data}) => data.type === 'request' && data.action === 'attachment');
     assert.equal(open.data.payload.noteId, uuid(10));
     assert.equal(open.data.payload.id, request.data.payload.id);

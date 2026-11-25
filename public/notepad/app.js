@@ -241,7 +241,7 @@ function safeAttachmentPosition(root,range) {
   range.collapse(true);return range;
 }
 function captureAttachmentPosition(target) {
-  if(device!=='mobile'||!target||target.id!==activeNote)return null;
+  if(!target||target.id!==activeNote)return null;
   const editor=$('.note-content');if(!editor)return null;
   rememberSelection();
   const selection=selectionRange?.cloneRange();
@@ -290,14 +290,21 @@ function insertInlineAttachment(change) {
   return Boolean(editor);
 }
 function inlineThumbnail(attachment) {
-  const button=document.createElement('button');button.type='button';button.className='inline-attachment-open';
+  const {video,image,url}=window.NotepadAttachments.inlineMedia(attachment);
+  const thumbnail=attachment.kind==='gif'||video||image;
+  const button=document.createElement(thumbnail?'button':'a');
+  const name=attachment.name||'Attachment';
   button.dataset.openInlineAttachment=attachment.id;
-  const name=attachment.name||'Attachment';button.title=name;button.setAttribute('aria-label','Open '+name);
-  const fileLabel=name.match(/\.([a-z0-9]{1,5})$/i)?.[1].toUpperCase()||'FILE';
-  const {video,url}=window.NotepadAttachments.inlineMedia(attachment);
-  button.dataset.thumbnailLabel=attachment.kind==='gif'?'GIF':video?'VIDEO':window.NotepadAttachments.photoPreview(attachment)?'PHOTO':fileLabel;
-  button.innerHTML=icon(video?'play':'book');
-  if(url)showThumbnailMedia(button,url,video);
+  button.title=name;button.setAttribute('aria-label','Open '+name);
+  if(thumbnail){
+    button.type='button';button.className='inline-attachment-open';
+    button.dataset.thumbnailLabel=attachment.kind==='gif'?'GIF':video?'VIDEO':'PHOTO';
+    button.innerHTML=icon(video?'play':'book');
+    if(url)showThumbnailMedia(button,url,video);
+  }else{
+    button.className='inline-attachment-link';
+    button.href=url||'#';button.target='_blank';button.rel='noopener noreferrer';button.textContent=name;
+  }
   const remove=document.createElement('button');remove.type='button';remove.className='inline-attachment-remove';
   remove.dataset.removeInlineAttachment=attachment.id;remove.setAttribute('aria-label','Remove '+name);remove.innerHTML=icon('close');
   return [button,remove];
@@ -312,12 +319,38 @@ function showThumbnailMedia(button,url,video=false) {
   media.src=url;media.addEventListener('error',()=>media.remove(),{once:true});
   button.append(media);
 }
+function closeAttachmentPreview(){ $('.inline-attachment-preview')?.remove(); }
+function showAttachmentPreview(opener){
+  closeAttachmentPreview();
+  const preview=document.createElement('div');
+  preview.className='inline-attachment-preview';preview.setAttribute('aria-hidden','true');
+  const source=$('img,video',opener);
+  if(source?.src){
+    const media=source.cloneNode(false);
+    media.hidden=false;media.removeAttribute('loading');
+    if(media.tagName==='VIDEO'){media.muted=true;media.preload='auto';}
+    preview.append(media);
+    media.addEventListener('load',()=>positionPopover(preview,opener),{once:true});
+    media.addEventListener('loadedmetadata',()=>positionPopover(preview,opener),{once:true});
+  }
+  const caption=document.createElement('span');caption.textContent=opener.title;
+  preview.append(caption);document.body.append(preview);positionPopover(preview,opener);
+}
+document.addEventListener('pointerover',event=>{
+  const opener=event.target.closest('[data-open-inline-attachment]');
+  if(device==='desktop'&&event.pointerType==='mouse'&&opener&&!opener.contains(event.relatedTarget))showAttachmentPreview(opener);
+});
+document.addEventListener('pointerout',event=>{
+  const opener=event.target.closest('[data-open-inline-attachment]');
+  if(opener&&!opener.contains(event.relatedTarget))closeAttachmentPreview();
+});
+document.addEventListener('scroll',closeAttachmentPreview,true);
 function refreshAttachmentViews() {
   const root=$('.note-content'),target=note(),dock=$('.editor-attachments');if(!root||!target||!dock)return;
   const inlineIds=new Set(),gifs=[],attachments=new Map(target.attachments.map(file=>[file.id,file]));
   for(const marker of $$(inlineAttachmentSelector,root)){
     const file=attachments.get(marker.dataset.notepadAttachmentId);
-    if(!file||device!=='mobile'||inlineIds.has(file.id)){marker.replaceChildren();continue;}
+    if(!file||inlineIds.has(file.id)){marker.replaceChildren();continue;}
     inlineIds.add(file.id);marker.contentEditable='false';
     if(!marker.firstChild)marker.append(...inlineThumbnail(file));
     const button=$('[data-open-inline-attachment]',marker);
@@ -337,6 +370,7 @@ function noteAttachmentsChanged(change) {
   else {save();if(change.noteId===activeNote)refreshAttachmentViews();}
 }
 function removeNoteAttachment(id) {
+  closeAttachmentPreview();
   const target=note();if(!target?.attachments.some(file=>file.id===id))return;
   target.attachments=target.attachments.filter(file=>file.id!==id);
   for(const marker of $$(inlineAttachmentSelector,$('.note-content')))if(marker.dataset.notepadAttachmentId===id)marker.remove();
@@ -380,7 +414,7 @@ function editor() {
 function render() {
   finishTitleEdit();
   noteTransition++;activeNoteTransition=0;
-  closePopover();closeMentions();selectionRange=null;resizeGesture=null;
+  closeAttachmentPreview();closePopover();closeMentions();selectionRange=null;resizeGesture=null;
   formattingController?.destroy();formattingController=null;attachmentController?.destroy();attachmentController=null;
   historyController=null;
   titleResizeObserver?.disconnect();titleResizeObserver=null;
@@ -1111,6 +1145,13 @@ document.addEventListener('dragover',e=>{if(!draggedNote)return;const row=e.targ
 document.addEventListener('drop',e=>{if(!draggedNote)return;const row=e.target.closest('.note-row');if(row){e.preventDefault();moveNote(draggedNote,row.dataset.row,row.dataset.dropPosition==='after');}draggedNote=null;clearDragMarks();});
 document.addEventListener('dragend',()=>{draggedNote=null;clearDragMarks();});
 document.addEventListener('click',e=>{
+  const attachment=e.target.closest('[data-open-inline-attachment]');
+  if(attachment){
+    e.preventDefault();closeAttachmentPreview();
+    const file=note()?.attachments.find(item=>item.id===attachment.dataset.openInlineAttachment);
+    if(file)void attachmentController?.openAttachment(file,attachment);
+    return;
+  }
   const b=e.target.closest('button');if(!b)return;
   if(b.dataset.mentionChoice!==undefined){insertMention(Number(b.dataset.mentionChoice));return;}
   if(b.hasAttribute('data-toggle-formatting')){setMobileFormatting(!mobileFormattingExpanded);return;}
@@ -1124,7 +1165,6 @@ document.addEventListener('click',e=>{
     else{textColor=b.dataset.color;markEdited();restoreSelection();document.execCommand('foreColor',false,textColor);syncEditor();}
     $$('.color-swatches button').forEach(el=>el.setAttribute('aria-pressed',String(el===b)));return;
   }
-  if(b.dataset.openInlineAttachment!==undefined){const file=note()?.attachments.find(item=>item.id===b.dataset.openInlineAttachment);if(file)void attachmentController?.openAttachment(file,b);return;}
   if(b.dataset.removeInlineAttachment!==undefined){removeNoteAttachment(b.dataset.removeInlineAttachment);return;}
   if(b.dataset.openAttachment!==undefined){const file=note()?.attachments[Number(b.dataset.openAttachment)];if(file)void attachmentController?.openAttachment(file,b);return;}
   if(b.dataset.removeAttachment!==undefined){const file=note()?.attachments[Number(b.dataset.removeAttachment)];if(file)removeNoteAttachment(file.id);return;}
@@ -1214,7 +1254,7 @@ window.addEventListener('resize',()=>{
     if(creator)creator.textContent=device==='desktop'?creator.dataset.shortName:creator.dataset.fullName;
     refreshAttachmentViews();
   }
-  closePopover();closeMentions();applyPaneWidth();
+  closeAttachmentPreview();closePopover();closeMentions();applyPaneWidth();
 });
 window.addEventListener('beforeunload',()=>{finishTitleEdit();if(recipientSession?.closing&&recipientSession.onClose)closeRecipients({immediate:true,restoreFocus:false});inkController?.destroy();syncEditor();sendHost('flush');});
 function applyPalette(values) {

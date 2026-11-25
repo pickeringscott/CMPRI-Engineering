@@ -168,17 +168,21 @@ body{margin:0}
   .layout-1 select option:focus-visible{outline:0;background:rgba(var(--cmpri-action-rgb),.28)}
 }
 
+.window-wrap:not(.is-mobile) .layout-1 .title-row{row-gap:0;padding-bottom:1px}
+.window-wrap:not(.is-mobile) .layout-1 .note-details,
+.window-wrap:not(.is-mobile) .layout-1 .note-details #note-priority{min-height:19px}
+.window-wrap:not(.is-mobile) .layout-1 .notepad-formatting{padding-block:1px}
 .window-wrap:not(.is-mobile) .layout-1 .note-metadata{display:grid;grid-template-columns:minmax(0,1fr) auto}
 .window-wrap:not(.is-mobile) .layout-1 .note-attribution{display:flex;align-items:baseline;justify-content:flex-end;gap:4px}
 .window-wrap:not(.is-mobile) .layout-1 .notepad-formatting :is(.fmt-font,.fmt-size){
-  position:relative;justify-content:center;
-  padding-inline:4px 22px;text-align:center;text-align-last:center;
+  position:relative;justify-content:center;align-items:center;
+  padding:0 22px 0 4px;text-align:center;text-align-last:center;
 }
 .window-wrap:not(.is-mobile) .layout-1 .notepad-formatting .fmt-font{width:128px;min-width:128px}
 .window-wrap:not(.is-mobile) .layout-1 .notepad-formatting .fmt-size{width:calc(2ch + 27px);min-width:calc(2ch + 27px)}
 @supports selector(::picker-icon){
   .window-wrap:not(.is-mobile) .layout-1 .notepad-formatting :is(.fmt-font,.fmt-size)::picker-icon{
-    position:absolute;inset-inline-end:5px;
+    position:absolute;inset-inline-end:5px;inset-block-start:50%;transform:translateY(-50%);
   }
 }
 .window-wrap:not(.is-mobile) .layout-1 .general-notes-dock > [data-notepad-camera-trigger]{display:none}

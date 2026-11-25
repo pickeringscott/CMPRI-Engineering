@@ -21,7 +21,8 @@
   }
   function inlineMedia(attachment) {
     const video = attachment?.kind === 'file' && /^video\/(mp4|webm|quicktime)$/.test(attachment.type);
-    return { video, url: video ? safeMediaURL(attachment.url) : photoPreview(attachment) };
+    const image = attachment?.kind === 'file' && isImage(attachment.type);
+    return { video, image, url: attachment?.kind === 'file' ? safeMediaURL(attachment.url) : '' };
   }
   function validGif(value) {
     if (!value || !/^[a-zA-Z0-9_-]{1,200}$/.test(value.id || '')) return false;
