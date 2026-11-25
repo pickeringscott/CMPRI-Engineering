@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/server/auth";
 import { workOrderReader } from "@/lib/server/work-order-reader";
+import { workOrderNumber } from "@/lib/work-order-reference.js";
 import { canReadWorkOrder } from "@/lib/work-order-read-policy";
 
 const headers = { "Cache-Control": "private, no-store" };
@@ -17,6 +18,21 @@ export async function GET(request: NextRequest) {
   if (targets.length > 100 || targets.some(target => !/^(?:number:[0-9]{1,30}|id:[a-f0-9]{8,32})$/.test(target))) {
     return NextResponse.json({ error: "Invalid work-order references." }, { status: 400, headers });
   }
+  const query = request.nextUrl.searchParams.get("q")?.trim() || "";
+  if (query.length > 200) {
+    return NextResponse.json({ error: "Invalid work-order search." }, { status: 400, headers });
+  }
+  if (query) {
+    const number = workOrderNumber(query);
+    const pattern = JSON.stringify(`%${query.replace(/[%_\\*]/g, "\\$&")}%`);
+    const expressions = [`issue.ilike.${pattern}`];
+    if (number) expressions.unshift(`display_id.ilike.${JSON.stringify(`%${number}%`)}`);
+    const { data, error } = await auth.admin.from("work_orders").select(columns)
+      .eq("hotel_id", reader.hotelId).or(expressions.join(","))
+      .order("created_at", { ascending: false }).order("id").limit(20);
+    if (error) return NextResponse.json({ error: "Work-order search failed." }, { status: 503, headers });
+    return NextResponse.json({ tickets: (data || []).filter(row => canReadWorkOrder(reader, row)) }, { headers });
+  }
   const tickets = new Map<string, Record<string, unknown>>();
   const resolvedPrefixes: Record<string, string> = {};
   const numbers = targets.filter(target => target.startsWith("number:")).map(target => target.slice(7));
@@ -27,8 +43,19 @@ export async function GET(request: NextRequest) {
     if (error) return NextResponse.json({ error: "Ticket references could not be loaded." }, { status: 503, headers });
     for (const row of data || []) if (canReadWorkOrder(reader, row)) tickets.set(row.id, row);
   }
-  for (const target of targets.filter(target => target.startsWith("id:"))) {
-    const prefix = target.slice(3);
+  const ids = targets.filter(target => target.startsWith("id:")).map(target => target.slice(3));
+  const fullIds = ids.filter(id => id.length === 32);
+  if (fullIds.length) {
+    const { data, error } = await auth.admin.from("work_orders").select(columns)
+      .eq("hotel_id", reader.hotelId).in("id", fullIds.map(uuid));
+    if (error) return NextResponse.json({ error: "Ticket references could not be loaded." }, { status: 503, headers });
+    for (const row of data || []) {
+      if (!canReadWorkOrder(reader, row)) continue;
+      tickets.set(row.id, row);
+      resolvedPrefixes[row.id.replaceAll("-", "")] = row.id;
+    }
+  }
+  for (const prefix of ids.filter(id => id.length < 32)) {
     const { data, error } = await auth.admin.from("work_orders").select(columns)
       .eq("hotel_id", reader.hotelId)
       .gte("id", uuid(prefix.padEnd(32, "0"))).lte("id", uuid(prefix.padEnd(32, "f"))).limit(2);

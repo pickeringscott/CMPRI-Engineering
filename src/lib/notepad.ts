@@ -18,7 +18,7 @@ export type NotepadRole = typeof NOTEPAD_ROLES[number]['id'];
 export type NotepadAudience = { all: boolean; roles: string[]; people: string[] };
 export type NotepadPerson = { id: string; name: string; short: string; initials: string; role: string; displayRole?: string; roles: string[]; active: boolean; taggable: boolean; recipientSelectable: boolean };
 export type NotepadAttachment = { id: string; kind: 'file' | 'gif'; name: string; type?: string; size?: number; gifId?: string; url?: string; uploaderId?: string };
-export type NotepadReplyMention = { id: string; kind: 'person' | 'role' | 'department'; start: number; end: number };
+export type NotepadReplyMention = { id: string; kind: 'person' | 'role' | 'department' | 'front_desk_name' | 'location' | 'work_order'; start: number; end: number };
 export type NotepadReply = { id: string; authorId: string; authorName?: string; at: string; text: string; mentions?: NotepadReplyMention[]; replies: NotepadReply[] };
 export type NotepadDocument = {
   title: string; audience: NotepadAudience; content: string; priority: 'Low' | 'Normal' | 'High' | 'Urgent';

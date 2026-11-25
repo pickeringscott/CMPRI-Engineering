@@ -136,7 +136,7 @@ test('the approved Familiar Sidebar boots from authenticated data with the exact
     assert.equal(s.document.querySelectorAll('.search-box button').length, 1);
     assert.equal(s.find('.search-box').firstElementChild.dataset.action, 'new');
     assert.equal(s.find('.note-ink').getAttribute('viewBox'), '0 0 800 1100', 'The real ink controller is attached');
-    assert.equal(s.outgoing.some(({data}) => data.type === 'request'), false, 'No GIPHY or file requests occur on boot');
+    assert.equal(s.outgoing.some(({data}) => data.type === 'request' && ['giphy','upload','attachment'].includes(data.action)), false, 'No GIPHY or file requests occur on boot');
   } finally {s.cleanup();}
 });
 
@@ -1202,4 +1202,64 @@ test('sidebar reorder persists without exposing drag placeholders', () => {
     assert.equal(s.find('.note-row').dataset.row, uuid(11));
     assert.equal(s.document.querySelector('.drag-handle,.drag-placeholder,[data-drag-handle]'), null);
   } finally {s.cleanup();}
+});
+
+test('all Notepad tag types persist, reopen and resolve details with the trigger hidden', async () => {
+  const directory=[
+    {id:'lobby',kind:'location',label:'Lobby',description:'Common area'},
+    {id:'room-204',kind:'location',label:'204',description:'Room 204'},
+    {id:'laundry',kind:'location',label:'Laundry',description:'Back of house'},
+    {id:'pat',kind:'front_desk_name',label:'Pat',description:'Pat'},
+  ];
+  const ticket={id:uuid(431),display_id:'workorder_431',issue:'Leaking sink'};
+  const respond=async(s,action,result,match=()=>true)=>{
+    for(let attempt=0;attempt<30;attempt++){
+      const request=s.outgoing.map(out=>out.data).find(data=>data.type==='request'&&data.action===action&&match(data.payload));
+      if(request){s.send('result',{requestId:request.requestId,result});await tick();return;}
+      await new Promise(resolve=>setTimeout(resolve,15));
+    }
+    assert.fail('No '+action+' request');
+  };
+  const cases=[
+    ['@Morgan','Morgan Technician','person',colleague.id],['@Chief Engineer','Chief Engineer','role','engineer'],
+    ['@Pat','Pat','front_desk_name','pat'],['@Lobby','Lobby','location','lobby'],
+    ['@Room 204','204','location','room-204'],['@Laundry','Laundry','location','laundry'],
+    ['@Leaking sink','WO#431','work_order',ticket.id],['@Engineering','Engineering','department','engineering'],
+    ['@All Roles','All Roles','role','all'],
+  ];
+  const s=setup();
+  try{
+    await respond(s,'tag-directory',directory);
+    for(const [query,label,kind,id] of cases){
+      s.typeMention(query);
+      if(kind==='work_order')await respond(s,'tag-work-orders',[ticket],payload=>payload.query==='Leaking sink');
+      const option=[...s.document.querySelectorAll('.mention-option')].find(option=>option.querySelector('strong').textContent===label);
+      assert.ok(option,query);option.click();
+      const chip=s.find('.note-content .mention');
+      assert.equal(chip.textContent,label);assert.equal(chip.dataset.mentionKind,kind);assert.equal(chip.dataset.mentionId,id);
+      const content=s.latestSave().document.content;
+      assert.match(content,new RegExp('data-mention-id="'+id+'"'));
+      assert.doesNotMatch(content,/tabindex|title=/);
+      const reopened=setup({notes:[makeNote({content})]});
+      try{
+        await respond(reopened,'tag-directory',directory);
+        if(kind==='work_order')await respond(reopened,'tag-work-orders',[ticket],payload=>payload.id===id);
+        const restored=reopened.find('.note-content .mention');
+        assert.equal(restored.textContent,label);
+        assert.ok(restored.title);
+        restored.click();
+        if(kind==='work_order'){
+          assert.equal(restored.title,'Work order · Leaking sink');
+          assert.equal(reopened.outgoing.at(-1).data.payload.id,id);
+        }else{
+          assert.equal(reopened.find('.tag-details h2').textContent,label);
+          if(kind==='role'||kind==='department')assert.match(reopened.find('.tag-details ul').textContent,/Avery Engineer/);
+        }
+      }finally{reopened.cleanup();}
+    }
+    s.typeMention('WO#431');
+    await respond(s,'tag-work-orders',[ticket],payload=>payload.query==='WO#431'&&payload.exact);
+    s.click('.mention-option');
+    assert.equal(s.find('.note-content .mention').textContent,'WO#431');
+  }finally{s.cleanup();}
 });

@@ -136,8 +136,8 @@ function replyMentions(value: unknown, text: string): NotepadReplyMention[] | un
   let previousEnd = 0;
   return value.map(mark => {
     if (!record(mark) || !safeId(mark.id)
-      || (mark.kind !== 'person' && mark.kind !== 'role' && mark.kind !== 'department')
-      || (mark.kind === 'person' && !NOTEPAD_UUID.test(mark.id))
+      || (mark.kind !== 'person' && mark.kind !== 'role' && mark.kind !== 'department' && mark.kind !== 'front_desk_name' && mark.kind !== 'location' && mark.kind !== 'work_order')
+      || ((mark.kind === 'person' || mark.kind === 'work_order') && !NOTEPAD_UUID.test(mark.id))
       || typeof mark.start !== 'number' || !Number.isSafeInteger(mark.start) || mark.start < previousEnd
       || typeof mark.end !== 'number' || !Number.isSafeInteger(mark.end) || mark.end <= mark.start + 1 || mark.end > text.length
       || !/^@[^\r\n]+$/.test(text.slice(mark.start,mark.end))) throw Error('Invalid reply tags.');

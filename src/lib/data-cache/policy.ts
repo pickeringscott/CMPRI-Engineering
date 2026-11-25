@@ -3,7 +3,7 @@ const second = 1000;
 /** App-local JSON only. Authentication, secrets, signed URLs and private files stay on the network. */
 export function dataCachePolicy(path: string, search?: URLSearchParams): CachePolicy | null {
   // Private notebook revisions are revalidated by its own local outbox and Realtime channel.
-  if (path === '/api/notes') return null;
+  if (path === '/api/notes' || path === '/api/notes/targets' || path === '/api/work-orders/references') return null;
   // Checklist permissions, revisions and attached-source bytes are authoritative reads.
   if (/^\/api\/work-orders\/[^/]+\/troubleshooting(?:\/|$)/.test(path)
     || (path === '/api/maintenance-reference' && search?.get('source') === 'asset-upload')) return null;

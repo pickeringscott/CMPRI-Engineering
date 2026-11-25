@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { createClient, getValidSession } from '@/lib/supabase/client';
 import { isNotesSessionRestart } from '@/lib/general-notes-session';
 import { requestGiphy } from '@/lib/giphy';
@@ -36,6 +37,7 @@ const EMPTY_STATE: NotepadSyncState = { message: '', pending: 0, conflictIds: []
 
 /** The approved HTML is the editor. This host supplies the authenticated CMPRI transport. */
 export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Props) {
+  const router = useRouter();
   const frame = useRef<HTMLIFrameElement>(null);
   const host = useRef<HTMLDivElement>(null);
   const sync = useRef<NotepadSync | null>(null);
@@ -221,6 +223,22 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
         }
         return request('/api/notepad/history?' + params, {}, scope);
       }
+      if (action === 'tag-directory') {
+        const data = await request('/api/notes/targets', {}, scope);
+        return data.mentions.filter((target: { kind: string }) => target.kind === 'location' || target.kind === 'front_desk_name');
+      }
+      if (action === 'tag-work-orders') {
+        const params = new URLSearchParams();
+        if (typeof payload.query === 'string' && payload.query.trim()) {
+          const exact = payload.exact === true && /^WO#(\d{1,30})$/i.exec(payload.query);
+          if (exact) params.append('target', 'number:' + exact[1]);
+          else params.set('q', payload.query.slice(0, 200));
+        }
+        else if (typeof payload.id === 'string' && NOTEPAD_UUID.test(payload.id)) params.append('target', 'id:' + payload.id.replaceAll('-', '').toLowerCase());
+        else throw Error('Invalid work-order tag.');
+        const data = await request('/api/work-orders/references?' + params, {}, scope);
+        return data.tickets;
+      }
       await authorize(scope);
       if (action === 'giphy') {
         if (Array.isArray(payload.ids)) {
@@ -279,7 +297,30 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
         const coordinator = sync.current;
         void coordinator?.flushAll().then(finishRequestedClose);
       }
-      if (data.type === 'openWorkOrder' && typeof payload.id === 'string') openWorkOrder.current?.(payload.id);
+      if (data.type === 'openWorkOrder' && typeof payload.id === 'string' && NOTEPAD_UUID.test(payload.id)) {
+        const id = payload.id;
+        const generation = epoch;
+        void mediaRequest('tag-work-orders', { id }).then(rows => {
+          if (!alive || generation !== epoch) return;
+          if (!rows.some((row: { id: string }) => row.id === id)) {
+            post('tag-unavailable', { message: 'This work order is unavailable.' });
+            return;
+          }
+          if (openWorkOrder.current) openWorkOrder.current(id);
+          else if (window.parent !== window && new URLSearchParams(window.location.search).has('modalToken')) {
+            window.parent.postMessage({ type: 'cmpri-open-related-work-order', targetWorkOrderId: id,
+              modalToken: new URLSearchParams(window.location.search).get('modalToken') }, window.location.origin);
+          } else {
+            const coordinator = sync.current;
+            post('flush');
+            void coordinator?.flushAll().then(() => {
+              if (!alive || generation !== epoch) return;
+              if (coordinator.hasPending || coordinator.conflicts.size) post('tag-unavailable', { message: 'Resolve the pending note changes before opening this work order.' });
+              else router.push('/work-orders/' + encodeURIComponent(id));
+            });
+          }
+        }).catch(error => { if (alive && generation === epoch) post('tag-unavailable', { message: error.message }); });
+      }
       if (data.type === 'request' && typeof data.requestId === 'string') {
         const generation = epoch;
         const uploading = data.action === 'upload';
@@ -348,7 +389,7 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
       document.removeEventListener('visibilitychange', wake); hostElement?.removeEventListener(NOTEPAD_CLOSE_REQUEST, onCloseRequest);
       send.current = () => {};
     };
-  }, []);
+  }, [router]);
 
   function downloadDrafts() {
     if (!sync.current) return;
