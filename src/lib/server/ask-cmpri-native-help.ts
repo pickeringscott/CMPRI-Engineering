@@ -2,7 +2,6 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import guideLessons from "@/components/beginners-guide/guide-lessons.json";
 import { ASK_CMPRI_GUIDE } from "@/components/beginners-guide/ask-cmpri-guide";
-import { NOTE_FONT_SIZES } from "@/lib/general-notes";
 import { LOYALTY_TIERS } from "@/lib/loyalty-tier";
 import { PM_TEMPLATES, PM_ROOM_NUMBERS, PM_WORKBOOK_SOURCE } from "@/lib/pm/catalog";
 import { WINTER_TASKS, WINTER_YEAR } from "@/lib/winter-preparedness";
@@ -42,24 +41,31 @@ function guide(query: string) {
 }
 
 const notes = {
-  source: "CMPRI Notes document validator",
+  source: "CMPRI Notepad document validator",
+  screen: "/notepad",
+  read: "notepad.read returns only notes visible to the current authenticated property account, including legacy personal Notes and Staff Notes. Use the same returned notes for all Notepad questions and edits. Names and roles come from this property directory. Add person tags only for active, taggable and selectable recipients.",
   save: {
-    id: "UUID for this personal note", changeId: "UUID; reuse only for an identical retry",
-    expectedRevision: "null for a new note; the loaded positive integer revision for an existing note",
+    operation: "notepad.save", patch: "notepad.patch preserves every omitted document field on the server",
+    id: "UUID for this note", changeId: "UUID; reuse only for an identical retry",
+    expectedRevision: "null for new notes; the loaded nonnegative integer revision for existing notes (legacy notes start at 0)",
+    expectedLegacyVersion: "For revision0, include the exact legacyVersion from the loaded note; otherwise omit. This prevents replacing changes from an older Notes or Staff Notes client during first import.",
     document: {
-      title: "Required nonblank string, at most 120 characters",
-      text: "Required string, at most 100000 characters",
-      fontSize: NOTE_FONT_SIZES,
-      strokes: "Required array, at most 5000 strokes. Preserve existing strokes when editing text; use [] for a new text-only note.",
-      titleAutomatic: "Optional boolean",
-      mentions: "Optional array, at most 100 nonoverlapping {id,kind,label,start,end} ranges. kind is person, role, front_desk_name, location or work_order; resolve actual identities using notes.targets. Text must contain the matching @label or native work-order reference at the exact offsets.",
-      textStyles: "Optional sorted, nonoverlapping {start,end,fontSize?,color?} ranges inside the text. At least one format value is required; preserve existing styling when unchanged.",
+      title: "String, at most 120 characters; only the creator can rename an existing note",
+      audience: "Required {all:boolean,roles:string[],people:UUID[]}. New notes default to Just me: all:false and both arrays empty. All Roles is all:true. Engineering selects engineer and technician. Use returned role/person IDs and change manual sharing only when requested. The server adds an eligible person when a new structured tag names that person.",
+      content: "HTML string, at most 1000000 characters. Native save allows safe paragraphs, headings, spans, formatting, lists and checkboxes. Preserve existing data-item-id identities on unchanged lines. Font and color are safe inline styles. A checklist item is <div class=note-check data-item-id=ID><input type=checkbox checked><span class=task-label>Text</span></div>; omit checked for an unfinished item. data-completed-by and data-completed-at are stamped by the server. Use span class=mention contenteditable=false data-mention-kind=person|role data-mention-id=returnedID containing @name for a structured tag. Notepad displays the name without @. Plain @text is ordinary text.",
+      priority: "Low | Normal | High | Urgent; the UI labels Urgent as Urgent! and shows a red exclamation before the title",
+      fontSize: "Number from 6 to 96",
+      fontFamily: "Text font name, at most 120 characters; fallback Comic Sans MS",
+      titleFontFamily: "Title font name, at most 120 characters; only the creator can change it on an existing note",
+      ink: "Required array, at most 5000 strokes. Preserve existing S Pen handwriting and drawing layers when editing text; [] for new text-only notes.",
+      itemThreads: "Required map from existing data-item-id to reply arrays. Reply is {id,authorId,at,text,mentions?,replies:[]}; text at most4000 characters. A selected reply tag is {id:returnedID,kind:person|role|department,start,end} with offsets into text, including @ at start and excluding end. Tags in nested replies follow the same sharing rules. Native save stamps new author/time and protects other authors' reply text and tags. Removing an item removes its full nested thread.",
+      attachments: "Required array of {id,kind:file|gif,name,type?,size?,gifId?}. Files use actual finalized native upload UUID/type/size; GIFs use a verified GIPHY ID. Preserve existing registered attachments. Signed URLs are read-only and omitted on save.",
     },
-    delete: "Use document:null and the loaded expectedRevision to delete only the account owner's note.",
+    delete: "Use document:null and the loaded expectedRevision; native ownership permission is authoritative.",
     bodyLimit: "2 MiB; only id, expectedRevision, changeId and document are accepted at the top level.",
   },
-  stroke: { id: "nonempty string", color: "string shorter than 100 characters", size: "number 1..12", points: "At most 100000 {x:0..800,y:0..1100,p:0..1} finite numeric points" },
-  instruction: "Read an existing complete note before changing it. Preserve text, drawing, mentions and formatting not involved in the user's requested change. These notes are private to the native authenticated account and property.",
+  stroke: { id: "nonempty unique string", color: "safe color", size: "number 1..24", points: "At most 100000 {x:0..800,y:0..1100,p:0..1} finite numeric points" },
+  instruction: "Read an existing complete note before changing it. Preserve content, drawing, mentions, replies, recipients, attachments and formatting not involved in the requested change. Notepad replaces the former Staff Notes tab inside Ask CMPRI and the standalone Notes page; old links open this same feature.",
 };
 
 const roomRanker = {

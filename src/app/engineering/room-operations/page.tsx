@@ -1,5 +1,8 @@
 "use client";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { formatWallTime, timeFormatOptions } from "@/lib/ui/time-format";
+import type { TimeFormat } from "@/lib/profile-preferences";
 import LoyaltyBadge from "@/components/LoyaltyBadge";
 
 import { canOpenRoomOperations } from "@/lib/dashboard/menu-access";
@@ -102,16 +105,12 @@ function displayDate(value: string | null, locale = "en-US") {
     : new Intl.DateTimeFormat(locale, { timeZone: HOTEL_TIME_ZONE, month: "short", day: "numeric" }).format(parsed);
 }
 
-function displayCheckoutTime(value: string | null) {
-  const match = String(value || "").match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?$/i);
-  if (!match) return value || "11:00 AM";
-  let hours = Number(match[1]);
-  const meridiem = match[3]?.toUpperCase();
-  if (meridiem) hours = (hours % 12) + (meridiem === "PM" ? 12 : 0);
-  return `${hours % 12 || 12}:${match[2]} ${hours >= 12 ? "PM" : "AM"}`;
+function displayCheckoutTime(value: string | null, timeFormat: TimeFormat, locale: string) {
+  const minutes = value?.replace(/^(\d{1,2}:\d{2}):[0-5]\d(?=\s*(?:[ap]\.?\s*m\.?)?$)/i, "$1");
+  return formatWallTime(minutes || "11:00", timeFormat, locale);
 }
 
-function displayHotelTimestamp(value: string | null, locale = "en-US") {
+function displayHotelTimestamp(value: string | null, locale: string, timeFormat: TimeFormat) {
   if (!value) return "Unavailable";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime())
@@ -120,6 +119,7 @@ function displayHotelTimestamp(value: string | null, locale = "en-US") {
       timeZone: HOTEL_TIME_ZONE,
       dateStyle: "medium",
       timeStyle: "short",
+      ...timeFormatOptions(timeFormat),
     }).format(parsed);
 }
 
@@ -131,10 +131,10 @@ function daysUntilCheckout(value: string | null, today = hotelDate()) {
   return Math.round((checkoutDate.getTime() - todayDate.getTime()) / 86_400_000);
 }
 
-function checkoutLabel(row: Pick<RoomOperation, "checkout_date" | "checkout_time">, today = hotelDate(), locale = "en-US") {
+function checkoutLabel(row: Pick<RoomOperation, "checkout_date" | "checkout_time">, today = hotelDate(), locale = "en-US", timeFormat: TimeFormat = "12h") {
   if (!row.checkout_date) return "";
   const days = daysUntilCheckout(row.checkout_date, today);
-  const time = displayCheckoutTime(row.checkout_time);
+  const time = displayCheckoutTime(row.checkout_time, timeFormat, locale);
   if (days === 0) return `Checkout today · ${time}`;
   if (days === 1) return `Checkout tomorrow · ${time}`;
   if (days !== null && days < 0) return `Overdue · ${displayDate(row.checkout_date, locale)} · ${time}`;
@@ -171,12 +171,13 @@ function RoomIdentity({ row }: { row: RoomOperation }) {
 
 function CheckoutPill({ row, today }: { row: RoomOperation; today: string }) {
   const { t, tt, locale } = useUiLanguage();
-  const label = checkoutLabel(row, today, locale);
+  const timeFormat = useTimeFormat();
+  const label = checkoutLabel(row, today, locale, timeFormat);
   if (!label) return null;
   const carriedOver = Boolean(row.checkout_source_report_date && row.checkout_source_report_date < today);
   const provenance = [
     t("Source report date: {date}.", { date: row.checkout_source_report_date || t("Unavailable") }),
-    t("Uploaded: {date} (America/Chicago).", { date: displayHotelTimestamp(row.checkout_source_uploaded_at, locale) }),
+    t("Uploaded: {date} (America/Chicago).", { date: displayHotelTimestamp(row.checkout_source_uploaded_at, locale, timeFormat) }),
     ...(carriedOver ? [t("Carried-over data.")] : []),
   ].join(" ");
   return (
@@ -193,7 +194,7 @@ function CheckoutPill({ row, today }: { row: RoomOperation; today: string }) {
         className="absolute left-0 top-full z-20 mt-1 hidden w-64 rounded-lg border border-slate-600 bg-slate-900 p-2 text-xs font-normal text-slate-200 shadow-xl group-hover:block group-focus-within:block group-open:block"
       >
         <div>{t("Source report date:")}{" "}{row.checkout_source_report_date || t("Unavailable")}</div>
-        <div>{t("Uploaded:")}{" "}{displayHotelTimestamp(row.checkout_source_uploaded_at, locale)}{" "}{t("(America/Chicago)")}</div>
+        <div>{t("Uploaded:")}{" "}{displayHotelTimestamp(row.checkout_source_uploaded_at, locale, timeFormat)}{" "}{t("(America/Chicago)")}</div>
         {carriedOver ? <div className="mt-1 font-semibold text-amber-200">{t("Carried-over data")}</div> : null}
       </div>
     </details>
@@ -211,6 +212,7 @@ function MovePill({ row }: { row: RoomOperation }) {
 
 function RoomDetails({ row, today }: { row: RoomOperation; today: string }) {
   const { t, locale } = useUiLanguage();
+  const timeFormat = useTimeFormat();
   return (
     <div className="min-w-0">
       <div className="flex flex-wrap items-center gap-2">
@@ -231,7 +233,7 @@ function RoomDetails({ row, today }: { row: RoomOperation; today: string }) {
           {row.incoming_type ? t(" · {value0}", { value0: row.incoming_type }) : ""}
           {row.incoming_code ? t(" · {value0}", { value0: row.incoming_code }) : ""}
           {row.arrival_date ? t(" · {value0}", { value0: displayDate(row.arrival_date, locale) }) : ""}
-          {row.arrival_time ? t(" {value0}", { value0: displayCheckoutTime(row.arrival_time) }) : ""}
+          {row.arrival_time ? t(" {value0}", { value0: displayCheckoutTime(row.arrival_time, timeFormat, locale) }) : ""}
           {row.incoming_block_indicator ? t(" · {value0}", { value0: row.incoming_block_indicator }) : ""}
         </div>
       ) : null}

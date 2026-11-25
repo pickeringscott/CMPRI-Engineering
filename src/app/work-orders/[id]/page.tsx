@@ -1,5 +1,8 @@
 "use client";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import type { TimeFormat } from "@/lib/profile-preferences";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import WorkOrderAttachmentHistory from "@/components/WorkOrderAttachmentHistory";
 import WorkOrderMediaComposer, { type MediaRecoveryActions } from "@/components/WorkOrderMediaComposer";
 import WorkOrderTitleGuest from "@/components/WorkOrderTitleGuest";
@@ -547,11 +550,11 @@ function normalizeDiagnosticCode(
 }
 
 
-function formatDateTime(value?: string | null, locale = "en-US") {
+function formatDateTime(value: string | null | undefined, locale: string, timeFormat: TimeFormat) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString(locale);
+  return date.toLocaleString(locale, timeFormatOptions(timeFormat));
 }
 
 function explicitPartSuggestion(issue: string) {
@@ -596,6 +599,7 @@ export default function WorkOrderTicketPage() {
 
 function WorkOrderTicketEditor({ id }: { id: string }) {
   const { language, locale, t, tt } = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const router = useRouter();
   const [troubleshootingVisitId, setTroubleshootingVisitId] = useState(() => crypto.randomUUID());
   const troubleshootingOpened = useRef(false);
@@ -2283,7 +2287,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
   historyEntries.sort((a,b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const roomOccupancy = roomStatusBadge(order.room_status || roomOperationalContext.roomStatus);
   const checkout = checkoutLabel(roomOperationalContext.checkoutDate);
-  const checkoutDisplay = listCheckoutLabel(roomOperationalContext.checkoutDate, roomOperationalContext.checkoutTime);
+  const checkoutDisplay = listCheckoutLabel(roomOperationalContext.checkoutDate, roomOperationalContext.checkoutTime, roomOperationalContext.roomStatus, undefined, "en-US", timeFormat);
 
   return (
     <main data-ticket-layout aria-busy={exitFlushing} className="min-h-screen bg-slate-950 text-[16px] text-white">
@@ -2472,7 +2476,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                 </section>
                 <section className="cmpri-ticket-metadata-group min-w-0 rounded-lg border border-slate-700 p-2" aria-label={t("Assignment and timing")}>
                   <h3 className="mb-2 border-b border-slate-700 pb-1 text-xs font-bold text-amber-300">{t("Assignment & timing")}</h3>
-                  <p className="text-[10px] leading-tight text-slate-500">{t("Created by")} <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span>{order.creator_display_role && <span className="text-sky-200"> · {t(order.creator_display_role)}</span>} · {formatDateTime(order.created_at, locale)}</p>
+                  <p className="text-[10px] leading-tight text-slate-500">{t("Created by")} <span className="font-semibold text-slate-300">{order.creator_name || "—"}</span>{order.creator_display_role && <span className="text-sky-200"> · {t(order.creator_display_role)}</span>} · {formatDateTime(order.created_at, locale, timeFormat)}</p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div className="cmpri-ticket-metadata-field min-w-0" data-changed={metadataSelectionChanged("priority", priority, order.priority || "Medium")}>
                       <label htmlFor="ticket-priority" className="mb-1 block text-xs font-semibold text-slate-400">{t("Priority")}{order.ranker_base_priority && order.ranker_base_priority !== order.priority && <span className="text-red-500" aria-label={t("Raised by Room Ranker")}> !</span>}{pendingField("priority")}</label>
@@ -2507,8 +2511,8 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
               <div ref={historyScrollRef} className="mt-2 max-h-[8.5rem] overflow-y-auto rounded-lg border border-slate-700 bg-slate-950">
                 {historyEntries.length ? historyEntries.map((entry) => {
                   const when = new Date(entry.timestamp);
-                  const visibleTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleString(locale, { month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
-                  const hoverTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+                  const visibleTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleString(locale, { month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit", ...timeFormatOptions(timeFormat) });
+                  const hoverTime = Number.isNaN(when.getTime()) ? entry.timestamp : when.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit", second: "2-digit", ...timeFormatOptions(timeFormat) });
                   const technicianView = entry.id.startsWith("technician-view-")
                     ? order.technician_view_entries?.find(view => entry.id === `technician-view-${view.id}`) : undefined;
                   const createdFallback = entry.id === "created";
@@ -2545,7 +2549,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   <WorkOrderSectionIcon section="troubleshooting" />{t("Suggested Troubleshooting")} </h2>
               </summary>
 
-              {selectedAsset && cmpriSession?.capabilities.includes("view_dashboard") && cmpriSession.capabilities.includes("view_pm") &&
+              {chief && selectedAsset && cmpriSession?.capabilities.includes("view_dashboard") && cmpriSession.capabilities.includes("view_pm") &&
                 (selectedAsset.id === order.asset_id && !checklistContextUnsaved
                   ? <AskTicketTroubleshooting key={`${order.id}:${order.revision}:${selectedAsset.id}`} workOrderId={order.id} assetId={selectedAsset.id}
                       assetLabel={[selectedAsset.manufacturer, selectedAsset.model_number].filter(Boolean).join(" ") || selectedAsset.name}

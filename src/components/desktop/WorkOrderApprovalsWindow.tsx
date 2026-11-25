@@ -1,5 +1,8 @@
 "use client";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import type { TimeFormat } from "@/lib/profile-preferences";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import { translateNotificationMessage } from "@/lib/i18n/notification-text";
 
 
@@ -11,10 +14,10 @@ import { unreadWorkOrderNotificationCount, type WorkOrderNotification } from "@/
 import { priorityClass, type DesktopWorkOrder } from "./WorkOrderListWindow";
 import { roomStatusBadge } from "@/lib/room-availability";
 
-function formatWhen(value: string, locale = "en-US") {
+function formatWhen(value: string, locale: string, timeFormat: TimeFormat) {
   const time = Date.parse(value);
   if (!Number.isFinite(time)) return "";
-  return new Date(time).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return new Date(time).toLocaleString(locale, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", ...timeFormatOptions(timeFormat) });
 }
 
 export default function WorkOrderApprovalsWindow({
@@ -40,6 +43,7 @@ export default function WorkOrderApprovalsWindow({
   onClearAll: () => void;
 }) {
   const { t, locale } = useUiLanguage();
+  const timeFormat = useTimeFormat();
   return (
     <div data-work-order-approvals className="cmpri-desktop-scale flex size-full min-h-0 flex-col gap-[0.6em] overflow-auto p-[0.6em]">
       <div className={`grid min-h-0 flex-1 gap-[0.6em] ${canReview ? "@3xl:grid-cols-2" : ""} ${canReview && awaitingApproval.length === 0 ? "grid-rows-[auto_minmax(0,1fr)] @3xl:grid-rows-1" : ""}`}>
@@ -80,7 +84,7 @@ export default function WorkOrderApprovalsWindow({
               <li key={notification.id} className="flex items-start gap-[0.4em] px-[0.7em] py-[0.4em] hover:bg-slate-800/40">
                 <button type="button" onClick={event => onOpenNotification(notification, event.currentTarget)} className="min-w-0 flex-1 text-left" aria-label={t("{value0} notification: {value1}", { value0: String(t(notification.is_read ? "Read" : "Unread")), value1: String(translateNotificationMessage(formatWorkOrderNotification(notification), t)) })}>
                   <span className={`block hover:underline ${notification.is_read ? "text-slate-400" : "font-semibold text-slate-100"}`}>{translateNotificationMessage(formatWorkOrderNotification(notification), t)}</span>
-                  <span className="block text-[0.8em] text-slate-500">{formatWhen(notification.recorded_at, locale)}</span>
+                  <span className="block text-[0.8em] text-slate-500">{formatWhen(notification.recorded_at, locale, timeFormat)}</span>
                 </button>
                 <button type="button" onClick={() => onClear(notification.id)} aria-label={t("Clear notification: {value0}", { value0: String(translateNotificationMessage(formatWorkOrderNotification(notification), t)) })} className="shrink-0 rounded border border-slate-700 px-[0.5em] text-[0.82em] text-slate-300 hover:border-slate-500 hover:text-white">{t("Clear")}</button>
               </li>

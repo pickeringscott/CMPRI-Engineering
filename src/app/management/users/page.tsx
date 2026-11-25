@@ -1,6 +1,8 @@
 "use client";
 
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { getValidSession } from "@/lib/supabase/client";
@@ -15,6 +17,7 @@ type UserRow = { id: string; email: string | null; full_name: string | null; rol
 
 export default function UserManagementPage() {
   const {t: ui, tt: tip, locale} = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const onlineUsers = useOnlineUsers();
   const embedded = useEmbeddedModal();
   const router = useRouter();
@@ -155,7 +158,7 @@ export default function UserManagementPage() {
                 {user.can_manage && <p className="text-xs text-sky-200">{accountRoleDisplayName(user).split(" + ").map(label => ui(label)).join(" + ")}</p>}
                 <p className="mt-1 break-all text-sm text-slate-300">{user.email || ui("No email on file")}</p>
                 <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
-                  <span>{user.active === true ? ui("Active") : ui("Deactivated")} · {user.waiting_for_verification === true ? ui("Waiting for verification") : user.last_sign_in_at ? ui("Last sign-in: {value0}",{value0:String(new Date(user.last_sign_in_at).toLocaleString(locale))}) : user.waiting_for_verification === false ? ui("Never signed in") : ui("Sign-in unavailable")}</span>
+                  <span>{user.active === true ? ui("Active") : ui("Deactivated")} · {user.waiting_for_verification === true ? ui("Waiting for verification") : user.last_sign_in_at ? ui("Last sign-in: {value0}",{value0:String(new Date(user.last_sign_in_at).toLocaleString(locale, timeFormatOptions(timeFormat)))}) : user.waiting_for_verification === false ? ui("Never signed in") : ui("Sign-in unavailable")}</span>
                   {user.active === true && onlineUsers.has(presenceKeys[user.id]) && <span role="img" aria-label={ui("Currently online")} title={tip("Currently online")} className="inline-block h-2 w-2 shrink-0 rounded-full bg-emerald-500" />}
                 </p>
               </div>

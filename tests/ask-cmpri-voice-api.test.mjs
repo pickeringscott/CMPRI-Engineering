@@ -5,13 +5,14 @@ import { z } from "zod";
 import { loadTs } from "./helpers/load-ts.mjs";
 
 const voices = loadTs("src/lib/ask-cmpri/voices.ts");
+const roles = loadTs("src/lib/server/roles.ts");
 const sdp = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n";
 
 function fixture() {
   const calls = [];
   const env = { OPENAI_API_KEY: "fixture-server-secret" };
   const settings = {
-    auth: { ok: true, mcp: false, principal: { identity: { id: "fixture-user-id" } } },
+    auth: { ok: true, mcp: false, principal: { identity: { id: "fixture-user-id" }, profile: { role: "chief_engineer" } } },
     status: 201,
     answer: sdp,
     location: "/v1/realtime/calls/rtc_fixture",
@@ -24,6 +25,7 @@ function fixture() {
     zod: { z },
     "@/lib/ask-cmpri/voices": voices,
     "@/lib/server/auth": { requireUserAttempt: async () => settings.auth },
+    "@/lib/server/roles": roles,
     "@/lib/server/ask-cmpri-voice": session,
   }, {
     process: { env }, AbortSignal, TextDecoder, FormData, URL,
@@ -54,7 +56,27 @@ test("voice session creation requires an active app user and never accepts MCP a
   h.settings.auth = { ok: true, mcp: true };
   response = await h.send();
   assert.equal(response.status, 401);
+  for (const profile of [
+    { role: "technician" }, { role: "engineer" }, { role: "Regional Engineer" },
+    { role: "system_admin", secondary_roles: ["engineer"] },
+  ]) {
+    h.settings.auth = { ok: true, mcp: false, principal: { profile } };
+    assert.equal((await h.send()).status, 403, profile.role);
+  }
   assert.equal(h.calls.length, 0);
+});
+
+test("voice accepts a genuine secondary Chief Engineer role and the verified dual-role account", async () => {
+  const h = fixture();
+  for (const profile of [
+    { role: "system_admin", secondary_roles: ["Chief Engineer"] },
+    { id: "750f77bf-7d5d-4ca6-8421-e025edea87ba", email: "maint.cmpri@hawkeyehotels.com",
+      role: "system_admin", secondary_roles: ["engineer"] },
+  ]) {
+    h.settings.auth.principal.profile = profile;
+    assert.equal((await h.send()).status, 200);
+  }
+  assert.equal(h.calls.length, 2);
 });
 
 test("voice validates OpenAI choices, SDP, history roles and request bounds before provider calls", async () => {

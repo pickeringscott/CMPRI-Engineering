@@ -10,6 +10,7 @@
       timeZone: 'America/Chicago', month: 'short', day: 'numeric',
       hour: 'numeric', minute: '2-digit', hourCycle: new URLSearchParams(location.search).get('clock') === '24' ? 'h23' : 'h12', timeZoneName: 'short'
     });
+    const stamp = (value) => window.cmpriWeatherClock?.format(value, { month: 'short', day: 'numeric', timeZoneName: 'short' }) || central.format(new Date(value));
     const MINUTE = 60000;
     const start = Math.floor(Date.now() / MINUTE) * MINUTE;
     let now, sequenceStep, requests, transactions, pushes, cache, delivered, log;
@@ -42,7 +43,7 @@
       const current = mode();
       write('simMode', current.name);
       write('simInterval', current.minutes + (current.minutes === 1 ? ' minute' : ' minutes'));
-      write('simNext', central.format(new Date(now + current.minutes * MINUTE)) + ' · virtual');
+      write('simNext', stamp(now + current.minutes * MINUTE) + ' · virtual');
       write('simNws', String(requests));
       write('simDb', String(transactions));
       write('simPush', String(pushes));
@@ -67,7 +68,7 @@
           const row = document.createElement('li');
           const time = document.createElement('span');
           time.className = 'sim-log-time';
-          time.textContent = central.format(new Date(item.at)) + ' · ';
+          time.textContent = stamp(item.at) + ' · ';
           row.append(time, document.createTextNode(item.message));
           fragment.append(row);
         });
@@ -223,6 +224,7 @@
     Object.entries(actions).forEach(([id, action]) => { if (byId(id)) byId(id).addEventListener('click', action); });
     window.weatherSim = { initialized: true, step, unchanged, change, cancel, expire, reset, snapshot };
     reset();
+    window.cmpriTimeFormat?.subscribe(render);
     return window.weatherSim;
   };
 }());

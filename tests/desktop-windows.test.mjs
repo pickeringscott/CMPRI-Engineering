@@ -192,7 +192,7 @@ test('engineering dashboard is a desktop of floating windows under a fixed top b
   assert.match(workOrderDetail, /<WorkOrderAttachmentHistory items=\{workOrderImages\}/);
   assert.match(workOrderDetail, /<WorkOrderMediaComposer/);
   assert.match(workOrderDetail, /checkoutLabel\(roomOperationalContext\.checkoutDate\)/);
-  assert.match(workOrderDetail, /listCheckoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime\)/);
+  assert.match(workOrderDetail, /listCheckoutLabel\(roomOperationalContext\.checkoutDate, roomOperationalContext\.checkoutTime,[^)]*timeFormat\)/);
   assert.match(workOrderDetail, /\{t\(checkoutDisplay\.label\)\}/);
   assert.match(workOrderDetail, /data-ticket-accordion="troubleshooting"[\s\S]*?Suggested Troubleshooting/);
   assert.doesNotMatch(workOrderDetail, /Closure Details/);

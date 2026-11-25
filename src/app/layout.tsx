@@ -37,10 +37,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" data-cmpri-site-theme={SITE_SEASONAL_THEME} className="h-full antialiased">
       <body className="min-h-full flex flex-col">
         <UiLanguageProvider>
-        <SiteSeasonalBackground />
-        <ModalTheme />
-        <UserPresence />
-        {children}
+        <SiteSeasonalBackground>
+          <ModalTheme />
+          <UserPresence />
+          {children}
+        </SiteSeasonalBackground>
         <GlobalModalHost />
         <AskCmpri />
         <StaffNotesUnread />

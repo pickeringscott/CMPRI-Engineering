@@ -155,3 +155,21 @@ export async function readAskStaffNoteAttachment(request: NextRequest): Promise<
     return await originalResponse(request, file, STAFF_FILE_BUCKET, `${body.hotelId}/${notes[0].author_user_id}/${file.id}`, "Saved original from the selected Staff Note attachment.");
   } catch (error) { return failure(request, error); }
 }
+
+/** Resolve current Notepad sharing and file membership before signing its original. */
+export async function readAskNotepadAttachment(request: NextRequest): Promise<Response> {
+  const query = selectedQuery(request, ["noteId", "attachmentId"]);
+  if (!query || !isUuid(query.noteId) || !isUuid(query.attachmentId)) return reply("Choose an exact Notepad note and its saved attachment ID.", 400);
+  const { requireUser } = await import("@/lib/server/auth");
+  const auth = await requireUser(request);
+  if (!auth) return reply("Sign in is required.", 401);
+  try {
+    const { resolveNotepadAttachment } = await import("@/lib/server/notepad-store");
+    const resolved = await resolveNotepadAttachment(auth.admin, auth.principal.hotelId, auth.principal.identity.id, query.noteId, query.attachmentId);
+    if (!resolved) return reply("That saved attachment is not available on this Notepad note.", 404);
+    const signed = await auth.admin.storage.from(resolved.bucket).createSignedUrl(resolved.path, 60);
+    if (signed.error || !signed.data?.signedUrl) throw new SavedAttachmentError("The native attachment original could not be opened.");
+    const file = savedFile({ ...resolved, url: signed.data.signedUrl }, true);
+    return await originalResponse(request, file, resolved.bucket, resolved.path, "Saved original from the selected Notepad attachment.");
+  } catch (error) { return failure(request, error); }
+}

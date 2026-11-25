@@ -8,12 +8,19 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import React from 'react';
 import * as pool from '../src/lib/pool-log.ts';
 import { makeUiTranslator } from '../src/lib/i18n/ui.ts';
+import * as clock from '../src/lib/ui/time-format.ts';
 
 const require = createRequire(import.meta.url);
 const source = readFileSync('src/app/engineering/pool-log/PoolDailyHistory.tsx', 'utf8');
 const exports = {};
+let timeFormat = '12h';
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText, {
-  exports, require: name => name === '@/lib/pool-log' ? pool : name === '@/components/UiLanguageProvider' ? { useUiLanguage: () => ({ t: makeUiTranslator('en'), locale: 'en-US' }) } : require(name),
+  exports, require: name => ({
+    '@/lib/pool-log': pool,
+    '@/components/UiLanguageProvider': { useUiLanguage: () => ({ t: makeUiTranslator('en'), locale: 'en-US' }) },
+    '@/components/TimeFormatProvider': { useTimeFormat: () => timeFormat },
+    '@/lib/ui/time-format': clock,
+  })[name] ?? require(name),
 });
 
 test('daily history reports changes and preserves every distinct location reading, zeros and notes', () => {
@@ -44,6 +51,22 @@ test('the daily timeline renders one row per action and labels legacy current da
   assert.match(html, /Pool closed: Cleaning/); assert.match(html, /Manual hold cleared/);
   assert.match(html, /Current saved record: AM pH 7.4/); assert.match(html, /Notes: Routine/);
   assert.equal((html.match(/<time /g) || []).length, 3);
+});
+
+test('pool history switches time format without changing its Chicago zone or stored timestamp', () => {
+  const recorded_at = '2026-11-10T23:15:00Z';
+  const render = () => renderToStaticMarkup(React.createElement(exports.default, { entries: [
+    { id: 'close', kind: 'close', recorded_at, reason: 'Cleaning' },
+  ] }));
+  try {
+    assert.match(render(), /5:15\s*PM/);
+    timeFormat = '24h';
+    const html = render();
+    assert.match(html, /17:15/);
+    assert.ok(html.includes(recorded_at));
+  } finally {
+    timeFormat = '12h';
+  }
 });
 
 test('the pool form has one accessible notes editor and a single top-row save button', () => {

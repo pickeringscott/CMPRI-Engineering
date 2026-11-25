@@ -4,7 +4,7 @@ import { eventRefresh } from "./refresh";
 import { resourceViewVisible, watchResourceVisibility } from "./visibility";
 import { invalidateCachedResources, reconcileDeviceDataCache } from "@/lib/data-cache/browser";
 
-export type ResourceTopic = "orders" | "inbox" | "pool" | "rooms" | "feedback" | "session" | "reference";
+export type ResourceTopic = "orders" | "inbox" | "pool" | "rooms" | "feedback" | "session" | "reference" | "notepad";
 type Listener = { topics: readonly ResourceTopic[]; request: () => void };
 const listeners = new Set<Listener>();
 let shutdown: (() => void) | undefined;

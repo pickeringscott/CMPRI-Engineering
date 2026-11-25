@@ -1,4 +1,5 @@
 "use client";
+import { isNotepadPath } from "@/lib/ui/notepad-navigation";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { loadCmpriSession, type CmpriClientSession } from "@/lib/auth/client-session";
@@ -42,7 +43,7 @@ export default function DesktopWorkspaceResume(props: Props) {
       if (!isAllowed(view)) return false;
       if (view.kind !== "frame") return true;
       const path = new URL(view.href!, origin).pathname;
-      return routes.has(path) || path === "/notes" || path === "/profile/ai-connection"
+      return routes.has(path) || isNotepadPath(path) || path === "/profile/ai-connection"
         || /^\/work-orders\/[^/]+$/.test(path) || view.key.startsWith("work-order-draft:");
     };
     ready.current = ""; signedOut.current = false; verifying.current = false; warned.current = false;

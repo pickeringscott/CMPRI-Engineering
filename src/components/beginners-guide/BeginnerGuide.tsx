@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { profileIsChiefEngineer, roleKey } from "@/lib/server/roles";
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { isRecognizedChiefEngineer, profileIsChiefEngineer, roleKey } from "@/lib/server/roles";
+import { SeasonalAnimationControls } from "@/components/desktop/seasonal-animation-controls";
 import GuideFlowchart, { type GuidePhase } from "./GuideFlowchart";
 import GuideWalkthrough, { type GuideAction } from "./GuideWalkthrough";
 import GuidePracticeWorkOrder from "./GuidePracticeWorkOrder";
 import { practiceWorkOrder, roomPracticePrompts, workOrderPracticeId } from "./ask-cmpri-practice";
 import "./beginners-guide.css";
 
-type GuideUser = { id: string; name: string; role: string; displayRole?: string };
+type GuideUser = { id: string; name: string; role: string; email?: string | null; secondary_roles?: string[]; displayRole?: string };
 type GuideLesson = {
   key: string;
   title: string;
@@ -105,6 +106,8 @@ function keepLauncherClearOfScore(launcher: HTMLButtonElement) {
 }
 
 export default function BeginnerGuide({ user }: { user: GuideUser }) {
+  const canUseAsk = isRecognizedChiefEngineer(user);
+  const setAnimationControlHost = useContext(SeasonalAnimationControls);
   const role = user.displayRole === "Chief Engineer" || profileIsChiefEngineer({ role: user.role })
     ? "chief_engineer"
     : roleKey(user.role);
@@ -299,10 +302,12 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   </div>;
 
   return <>
-    <button ref={trigger} type="button" className="cmpri-guide-launcher"
-      onClick={() => openGuide("Reopened from the dashboard")} aria-haspopup="dialog" aria-expanded={open}>
-      Beginner’s Guide
-    </button>
+    <div ref={setAnimationControlHost} className="cmpri-guide-launchers">
+      <button ref={trigger} type="button" className="cmpri-guide-launcher"
+        onClick={() => openGuide("Reopened from the dashboard")} aria-haspopup="dialog" aria-expanded={open}>
+        Beginner’s Guide
+      </button>
+    </div>
     {open && <dialog
       ref={dialog}
       className="cmpri-beginners-guide"
@@ -371,7 +376,7 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
         <GuideWalkthrough key={lesson.key} title={position.stop === ASK_CMPRI_STOP ? "Using Ask CMPRI" : lesson.title}
           purpose={lesson.purpose} when={lesson.when} action={action}
           onTry={action.target && (!lastAction || !lastStop) ? next : undefined}
-          onPracticeAsk={position.stop === ASK_CMPRI_STOP ? openPracticeAsk : undefined}
+          onPracticeAsk={canUseAsk && position.stop === ASK_CMPRI_STOP ? openPracticeAsk : undefined}
           onPracticeWorkOrder={position.stop === ASK_CMPRI_STOP ? () => setPracticeOrderId(workOrderPracticeId) : undefined}
           onPracticeImage={practiceOrderId ? () => setPracticeOrderId("") : undefined}
           practice={practiceOrderId && position.stop === ASK_CMPRI_STOP ? <GuidePracticeWorkOrder key={practiceOrderId} id={practiceOrderId} /> : undefined} />

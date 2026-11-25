@@ -1,6 +1,8 @@
 "use client";
 
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import "./asset-browser.css";
 import StagedPdfImporter from "@/components/StagedPdfImporter";
@@ -84,6 +86,7 @@ const equipmentResourceTopics = ["reference", "rooms", "orders"] as const;
 
 export default function ManageEquipmentPage() {
   const {t: ui, locale} = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const embedded = useEmbeddedModal();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -743,7 +746,7 @@ export default function ManageEquipmentPage() {
                 {ordersError ? <p role="alert" className="text-sm text-amber-200">{ui(ordersError)}</p> : ordersLoading ? <p role="status" className="text-sm text-slate-400">{ui("Loading work orders…")}</p> : assetOrders.length ? assetOrders.map(order => <div key={order.id} className="mt-3 text-sm">
                   <div className="asset-order rounded p-3"><div className="asset-order-heading"><AssetIcon name="document" /><strong>{ui("WO #")}{order.display_id} · {order.issue}</strong><span className="asset-order-status">{ui(order.status)}</span><ModalNavigationButton href={`/work-orders/${order.id}`} className="asset-open-order"><AssetIcon name="external" />{ui("Open Work Order")}</ModalNavigationButton></div>
                   <p className="mt-1 text-slate-400">{ui("Location: ")}{order.room || ui("Not specified")}</p></div>
-                  {order.notes && <><div className="asset-notes-heading"><h4>{ui("Work order notes")}</h4><span>{ui("Notes are saved on the work order and shown here for this asset.")}</span></div><ul className="asset-note-list mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ui(" · {value0}",{value0:String(new Date(entry.timestamp).toLocaleString(locale))}) : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul></>}
+                  {order.notes && <><div className="asset-notes-heading"><h4>{ui("Work order notes")}</h4><span>{ui("Notes are saved on the work order and shown here for this asset.")}</span></div><ul className="asset-note-list mt-2 space-y-2">{parseTicketHistory(order.notes).map(entry => <li key={entry.id}><span className="text-xs text-slate-400">{entry.actor}{entry.timestamp ? ui(" · {value0}",{value0:String(new Date(entry.timestamp).toLocaleString(locale, timeFormatOptions(timeFormat)))}) : ""}</span><p className="whitespace-pre-wrap">{entry.text}</p></li>)}</ul></>}
                 </div>) : <p className="mt-2 text-sm text-slate-400">{ui("No linked work orders found.")}</p>}
                 {documents.length > 0 && !selected.serial_number && <div className="asset-manual-hint"><AssetIcon name="document" /><span>{ui("Manuals attached")}</span><button type="button" onClick={() => setAssetPanel("documents")}>{ui("View Documentation ")}<AssetIcon name="external" /></button></div>}
               </section>

@@ -1,5 +1,8 @@
 "use client";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import type { TimeFormat } from "@/lib/profile-preferences";
+import { formatWallTime } from "@/lib/ui/time-format";
 
 
 import { formatWorkOrder } from "@/lib/work-order-reference.js";
@@ -118,14 +121,16 @@ export function checkoutLabel(date?: string | null, time?: string | null, locale
   return { label: `${displayDate}${when}`, className: "border-transparent bg-transparent text-slate-400" };
 }
 
-export function listCheckoutLabel(date?: string | null, time?: string | null, roomStatus?: string | null, today = hotelDate(), locale = "en-US") {
+export function listCheckoutLabel(date?: string | null, time?: string | null, roomStatus?: string | null, today = hotelDate(), locale = "en-US", timeFormat: TimeFormat = "12h") {
   if (!date) return null;
   const parsed = new Date(`${date.slice(0, 10)}T12:00:00Z`);
   if (Number.isNaN(parsed.getTime()) || !/^\d{4}-\d{2}-\d{2}$/.test(date) || parsed.toISOString().slice(0, 10) !== date) return null;
   const displayDate = parsed.toLocaleDateString(locale, { month: "short", day: "numeric", timeZone: "UTC" });
   const normalized = normalizePrintedTime(time || "") || "11:00:00";
-  const [hour, minute] = normalized.split(":").map(Number);
-  const displayTime = `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${hour < 12 ? "a.m." : "p.m."}`;
+  const clock = formatWallTime(normalized.slice(0, 5), timeFormat, locale);
+  const displayTime = timeFormat === "12h" && locale === "en-US"
+    ? clock.replace(/\s+(AM|PM)$/u, (_, period) => period === "AM" ? " a.m." : " p.m.")
+    : clock;
   return {
     label: `C/O ${displayDate}${date === today ? ` · ${displayTime}` : ""}`,
     className: roomStatusBadge(roomStatus)?.className || "border-slate-600 bg-slate-900 text-slate-300",
@@ -186,6 +191,7 @@ export default function WorkOrderListWindow({
   preferencesScope?: string;
 }) {
   const { t, locale } = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const [preferences, setPreferences] = useState(DEFAULT_WORK_ORDER_LIST_PREFERENCES);
   const [loadedScope, setLoadedScope] = useState<string | null>(null);
   const { filter, query, sort, page } = preferences;
@@ -310,7 +316,7 @@ export default function WorkOrderListWindow({
           <div className="flex flex-col gap-[0.2em]">
             {rows.slice(0, ROW_LIMIT).map((order) => {
               const occupancy = roomStatusBadge(order.room_status);
-              const checkout = listCheckoutLabel(order.checkout_date, order.checkout_time, order.room_status, undefined, locale);
+              const checkout = listCheckoutLabel(order.checkout_date, order.checkout_time, order.room_status, undefined, locale, timeFormat);
               const isDraft = order.is_draft === true;
               const sourceDraftId = typeof order.source_draft_id === "string" ? order.source_draft_id : "";
               return (

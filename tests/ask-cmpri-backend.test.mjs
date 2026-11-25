@@ -282,6 +282,7 @@ test("signed historical table formatting retains ticket identities and exact lin
 
 test("substantive reads use native data even when the planner selects a legacy source or suggests an unrequested edit", async () => {
   let planned = basePlan;
+  let authenticated = true;
   let currentPrincipal = {
     identity: { id: "actor" }, profile: { id: "actor", role: "Chief Engineer", active: true }, hotelId: "property",
     membership: { user_id: "actor", hotel_id: "property", role: "admin", active: true }, permissions: [],
@@ -291,7 +292,10 @@ test("substantive reads use native data even when the planner selects a legacy s
     "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod, "@/lib/server/roles": roles,
-    "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, principal: currentPrincipal }) }, "@/lib/work-order-attribution": {},
+    "@/lib/server/auth": {
+      requireUserAttempt: async () => authenticated ? { ok: true, principal: currentPrincipal } : { ok: false },
+    },
+    "@/lib/work-order-attribution": {},
     "@/lib/server/ask-cmpri-data": { ...data, readAskSources: () => assert.fail("A new read must not use the capped legacy source") },
     "@/lib/server/ask-cmpri-gemini": { ...gemini, askGeminiKey: () => true, planAsk: async () => planned,
       answerAsk: () => assert.fail("A new read must not answer from the short legacy projection") },
@@ -318,12 +322,31 @@ test("substantive reads use native data even when the planner selects a legacy s
     assert.equal(calls.at(-1).question, question); assert.equal(calls.at(-1).auth.principal, currentPrincipal);
   }
   assert.equal(calls.length, cases.length);
-  currentPrincipal = { ...currentPrincipal, profile: { ...currentPrincipal.profile, role: "front_desk" } };
-  assert.equal(data.askPermittedSources(currentPrincipal).includes("assets"), false, "legacy equipment access excludes submission-only lookup");
   planned = { ...basePlan, sources: ["assets"], rooms: ["203"] };
-  const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question: "What equipment can I select for room 203?" }) }));
-  assert.equal(response.status, 200);
-  assert.equal(calls.at(-1).auth.principal.profile.role, "front_desk", "the native handler receives the original role and decides whether its submission lookup is allowed");
+  const ask = (question = "What equipment can I select for room 203?") =>
+    handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question }) }));
+  authenticated = false;
+  assert.equal((await ask("What time is it?")).status, 401);
+  authenticated = true;
+  for (const profile of [
+    { role: "front_desk" }, { role: "engineer" }, { role: "technician" }, { role: "Engineering Manager" },
+    { role: "system_admin", secondary_roles: ["engineer"] },
+  ]) {
+    currentPrincipal = { ...currentPrincipal, profile: { ...currentPrincipal.profile, ...profile } };
+    assert.equal((await ask()).status, 403, profile.role);
+    assert.equal((await ask("What time is it?")).status, 403, profile.role);
+  }
+  assert.equal(calls.length, cases.length, "non-Chief profiles must not reach Ask execution");
+  currentPrincipal = { ...currentPrincipal, profile: {
+    ...currentPrincipal.profile, id: "750f77bf-7d5d-4ca6-8421-e025edea87ba", email: "maint.cmpri@hawkeyehotels.com",
+    role: "system_admin", secondary_roles: ["engineer"],
+  } };
+  assert.equal((await ask()).status, 200);
+  assert.equal(calls.at(-1).auth.principal, currentPrincipal, "the verified Chief Engineer retains the original dual-role principal");
+  const clock = await ask("What time is it?");
+  assert.equal(clock.status, 200);
+  assert.match((await clock.json()).summary, /\b\d{2}:\d{2}\b Central Time/);
+  assert.equal(calls.length, cases.length + 1, "the property clock uses no model");
 });
 
 test("raw pending data and unsigned, edited or cross-actor historical evidence never retain a legacy read path", async () => {

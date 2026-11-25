@@ -15,7 +15,7 @@ const toolResponse = (id, name, args, status = "completed") => ({
   response: { id: `response-${id}`, status, output: [{ type: "function_call", name, call_id: id, arguments: JSON.stringify(args) }] },
 });
 
-function fixture() {
+function fixture({ locale = "en-US" } = {}) {
   const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://cmpri.test/engineering" });
   const { window } = dom;
   const peers = [], captures = [], requests = [], transcripts = [], interrupted = [], states = [], audio = [];
@@ -67,7 +67,7 @@ function fixture() {
     onTranscript: (text, id) => transcripts.push({ text, id }),
     onInterruptedTranscript: text => interrupted.push(text),
     onEnd: () => { ended += 1; },
-    locale: "en-US",
+    locale,
     connect: (sdp, signal) => {
       const pending = deferred();
       requests.push({ ...pending, sdp, signal });
@@ -127,6 +127,119 @@ test("live voice requests no microphone or connection until the user starts a ca
     assert.equal(h.state.active, true);
     assert.match(h.state.status, /Listening/);
   } finally { h.close(); }
+});
+
+test("a ready voice connection announces itself once with no conversation input or executable tools", async () => {
+  const h = fixture();
+  try {
+    h.controller.start();
+    await h.grant();
+    h.requests[0].resolve({ sdp: "v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n",
+      history: [{ role: "assistant", text: "Private CMPRI record from the earlier conversation" }] });
+    await flush();
+    const channel = h.peers[0].channel;
+    assert.equal(channel.sent.length, 0, "negotiation alone must not announce a connected call");
+    h.event({ type: "session.created" });
+    assert.equal(channel.sent.length, 0, "the session must also have an open data channel");
+    channel.readyState = "open";
+    channel.onopen();
+    h.event({ type: "session.created" }); h.event({ type: "session.updated" }); channel.onopen();
+    const notices = channel.sent.filter(event => event.response?.metadata?.cmpri === "connected");
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0].type, "response.create");
+    assert.equal(notices[0].response.conversation, "none");
+    assert.deepEqual(notices[0].response.input, []);
+    assert.deepEqual(notices[0].response.tools, []);
+    assert.equal(notices[0].response.tool_choice, "none");
+    assert.deepEqual(notices[0].response.output_modalities, ["audio"]);
+    assert.match(notices[0].response.instructions, /Connected to Ask CMPRI\. I'm listening\./);
+    assert.doesNotMatch(JSON.stringify(notices[0]), /Private CMPRI record/);
+    h.event({ type: "response.created", response: { id: "connected-response", metadata: { cmpri: "connected" } } });
+    const unexpected = toolResponse("never-run", "ask_cmpri", { question: "Read private records" });
+    unexpected.response.id = "connected-response";
+    h.event(unexpected);
+    assert.equal(h.transcripts.length, 0, "announcement output cannot invoke the CMPRI backend");
+    h.event({ type: "error", error: { event_id: notices[0].event_id, code: "conversation_already_has_active_response" } });
+    assert.equal(h.state.active, true);
+    assert.equal(channel.sent.length, 1, "an announcement error cannot start a normal response with private context");
+  } finally { h.close(); }
+});
+
+test("connected announcements follow new calls and topic reconnections, never stale or disposed sessions", async () => {
+  const h = fixture({ locale: "es-US" });
+  try {
+    h.controller.start(); await h.grant(); await h.answer(); h.ready();
+    const first = h.peers[0].channel, staleMessage = first.onmessage, staleOpen = first.onopen;
+    assert.equal(first.sent.length, 1);
+    assert.match(first.sent[0].response.instructions, /Conectado a Ask CMPRI\. Te escucho\./);
+    h.controller.newTopic();
+    staleOpen(); staleMessage({ data: JSON.stringify({ type: "session.updated" }) });
+    assert.equal(first.sent.length, 1);
+    await h.grant(); await h.answer(); h.ready();
+    assert.equal(h.peers[1].channel.sent.length, 1);
+    h.controller.stop();
+    h.controller.start(); await h.grant(); await h.answer(); h.ready();
+    const last = h.peers[2].channel, lastOpen = last.onopen, lastMessage = last.onmessage;
+    assert.equal(last.sent.length, 1);
+    h.controller.dispose();
+    lastOpen(); lastMessage({ data: JSON.stringify({ type: "session.created" }) });
+    assert.equal(last.sent.length, 1);
+    assert.equal(last.readyState, "closed");
+  } finally { h.close(); }
+});
+
+test("speaking during a pending greeting cancels only that greeting and preserves the caller's complete request", async () => {
+  for (const announcementStartsFirst of [false, true]) {
+    const h = fixture();
+    try {
+      h.controller.start(); const { track } = await h.grant(); await h.answer(); h.ready();
+      const channel = h.peers[0].channel;
+      const announcement = { type: "response.created", response: { id: "greeting", metadata: { cmpri: "connected" } } };
+      if (announcementStartsFirst) h.event(announcement);
+      h.event({ type: "input_audio_buffer.speech_started", item_id: "immediate-question" });
+      if (!announcementStartsFirst) h.event(announcement);
+      const cancellations = channel.sent.filter(event => event.type === "response.cancel");
+      assert.equal(cancellations.length, 1);
+      assert.equal(cancellations[0].response_id, "greeting");
+      assert.equal(track.enabled, true);
+      assert.equal(track.stopped, false);
+      h.event({ type: "error", error: { event_id: cancellations[0].event_id, code: "response_cancel_not_active" } });
+      h.event({ type: "input_audio_buffer.speech_stopped" });
+      h.event({ type: "conversation.item.input_audio_transcription.completed", item_id: "immediate-question", transcript: "How many PMs remain?" });
+      h.event({ type: "response.created", response: { id: "response-immediate" } });
+      h.event({ type: "response.output_audio_transcript.delta", response_id: "greeting", delta: "Late greeting caption" });
+      assert.equal(h.state.reply, "", "an interrupted greeting cannot replace the current answer caption");
+      h.event({ type: "response.done", response: { id: "greeting", status: announcementStartsFirst ? "cancelled" : "failed", output: [] } });
+      assert.equal(h.state.active, true, "a greeting failure cannot end the call or cancel the normal response");
+      assert.equal(h.state.typingFallback, false);
+      assert.equal(h.transcripts.length, 0, "transcription alone must not execute an action");
+      h.event(toolResponse("immediate", "ask_cmpri", { question: "How many PMs remain?" }));
+      assert.deepEqual(h.transcripts, [{ text: "How many PMs remain?", id: "immediate" }]);
+      h.controller.speak("There are four PMs remaining.", "immediate");
+      const answers = channel.sent.filter(event => event.type === "response.create" && event.response?.metadata?.cmpri !== "connected");
+      assert.equal(answers.length, 1, "the backend answer must not remain blocked by the failed greeting");
+      assert.equal(channel.sent.filter(event => event.item?.type === "function_call_output").length, 1);
+      h.event({ type: "session.updated" });
+      assert.equal(channel.sent.filter(event => event.response?.metadata?.cmpri === "connected").length, 1);
+      assert.equal(track.stopped, false);
+    } finally { h.close(); }
+  }
+});
+
+test("a failed or cancelled connection cannot play a late connected announcement", async () => {
+  for (const cancel of [false, true]) {
+    const h = fixture();
+    try {
+      h.controller.start(); await h.grant();
+      const channel = h.peers[0].channel, lateMessage = channel.onmessage, lateOpen = channel.onopen;
+      if (cancel) h.controller.stop();
+      h.requests[0].reject(new Error("Connection failed")); await flush();
+      channel.readyState = "open";
+      lateOpen(); lateMessage({ data: JSON.stringify({ type: "session.created" }) });
+      assert.equal(channel.sent.length, 0);
+      assert.equal(h.state.active, false);
+    } finally { h.close(); }
+  }
 });
 
 test("stopping while microphone permission is pending releases a late stream without connecting", async () => {
@@ -255,9 +368,9 @@ test("captions never execute requests; complete function calls dispatch once and
     assert.equal(results.length, 1);
     assert.equal(results[0].item.call_id, "request-1");
     assert.match(results[0].item.output, /Two open work orders/);
-    assert.equal(sent.filter(value => value.type === "response.create").length, 0, "do not overlap an active model response");
+    assert.equal(sent.filter(value => value.type === "response.create" && value.response?.metadata?.cmpri !== "connected").length, 0, "do not overlap an active model response");
     h.event({ type: "response.done", response: { id: "response-speaking", status: "completed", output: [] } });
-    assert.equal(sent.filter(value => value.type === "response.create").length, 1);
+    assert.equal(sent.filter(value => value.type === "response.create" && value.response?.metadata?.cmpri !== "connected").length, 1);
     h.event({ ...request, event_id: "another-duplicate" });
     assert.equal(h.transcripts.length, 1, "completed calls stay deduplicated");
   } finally { h.close(); }
@@ -277,9 +390,9 @@ test("a delayed completion cannot clear a newer active response or overlap its p
     h.controller.speak("The room has two open work orders.", "waiting-result");
     const sent = h.peers[0].channel.sent;
     assert.equal(sent.filter(value => value.item?.type === "function_call_output").length, 1);
-    assert.equal(sent.filter(value => value.type === "response.create").length, 0, "response B is still active");
+    assert.equal(sent.filter(value => value.type === "response.create" && value.response?.metadata?.cmpri !== "connected").length, 0, "response B is still active");
     h.event({ type: "response.done", response: { id: "response-B", status: "completed", output: [] } });
-    assert.equal(sent.filter(value => value.type === "response.create").length, 1);
+    assert.equal(sent.filter(value => value.type === "response.create" && value.response?.metadata?.cmpri !== "connected").length, 1);
     assert.equal(h.state.active, true);
   } finally { h.close(); }
 });
@@ -294,7 +407,7 @@ test("an active-response conflict keeps the microphone open and retries the pend
     h.event(toolResponse("weather-result", "ask_cmpri", { question: "What is tomorrow's weather?" }));
     h.controller.speak("Tomorrow's forecast is ready.", "weather-result");
     const sent = h.peers[0].channel.sent;
-    assert.equal(sent.filter(value => value.type === "response.create").length, 1);
+    assert.equal(sent.filter(value => value.type === "response.create" && value.response?.metadata?.cmpri !== "connected").length, 1);
     h.event({ type: "error", error: { code: "conversation_already_has_active_response", message: "Another response is active." } });
     assert.equal(h.state.active, true);
     assert.equal(h.state.typingFallback, false);
@@ -302,7 +415,7 @@ test("an active-response conflict keeps the microphone open and retries the pend
     assert.equal(h.peers[0].closed, undefined);
     assert.equal(h.ended, 0);
     h.event({ type: "response.done", response: { id: "already-active", status: "completed", output: [] } });
-    assert.equal(sent.filter(value => value.type === "response.create").length, 2, "retry once after the existing response ends");
+    assert.equal(sent.filter(value => value.type === "response.create" && value.response?.metadata?.cmpri !== "connected").length, 2, "retry once after the existing response ends");
     assert.equal(sent.filter(value => value.item?.type === "function_call_output").length, 1, "do not resend the result or repeat the backend work");
     assert.equal(h.transcripts.length, 1);
   } finally { h.close(); }

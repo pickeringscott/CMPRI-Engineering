@@ -10,11 +10,22 @@
   --guide-border: color-mix(in srgb, var(--guide-action) 55%, var(--guide-base));
 }
 
-.cmpri-guide-launcher {
+.cmpri-guide-launchers {
   position: fixed;
   z-index: 30;
   bottom: calc(max(.75rem, env(safe-area-inset-bottom)) + var(--guide-score-clearance, 0px));
   left: max(.75rem, env(safe-area-inset-left));
+  display: flex;
+  align-items: center;
+  gap: .375rem;
+}
+
+.cmpri-guide-launchers > .cmpri-animation-control {
+  position: static;
+  flex: 0 0 auto;
+}
+
+.cmpri-guide-launcher {
   border: 1px solid var(--guide-border);
   border-radius: .55rem;
   background: var(--guide-base);

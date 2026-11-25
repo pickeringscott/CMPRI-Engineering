@@ -6,6 +6,7 @@ import {mountAnchoredMenus} from '@/lib/ui/anchored-dashboard-menus';
 import {mountAskDashboardLauncher} from '@/lib/ui/ask-dashboard-launcher';
 import {modalLauncherStyle} from '@/lib/ui/header-palette';
 import {allowsAnchoredHeaderPlacement,anchoredHeaderLayoutForGroups,normalizeHeaderLayout,headerLayoutForGroups,type AnchoredMenuRestriction,type HeaderLayout} from '@/lib/header-layout';
+import {notepadLayoutKey} from '@/lib/ui/notepad-navigation';
 import {useStaffNotesSummary} from '@/lib/staff-notes-unread';
 import {getValidSession} from '@/lib/supabase/client';
 import {subscribeResources} from '@/lib/events/browser';
@@ -23,10 +24,15 @@ type MenuProps<T>={
 };
 type AskLauncherState = ReturnType<NonNullable<ReturnType<typeof mountAskDashboardLauncher>>["getState"]>;
 
+function currentHeaderLayout(value: unknown): HeaderLayout {
+ const layout=normalizeHeaderLayout(value);
+ return {...layout,buttons:Object.fromEntries(Object.entries(layout.buttons).map(([group,keys])=>[group,[...new Set(keys.map(notepadLayoutKey))]]))};
+}
+
 function readCachedLayout(key: string): HeaderLayout | null {
  try {
   const value = localStorage.getItem(key);
-  return value ? normalizeHeaderLayout(JSON.parse(value)) : null;
+  return value ? currentHeaderLayout(JSON.parse(value)) : null;
  } catch {
   return null;
  }
@@ -42,14 +48,14 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
  const savedAskState=useRef<{scope:string;state:AskLauncherState}|null>(null);
  const [error,setError]=useState('');
  const summary=useStaffNotesSummary();
- const notebookGroups=anchored?groups:groups.map(group=>({...group,items:group.items.flatMap(action=>action.key==='/staff-notes'&&!group.items.some(item=>item.key==='/notes')?[action,{...action,key:'/notes',href:'/notes',label:'Notes'}]:[action])}));
+ const notebookGroups=groups;
  const signature=JSON.stringify(notebookGroups);
  useEffect(()=>{
   const element=root.current;if(!element)return;
   const count=summary?.hotelId===hotelId&&summary?.userId===userId?summary.flagCount:0;
-  const apply=()=>{for(const button of element.querySelectorAll<HTMLButtonElement>('[data-key="/staff-notes"]')){
+  const apply=()=>{for(const button of element.querySelectorAll<HTMLButtonElement>('[data-key="/notepad"]')){
    button.dataset.staffNotesBaseTitle??=button.title;
-   if(count){button.dataset.staffNotesUnread=String(count);button.setAttribute('aria-description',t('{count} new Staff Notes',{count}));button.title=button.dataset.staffNotesBaseTitle+' · '+tt('{count} new Staff Notes',{count})}
+   if(count){button.dataset.staffNotesUnread=String(count);button.setAttribute('aria-description',t('{count} new Notepad updates',{count}));button.title=button.dataset.staffNotesBaseTitle+' · '+tt('{count} new Notepad updates',{count})}
    else{delete button.dataset.staffNotesUnread;button.removeAttribute('aria-description');button.title=button.dataset.staffNotesBaseTitle}
   }};
   apply();const observer=new MutationObserver(apply);observer.observe(element,{childList:true,subtree:true});return()=>observer.disconnect();
@@ -108,10 +114,6 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
    ...group,items:group.items.map(action=>({...action,style:modalLauncherStyle(action.key,action.label)})),
   }));
   const launch=(action:T,at:number,opener?:HTMLButtonElement)=>{
-   if(askEnabled&&action.key==='/staff-notes'){
-    window.dispatchEvent(new CustomEvent('cmpri-ask-open',{detail:{tab:'staff',opener}}));
-    return;
-   }
    latest.current(action,at,opener);
   };
   const mount=()=>{
@@ -146,7 +148,7 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
     const data=await response.json();
     if(!active||revision!==requestedAt)return;
     if(document.body.classList.contains('drag-active')){refreshPending=true;return}
-    const next=normalizeHeaderLayout(data.layout);
+    const next=currentHeaderLayout(data.layout);
     if(JSON.stringify(next)!==JSON.stringify(layout)){layout=next;mount()}
     try{localStorage.setItem(key,JSON.stringify(layout))}catch{}
    }catch{}finally{loading=false;if(active&&refreshPending&&!pending)void load()}

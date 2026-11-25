@@ -2,7 +2,10 @@
 // Read-only release gate. Never prints configuration values or database rows.
 const required = {
   cmpri_general_notes: ['hotel_id','user_id','id','document','title','revision','change_id','updated_at','deleted_at'],
-  cmpri_staff_notes: ['id','hotel_id','attachments','gif_ids','hashtags','mentions','author_name_id'],
+  cmpri_notepad_notes: ['hotel_id','id','author_user_id','author_name','document','revision','change_id','created_at','updated_at','deleted_at','legacy_source'],
+  cmpri_notepad_order: ['hotel_id','user_id','note_ids'],
+  cmpri_notepad_uploads: ['id','hotel_id','author_user_id','note_id','name','media_type','size_bytes','storage_path','ready','created_at'],
+  cmpri_staff_notes: ['id','hotel_id','attachments','gif_ids','hashtags','mentions','author_name_id','notepad_revision'],
   cmpri_staff_note_names: ['id','hotel_id','name','name_key'],
   cmpri_staff_note_uploads: ['id','hotel_id','author_user_id','note_id','storage_path','ready'],
   cmpri_resource_signals: ['hotel_id', 'recipient_user_id', 'topic', 'revision'],
@@ -68,7 +71,7 @@ try {
     for (const field of fields) if (!definition.properties?.[field]) missing.push(`Column: ${table}.${field}`);
   }
   if (!schema.paths?.["/rpc/cmpri_save_mentioned_work_order"]?.post) missing.push("Function: cmpri_save_mentioned_work_order");
-  for(const rpc of ['cmpri_post_staff_note_with_mentions','cmpri_capture_staff_note_name'])if(!schema.paths?.['/rpc/'+rpc]?.post)missing.push('Function: '+rpc);
+  for(const rpc of ['cmpri_post_staff_note_with_mentions','cmpri_capture_staff_note_name','cmpri_save_notepad','cmpri_read_notepad_history'])if(!schema.paths?.['/rpc/'+rpc]?.post)missing.push('Function: '+rpc);
   const statuses = schema.definitions?.work_orders?.properties?.status?.enum;
   if (Array.isArray(statuses)) for (const status of ['Open', 'Pending Verification', 'In Progress', 'Completed', 'Closed', 'Will Not Do']) {
     if (!statuses.includes(status)) missing.push(`Work-order status: ${status}`);

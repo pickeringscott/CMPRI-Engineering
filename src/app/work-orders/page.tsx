@@ -1,6 +1,8 @@
 "use client";
 
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import WorkOrderMediaControl from "@/components/WorkOrderMediaControl";
 import WorkOrderStepMedia from "@/components/WorkOrderStepMedia";
 import { subscribeResources } from "@/lib/events/browser";
@@ -539,6 +541,7 @@ export default function WorkOrdersPage() {
     reason?: string;
   } | null>(null);
   const { language: formLanguage, locale, t: tx } = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const [staffFirstName, setStaffFirstName] = useState("");
   const [cmpriSession, setCmpriSession] = useState<CmpriClientSession | null>(null);
   const [drafts, setDrafts] = useState<WorkOrderDraft[]>([]);
@@ -2500,7 +2503,7 @@ export default function WorkOrdersPage() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-bold text-slate-100">{draft.room || tx("Room / Location")} · {draft.issue}</p>
-                        <p className="mt-1 text-xs text-slate-500">{ownDraft ? tx("Your draft") : tx("Created by {value1}{value2}", { value1: draft.creator_name || tx("another employee"), value2: draft.creator_display_role ? ` · ${tx(draft.creator_display_role)}` : "" })}{draft.updated_at ? tx(" · Updated {value1}", { value1: new Date(draft.updated_at).toLocaleString(locale) }) : ""}</p>
+                        <p className="mt-1 text-xs text-slate-500">{ownDraft ? tx("Your draft") : tx("Created by {value1}{value2}", { value1: draft.creator_name || tx("another employee"), value2: draft.creator_display_role ? ` · ${tx(draft.creator_display_role)}` : "" })}{draft.updated_at ? tx(" · Updated {value1}", { value1: new Date(draft.updated_at).toLocaleString(locale, timeFormatOptions(timeFormat)) }) : ""}</p>
                       </div>
                       <div className="flex shrink-0 gap-2">
                         {canEditDraft

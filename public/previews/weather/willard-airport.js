@@ -163,12 +163,12 @@
   function create(details, options = {}) {
     if (!details || details.tagName !== 'DETAILS') throw new TypeError('Willard Airport requires a details element');
     if (instances.has(details)) return instances.get(details);
-    const use24HourTime = options.use24HourTime === undefined
+    let use24HourTime = options.use24HourTime === undefined
       ? window.cmpriWeatherClock?.hour12 === false : options.use24HourTime === true;
-    const clockFormat = new Intl.DateTimeFormat('en-US', {
+    const formatLocalClock = (date) => new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Chicago', hour: use24HourTime ? '2-digit' : 'numeric', minute: '2-digit',
-      ...(use24HourTime ? { hourCycle: 'h23' } : { hour12: true }), timeZoneName: 'short'
-    });
+      hourCycle: use24HourTime ? 'h23' : 'h12', timeZoneName: 'short'
+    }).format(date);
     const dateFormat = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
     function publishedTime(value) {
       if (typeof value !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return '—';
@@ -178,7 +178,13 @@
     }
     function publishedStatus(value) {
       if (typeof value !== 'string' || !value) return '—';
-      return value.replace(/\b(?:[01]\d|2[0-3]):[0-5]\d\b(?!\s*[AP]M\b)/g, publishedTime);
+      return value.replace(/\b(\d{1,2}):([0-5]\d)(?:\s*([AP])\.?M\.?)?(?![\d:])/gi, (match, hour, minute, part, offset) => {
+        if (/^\s*(?:UTC|GMT|Zulu|Z)\b/i.test(value.slice(offset + match.length))) return match;
+        const publishedHour = Number(hour);
+        if (part ? publishedHour < 1 || publishedHour > 12 : publishedHour > 23) return match;
+        const localHour = part ? publishedHour % 12 + (part.toUpperCase() === 'P' ? 12 : 0) : publishedHour;
+        return publishedTime(String(localHour).padStart(2, '0') + ':' + minute);
+      });
     }
     function publishedDate(value) {
       if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
@@ -189,7 +195,7 @@
       if (!value || !Number.isFinite(Date.parse(value))) return 'unavailable';
       const date = new Date(value);
       const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
-      return day + ' ' + clockFormat.format(date);
+      return day + ' ' + formatLocalClock(date);
     }
     details.classList.add('wa-airport');
     details.open = false;
@@ -272,7 +278,7 @@
     function updateClock() {
       const now = new Date();
       clock.dateTime = now.toISOString();
-      clock.textContent = clockFormat.format(now);
+      clock.textContent = formatLocalClock(now);
       clock.setAttribute('aria-label', 'Current Central time: ' + clock.textContent);
       if (flightData.value && ['arrivals', 'departures'].some(kind =>
         models[kind]?.status === 'live' && boardFreshness(flightData.value[kind]).status === 'stale')) {
@@ -317,6 +323,15 @@
     details.addEventListener('toggle', sync);
     document.addEventListener('visibilitychange', sync);
     window.addEventListener('pagehide', pageHide);
+    const unsubscribeClock = window.cmpriTimeFormat?.subscribe((format) => {
+      use24HourTime = format === '24h';
+      london.dataset.timeFormat = format;
+      tracker?.setClockMode?.(use24HourTime ? '24' : '12');
+      if (canRun()) {
+        updateClock();
+        renderFlights(flightData.value, flightData.pending !== null);
+      }
+    });
     let connected = details.isConnected;
     const observer = new MutationObserver(() => {
       if (connected !== details.isConnected) { connected = details.isConnected; sync(); }
@@ -345,6 +360,7 @@
         details.removeEventListener('toggle', sync);
         document.removeEventListener('visibilitychange', sync);
         window.removeEventListener('pagehide', pageHide);
+        unsubscribeClock?.();
         content.remove();
         details.classList.remove('wa-airport');
         instances.delete(details);

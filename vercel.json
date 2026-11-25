@@ -1,4 +1,10 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "codex/ask-cmpri-runtime-fix": false,
+      "codex/verify-prs-62-63-66": false
+    }
+  },
   "crons": [
     {
       "path": "/api/integrations/drive-po/maintenance",

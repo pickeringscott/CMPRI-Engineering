@@ -1,4 +1,5 @@
 import {uiLanguageDependency} from './helpers/ui-language.mjs';
+import {timeFormatOptions} from '../src/lib/ui/time-format.ts';
 import * as targetPolicy from '../src/lib/staff-note-targets.ts';
 import * as workOrderReferences from '../src/lib/work-order-reference.js';
 import test from 'node:test';
@@ -44,13 +45,13 @@ test('semantic role association uses actual IDs, never invented recipients',()=>
  assert.equal(mentionPolicy.staffMentionCompletion('@Chief Engineer',15,directory),null);
  assert.equal(mentionPolicy.staffMentionMatches('@Chief Engineers',directory).length,0);
 });
-function harness(management=true) {
+function harness(management=true, timeFormat='12h') {
  let cursor=0,states=[],effects=[],posts=[],fail=false,seq=0;
  const payload={notes:[{id:'one',body:'First',author_name:'A',created_at:'2026-10-15T10:00:00Z',parent_id:null},{id:'two',body:'Second',author_name:'B',created_at:'2026-10-15T11:00:00Z',parent_id:'one'}],parents:[],mentions:mentionPolicy.staffMentionDirectory([{id:'chief',role:'system_admin',secondary_roles:['engineer'],full_name:'Scott'},{id:'deon',role:'Lead Housekeeper',full_name:'Deon'}]),tickets:{},management,frontDesk:false,hotelId:'hotel',next:null};
  const react={useState(initial){let i=cursor++;if(!(i in states))states[i]=initial;return [states[i],v=>states[i]=typeof v==='function'?v(states[i]):v];},useRef(initial){let i=cursor++;if(!(i in states))states[i]={current:initial};return states[i];},useId(){return 'staff-mention-list';},useCallback(fn){return fn;},useEffect(fn){effects.push(fn);},useLayoutEffect(){}};
  const jsx=(type,props)=>({type,props:props||{}});
  const exports={};
- vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require(name){if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;if(name==='@/lib/data-cache/browser')return {invalidateCachedResources:async()=>{}};if(name==='react')return react;if(name==='react/jsx-runtime')return {jsx,jsxs:jsx};if(name==='@/lib/auth/client-session')return {authorizationHeaders:async()=>({Authorization:'mock'})};if(name==='@/lib/supabase/client')return {};if(name==='@/lib/staff-notes')return mentionPolicy;if(name==='@/lib/staff-note-targets')return targetPolicy;if(name==='@/lib/work-order-reference.js')return workOrderReferences;if(name==='@/lib/events/browser')return {subscribeResources:()=>()=>{}};if(name==='@/lib/events/visibility')return {resourceViewVisible:()=>true,watchResourceVisibility:()=>()=>{}};if(name==='./StaffNotesMedia')return {default:()=>null,StaffNoteAttachments:()=>null};if(name==='@/lib/staff-note-media')return mediaPolicy;if(name==='@/lib/staff-note-upload')return {uploadStaffNoteFile:async()=>{}};if(name==='@/lib/giphy')return {requestGiphy:async()=>({gifs:[],total:0})};throw Error(name);},setTimeout,clearTimeout,Date,Map,crypto:{randomUUID:()=>`req-${++seq}`},requestAnimationFrame:fn=>fn(),fetch:async(url,options={})=>{if(options.method==='POST'){posts.push(JSON.parse(options.body));return {ok:!fail,json:async()=>fail?{error:'Offline; draft retained'}:{id:'saved'}};}return {ok:true,json:async()=>payload};},console});
+ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,require(name){if(name==='@/components/UiLanguageProvider')return uiLanguageDependency;if(name==='@/components/TimeFormatProvider')return {useTimeFormat:()=>timeFormat};if(name==='@/lib/ui/time-format')return {timeFormatOptions};if(name==='@/lib/data-cache/browser')return {invalidateCachedResources:async()=>{}};if(name==='react')return react;if(name==='react/jsx-runtime')return {jsx,jsxs:jsx};if(name==='@/lib/auth/client-session')return {authorizationHeaders:async()=>({Authorization:'mock'})};if(name==='@/lib/supabase/client')return {};if(name==='@/lib/staff-notes')return mentionPolicy;if(name==='@/lib/staff-note-targets')return targetPolicy;if(name==='@/lib/work-order-reference.js')return workOrderReferences;if(name==='@/lib/events/browser')return {subscribeResources:()=>()=>{}};if(name==='@/lib/events/visibility')return {resourceViewVisible:()=>true,watchResourceVisibility:()=>()=>{}};if(name==='./StaffNotesMedia')return {default:()=>null,StaffNoteAttachments:()=>null};if(name==='@/lib/staff-note-media')return mediaPolicy;if(name==='@/lib/staff-note-upload')return {uploadStaffNoteFile:async()=>{}};if(name==='@/lib/giphy')return {requestGiphy:async()=>({gifs:[],total:0})};throw Error(name);},setTimeout,clearTimeout,Date,Map,crypto:{randomUUID:()=>`req-${++seq}`},requestAnimationFrame:fn=>fn(),fetch:async(url,options={})=>{if(options.method==='POST'){posts.push(JSON.parse(options.body));return {ok:!fail,json:async()=>fail?{error:'Offline; draft retained'}:{id:'saved'}};}return {ok:true,json:async()=>payload};},console});
  const render=()=>{cursor=0;effects=[];return exports.default({});};
  function nodes(tree,predicate){const out=[];function visit(x){if(!x||typeof x!=='object')return;if(Array.isArray(x)){x.forEach(visit);return;}if(predicate(x))out.push(x);visit(x.props?.children);}visit(tree);return out;}
  const find=(tree,type)=>nodes(tree,x=>x.type===type)[0];
@@ -63,6 +64,17 @@ test('updated board keeps the approved chronological feed and bottom composer fo
   assert.deepEqual(h.nodes(tree,x=>x.props?.['data-staff-note']!==undefined).map(n=>n.props.id),['note-one','note-two']);
   const kinds=h.nodes(tree,x=>x.type==='form'||x.props?.['data-staff-note']!==undefined).map(n=>n.type==='form'?'composer':n.props.id);
   assert.equal(kinds.at(-1),'composer');
+ }
+});
+test('Staff Notes respects both clock formats in visible timestamps and their tooltips', async () => {
+ for(const format of ['12h','24h']){
+  const fixture=harness(true,format);
+  const stamp=fixture.find(await fixture.initialize(),'time');
+  const clock=fixture.find(stamp,'small').props.children;
+  const date=new Date(stamp.props.dateTime);
+  assert.equal(stamp.props.dateTime,'2026-10-15T10:00:00Z');
+  assert.equal(clock,date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hourCycle:format==='24h'?'h23':'h12'}));
+  assert.equal(stamp.props.title,date.toLocaleString('en-US',{hourCycle:format==='24h'?'h23':'h12'}));
  }
 });
 test('Enter posts once, preserves modal, clears only successful composer; failure retains request and draft',async()=>{

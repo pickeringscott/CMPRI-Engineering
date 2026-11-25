@@ -1,6 +1,8 @@
 "use client";
 
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useId, type FormEvent } from "react";
 import { authorizationHeaders } from "@/lib/auth/client-session";
 import { createClient } from "@/lib/supabase/client";
@@ -26,6 +28,7 @@ type StaffNotesProps = {
 };
 export default function StaffNotes({ compact: forcedCompact, targetNoteId, onOpenWorkOrder }: StaffNotesProps) {
   const {t: ui, tt: tip, locale} = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const [data, setData] = useState<Payload | null>(null);
   const compact = forcedCompact === true;
   const [body, setBody] = useState("");
@@ -356,7 +359,7 @@ export default function StaffNotes({ compact: forcedCompact, targetNoteId, onOpe
         return <div data-reply={Boolean(parent)} key={note.id} id={`note-${note.id}`} data-staff-note tabIndex={-1} className="flex items-start gap-1 border-b border-slate-800 px-2 py-0.5 text-xs leading-tight">
           <button type="button" aria-label={note.author_name} className="staff-note-author shrink-0 font-semibold" title={'Insert @'+note.author_name} onClick={()=>{if(nameMode)return;const target=staffAuthorMention(note,data?.mentions||[]);if(!target)return;const start=input.current?.selectionStart??body.length,end=input.current?.selectionEnd??start,inserted=insertStaffMention(body,{start,end},target,selected);setBody(inserted.value);setSelected(inserted.mentions);setCaret(inserted.caret);requestAnimationFrame(()=>{input.current?.focus();input.current?.setSelectionRange(inserted.caret,inserted.caret)})}}><span className="staff-author-name">{note.author_name}</span>{note.author_name_id&&<span className="staff-front-desk-badge">{ui("Front Desk")}</span>}</button>
           <div className="min-w-0 flex-1 whitespace-pre-wrap break-words text-slate-300">{parent && <button type="button" onClick={() => jump(parent.id)} title={ui("{value0}: {value1}",{value0:String(parent.author_name),value1:String(parent.body)})} className="mr-1 text-slate-500 hover:text-sky-300">↪ {parent.author_name}</button>}{content(note)}<StaffNoteAttachments files={note.attachments||[]} gifIds={note.gif_ids||[]} gifs={gifs} onRetry={()=>{void load();void restoreGIFs(note.gif_ids||[])}}/></div>
-          <time dateTime={note.created_at} title={date.toLocaleString(locale)} className="shrink-0 text-slate-500">{date.toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })} <small>{date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" })}</small></time>
+          <time dateTime={note.created_at} title={date.toLocaleString(locale, timeFormatOptions(timeFormat))} className="shrink-0 text-slate-500">{date.toLocaleDateString(locale, { month: "2-digit", day: "2-digit" })} <small>{date.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit", ...timeFormatOptions(timeFormat) })}</small></time>
           <button type="button" aria-label={ui("Reply to {value0}",{value0:String(note.author_name)})} title={tip("Reply")} className="shrink-0 px-1 text-slate-500 hover:text-sky-300" onClick={() => { setReply(note); input.current?.focus(); }}>↪</button>
         </div>;
       })}

@@ -1,4 +1,5 @@
 "use client";
+import { isNotepadPath } from "@/lib/ui/notepad-navigation";
 import BeginnerGuide from "@/components/beginners-guide/BeginnerGuide";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 
@@ -47,7 +48,7 @@ import {
   type WindowSize,
 } from "@/lib/ui/desktop-windows";
 import { animateWindowTelescope, captureWindowLauncher, clearWindowTelescope, currentWindowLauncher, type WindowLauncher } from "@/lib/ui/window-telescope";
-import { profileCanReopenPool, profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
+import { isRecognizedChiefEngineer, profileCanReopenPool, profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
 import PoolStatus from "@/components/desktop/PoolStatus";
 import WeatherUtilities from "@/components/desktop/WeatherUtilities";
 import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
@@ -123,6 +124,9 @@ function DashboardLauncherButton({
 }
 
 const ROUTE_WINDOWS: Record<string, { title: string; accent: string; preferred?: WindowSize }> = {
+  "/notepad": { title: "Notepad", accent: "bg-green-500", preferred: { width: 1040, height: 720 } },
+  "/notes": { title: "Notepad", accent: "bg-green-500", preferred: { width: 1040, height: 720 } },
+  "/staff-notes": { title: "Notepad", accent: "bg-green-500", preferred: { width: 1040, height: 720 } },
   [WEATHER_PREVIEW_PATH]: { title: "Weather", accent: "bg-amber-400", preferred: { width: 1280, height: 800 } },
   "/engineering/room-ranking": { title: "Room Ranker", accent: "bg-amber-400", preferred: { width: 1900, height: 1000 } },
   "/work-orders": { title: "Create Work Order", accent: "bg-slate-300", preferred: { width: 900, height: 760 } },
@@ -762,8 +766,8 @@ export default function EngineeringDashboardPage() {
     void markNotificationRead(notification);
     if (notification.target_path && isDesktopRoute(notification.target_path, window.location.origin)) {
       const target = new URL(notification.target_path, window.location.origin);
-      if (target.pathname === "/staff-notes") {
-        window.dispatchEvent(new CustomEvent("cmpri-ask-open", { detail: { tab: "staff", noteId: target.searchParams.get("note") || undefined, opener } }));
+      if (isNotepadPath(target.pathname)) {
+        openRoute(notification.target_path, "Notepad", undefined, captureWindowLauncher(opener));
       } else openRoute(notification.target_path, "Daily Room Ops", undefined, captureWindowLauncher(opener));
     } else if (notification.work_order_id) openWorkOrder(notification.work_order_id, opener);
   }
@@ -775,8 +779,7 @@ export default function EngineeringDashboardPage() {
     process.env.NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW === "1" && canOpenWeather(session.user) && { key: WEATHER_PREVIEW_PATH, label: "Weather", href: `${WEATHER_PREVIEW_PATH}?weather=open`, tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400", preferred: { width: 1280, height: 800 } },
     canUseWinterPreparedness(session.user) && { key: "/engineering/winter-preparedness", label: "Winter Preparedness 2026", href: "/engineering/winter-preparedness", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
     canReviewEmployment(session.user,session.user) && { key: "/engineering/employment", label: "Candidate questionnaires", href: "/engineering/employment", tone: "border-yellow-400 bg-slate-900 text-yellow-300", accent: "bg-yellow-400", preferred: { width: 850, height: 700 } },
-    { key: "/staff-notes", label: "Staff Notes", href: "/staff-notes", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400" },
-    { key: "/notes", label: "Notes", href: "/notes", tone: "border-amber-400/50 bg-slate-900 text-amber-300", accent: "bg-amber-400" },
+    { key: "/notepad", label: "Notepad", href: "/notepad", tone: "border-green-700 bg-green-950 text-green-100", accent: "bg-green-500" },
     hasCapability(session, "view_pool_log") && { key: "/engineering/pool-log", label: "Pool Log", href: "/engineering/pool-log", tone: "border-cyan-400/50 bg-cyan-950/30 text-cyan-100", accent: "bg-cyan-400" },
     canOpenRoomOperations(session.user) && { key: "/engineering/room-operations", label: "Daily Room Ops", href: "/engineering/room-operations", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400" },
     canOpenGss(session.user) && { key: "/engineering/gss", label: "GSS Reports", href: "/engineering/gss", tone: "border-sky-400/50 bg-sky-950/30 text-sky-100", accent: "bg-sky-400", preferred: { width: 820, height: 600 } },
@@ -874,9 +877,8 @@ export default function EngineeringDashboardPage() {
       {typeof window !== "undefined" && window.parent === window
         && new URLSearchParams(window.location.search).get("embedded") !== "1" && (
           <BeginnerGuide key={session.user.id + ":" + session.user.role + ":" + displayRole} user={{
-            id: session.user.id,
+            ...session.user,
             name: session.user.name?.trim() || "",
-            role: session.user.role,
             displayRole,
           }} />
         )}
@@ -916,7 +918,7 @@ export default function EngineeringDashboardPage() {
           </WeatherUtilities>
         </div>
         <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
-          <ApprovedDashboardMenus anchored askEnabled restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
+          <ApprovedDashboardMenus anchored askEnabled={isRecognizedChiefEngineer(session.user)} restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
         </nav>
 
         {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={event => openPoolStatus(event.currentTarget)}/></div>}
@@ -956,7 +958,7 @@ export default function EngineeringDashboardPage() {
             const zIndex = 10 + Math.max(0, zOrder.indexOf(entry.key));
             if (entry.key === WEATHER_PREVIEW_PATH && entry.kind === "frame" && entry.src) {
               return <WeatherPreviewWindow key={entry.key} windowKey={entry.key} title={entry.title} accentClass={entry.accent} src={entry.src}
-                visible={!entry.weatherCached} use24HourTime={chiefEngineerMobileLayout} bulletinHost={weatherBulletinHost}
+                visible={!entry.weatherCached} bulletinHost={weatherBulletinHost}
                 rect={rect} bounds={bounds} zIndex={zIndex} active={activeKey === entry.key} onFocus={() => raise(entry.key)}
                 onClose={() => requestCloseWindow(entry.key)} onRectCommit={next => commitRect(entry.key, next)}
                 registerFrame={frame => { if (frame) frameRefs.current.set(entry.key, frame); }}

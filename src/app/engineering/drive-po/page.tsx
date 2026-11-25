@@ -1,5 +1,7 @@
 'use client';
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import {useCallback,useEffect,useState} from 'react';
 import {getValidSession} from '@/lib/supabase/client';
 type Status={checkedAt:string;enabled:boolean;integrationEnabled:boolean;pendingEvents:number;lastRun:string|null;lastError:string|null;error?:string;
@@ -8,6 +10,7 @@ type Status={checkedAt:string;enabled:boolean;integrationEnabled:boolean;pending
  lastResult?:{insertedLines:number;ordersEnriched:number;held:{po?:string;fileId?:string;reason:string}[]}|null};
 export default function DrivePoIntakePage(){
   const {t: ui, locale} = useUiLanguage();
+  const timeFormat = useTimeFormat();
  const [status,setStatus]=useState<Status|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const load=useCallback(async(checkAccess=false)=>{
   const session=await getValidSession();if(!session)throw Error('Sign in to CMPRI to view intake status.');
@@ -33,8 +36,8 @@ export default function DrivePoIntakePage(){
   {error&&<p role="alert">{ui(error)}</p>}
   {status&&<>
    <p>{!status.integrationEnabled?ui("PO imports are disabled or in safe mode."):active?active.sync_received_at?ui("Drive has confirmed the notification channel."):ui("Watch registered; awaiting Drive confirmation."):ui("No active Drive watch.")}</p>
-   {active&&<p>{ui("Watch expires: ")}{new Date(active.expires_at).toLocaleString(locale)}{ui(". Renewal is automatic.")}</p>}
-   <p>{ui("Pending notifications: ")}{status.pendingEvents}{ui(". Last completed run: ")}{status.lastRun?new Date(status.lastRun).toLocaleString(locale):ui("None")}.</p>
+   {active&&<p>{ui("Watch expires: ")}{new Date(active.expires_at).toLocaleString(locale, timeFormatOptions(timeFormat))}{ui(". Renewal is automatic.")}</p>}
+   <p>{ui("Pending notifications: ")}{status.pendingEvents}{ui(". Last completed run: ")}{status.lastRun?new Date(status.lastRun).toLocaleString(locale, timeFormatOptions(timeFormat)):ui("None")}.</p>
    {status.access&&<p>{status.access.error||ui("Access verified for {value0}: {value1}",{value0:String(status.access.account),value1:String(status.access.folderName)})}</p>}
    {status.access?.scopeMetadata&&<p>{ui("Google account verified: ")}{status.access.accountVerified?ui("Yes"):ui("Not yet")}{ui(". Drive scopes reported by existing token refresh: ")}{status.access.scopeMetadata.reported?(status.access.scopeMetadata.recognized.join(', ')||ui("None")):ui("Not supplied by Google")}.</p>}
    {status.lastError&&<p role="alert">{ui(status.lastError)}</p>}

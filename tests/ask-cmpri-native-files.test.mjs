@@ -41,6 +41,11 @@ function fixture(name = "original.csv", content = "Original unshortened source\n
       PUT: async incoming => { const body = await record("staff-finalize", incoming); return Response.json({ id: body.id, ready: true }); },
     },
     "@/app/api/staff-notes/route": { POST: async incoming => { await record("staff-post", incoming); if (state.noteFails) return Response.json({ error: "Native post unconfirmed" }, { status: 503 }); state.posted = true; return Response.json({ id }); } },
+    "@/app/api/notepad/uploads/route": {
+      POST: async incoming => { const body = await record("notepad-prepare", incoming); return state.denied ? Response.json({ error: "Native account denied" }, { status: 403 }) : Response.json({ id: body.id, path: `${hotel}/${actor}/notepad/${body.id}`, token: "private-upload-credential" }); },
+      PUT: async incoming => { const body = await record("notepad-finalize", incoming); return Response.json({ id: body.id, ready: true }); },
+    },
+    "@/app/api/notepad/route": { PUT: async incoming => { const body = await record("notepad-save", incoming); return state.noteFails ? Response.json({ error: "The note changed" }, { status: 409 }) : Response.json({ note: { id, ...body.document, revision: (body.expectedRevision || 0) + 1 } }); } },
     "./ask-cmpri-vendor-document": { loadAskVendorAsset: async (_request, assetId) => { assert.equal(assetId, id); if (state.denied) throw Error("Native equipment access denied"); return { auth: original.auth, asset }; }, askVendorSerialReview: () => ({ status: "unrestricted" }) },
     "@/lib/manual-pdf-knowledge": { inspectManualPdf: async data => { assert.deepEqual(data, bytes); return { text: "Source Maker MODEL-42\nActual original source", total_pages: 4, pages: [1, 2, 3, 4].map(page => ({ page, text: `Source page ${page}` })), warnings: [] }; }, manualPdfMatchesEquipment: (text, asset) => text.includes(asset.manufacturer) && text.includes(asset.model_number) },
     "@/lib/manual-applicability": { serialRangeStatus: () => "unrestricted" },
@@ -140,4 +145,27 @@ test("stored-PDF questions read the full original under native review without an
   assert.equal(f.calls.length, 1); assert.equal(f.calls[0].actionValue, "review"); assert.match(data.message, /No association or asset verification was changed/);
   f.stored.values().next().value.bytes = new Uint8Array(f.original.bytes.length).fill(65);
   assert.equal((await f.files.inspectAskStoredPdf(request({ assetId: id, objectId: id }))).status, 409);
+});
+
+
+test("Notepad carries actual original files through its own upload path and preserves shared document fields", async () => {
+  const f = fixture("original.pdf", "%PDF-notepad original bytes");
+  const document = { title: "Joint project", audience: { all: false, roles: ["engineer", "technician"], people: [] },
+    content: '<p data-item-id="first">Keep this</p>', ink: [{ id: "saved-ink" }], itemThreads: { first: [{ id: "reply" }] }, attachments: [{ id: "gif:source", kind: "gif", gifId: "source", name: "Existing GIF" }] };
+  const body = { fileTokens: ["actual-original-token"], id, changeId: "a985d82a-91b0-4ecb-81c5-fb9d682a012b", expectedRevision: 4, document };
+  assert.equal((await f.files.saveAskNotepadFiles(request(body))).status, 200);
+  const saved = f.calls.find(call => call.action === "notepad-save").body;
+  assert.equal(saved.expectedRevision, 4); assert.equal(saved.changeId, body.changeId);
+  assert.deepEqual(saved.document.audience, document.audience); assert.deepEqual(saved.document.ink, document.ink); assert.deepEqual(saved.document.itemThreads, document.itemThreads);
+  assert.deepEqual(saved.document.attachments[0], document.attachments[0]);
+  const attachment = saved.document.attachments[1];
+  assert.equal(attachment.name, "original.pdf"); assert.equal(attachment.type, "application/pdf"); assert.equal(attachment.size, f.original.bytes.length);
+  const copy = f.calls.find(call => call.action === "copy");
+  assert.equal(copy.path, `${hotel}/${actor}/notepad/${attachment.id}`);
+  assert.deepEqual(f.stored.get(copy.bucket + copy.path).bytes, f.original.bytes);
+  assert.equal((await f.files.saveAskNotepadFiles(request(body))).status, 200);
+  assert.equal(f.calls.filter(call => call.action === "notepad-save")[1].body.document.attachments[1].id, attachment.id, "identical recovery uses the same attachment identity");
+  const denied = fixture(); denied.state.denied = true;
+  assert.equal((await denied.files.saveAskNotepadFiles(request(body))).status, 403);
+  assert.deepEqual(denied.calls.map(call => call.action), ["notepad-prepare"], "native denial must precede storage or note writes");
 });

@@ -64,8 +64,12 @@
     let requestedActive = false, running = false, destroyed = false, generation = 0, wheelActive = false, expanded = false;
     let sourceStatus = 'unavailable', aircraft = [], trustedCollection = false, observedAt = null, retrievedAt = null, lastReadAt = null, lastAttemptAt = null, error = '';
     let sourceRecord = null, pollTimer = null, sourceRequests = 0, tileRequests = 0, selected = null, pointer = null, moved = false;
-    const clock = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit', hour: clockMode === '24' ? '2-digit' : 'numeric', minute: '2-digit', ...(clockMode === '24' ? { hourCycle: 'h23' } : { hour12: true }), timeZoneName: 'short' });
-    function timestamp(value) { return value === null ? 'Unavailable' : clock.format(new Date(value)); }
+    function timestamp(value) {
+      return value === null ? 'Unavailable' : new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: clockMode === '24' ? '2-digit' : 'numeric', minute: '2-digit', hourCycle: clockMode === '24' ? 'h23' : 'h12', timeZoneName: 'short',
+      }).format(new Date(value));
+    }
     function status() { return sourceStatus === 'live' && observedAt !== null && Date.now() - observedAt >= TTL ? 'stale' : sourceStatus; }
     function positionAge(row) { return finite(row.positionAgeSeconds) ? Math.max(0, row.positionAgeSeconds + (observedAt === null ? 0 : Math.max(0, Date.now() - observedAt) / 1000)) : null; }
     function effectiveLayoutStatus() { return ['available', 'partial'].includes(layoutStatus) && layoutReadAt !== null && Date.now() - layoutReadAt >= LAYOUT_TTL ? 'stale' : layoutStatus; }
@@ -327,7 +331,15 @@
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null; observer?.observe(root);
     window.addEventListener('resize', resize); document.addEventListener('visibilitychange', reconcile); document.addEventListener('fullscreenchange', fullscreenChange); document.addEventListener('keydown', keydown, true); window.addEventListener('pagehide', pagehide);
     resize();
-    return Object.freeze({ setActive, destroy, getState });
+    return Object.freeze({
+      setActive, destroy, getState,
+      setClockMode(next) {
+        if (next === clockMode || !['12', '24'].includes(next)) return;
+        clockMode = next;
+        updateBanner();
+        showDetails();
+      },
+    });
   }
   window.cmpriWillardTracker = Object.freeze({ create, project, unproject, airport: AIRPORT });
 }());

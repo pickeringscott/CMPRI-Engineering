@@ -7,7 +7,7 @@ export const DASHBOARD_TAB_LABELS = ["Daily Work", "Rooms & Reports", "Safety & 
 type DashboardTab = typeof DASHBOARD_TAB_LABELS[number];
 
 const menuActions: Record<DashboardTab, readonly string[]> = {
-  "Daily Work": ["work-order-list", "/engineering", "/technician", "/staff-notes", "/notes", "/engineering/preventive-maintenance", "/engineering/employment"],
+  "Daily Work": ["work-order-list", "/engineering", "/technician", "/notepad", "/engineering/preventive-maintenance", "/engineering/employment"],
   "Rooms & Reports": ["/engineering/room-operations", "/engineering/room-ranking", "/engineering/gss", "/management/rooms", "/engineering/enseo-assignments"],
   "Safety & Logs": ["/engineering/pool-log", WEATHER_MENU_PATH, "/engineering/winter-preparedness"],
   "Assets & Inventory": ["/engineering/purchasing", "/engineering/parts", "/management/equipment"],
@@ -17,7 +17,7 @@ const menuActions: Record<DashboardTab, readonly string[]> = {
 
 const limitedActions: Partial<Record<DashboardTab, readonly string[]>> = {
   "Rooms & Reports": ["work-order-list", "/engineering/room-ranking"],
-  "Safety & Logs": [WEATHER_MENU_PATH, "/notes", "/staff-notes"],
+  "Safety & Logs": [WEATHER_MENU_PATH, "/notepad"],
   "Account": ["sign-out"],
 };
 
