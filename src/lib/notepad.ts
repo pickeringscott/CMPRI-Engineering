@@ -1,6 +1,8 @@
 import type { InkStroke } from './general-notes';
 import type { TimeFormat } from './profile-preferences';
 
+export const NOTEPAD_CACHE_KEY = 'cmpri:notepad:bootstrap';
+
 export const NOTEPAD_ROLES = [
   { id: 'engineer', label: 'Chief Engineer' },
   { id: 'technician', label: 'Maintenance Technician' },
@@ -15,7 +17,7 @@ export const NOTEPAD_ROLES = [
 export type NotepadRole = typeof NOTEPAD_ROLES[number]['id'];
 export type NotepadAudience = { all: boolean; roles: string[]; people: string[] };
 export type NotepadPerson = { id: string; name: string; short: string; initials: string; role: string; displayRole?: string; roles: string[]; active: boolean; taggable: boolean; recipientSelectable: boolean };
-export type NotepadAttachment = { id: string; kind: 'file' | 'gif'; name: string; type?: string; size?: number; gifId?: string; url?: string };
+export type NotepadAttachment = { id: string; kind: 'file' | 'gif'; name: string; type?: string; size?: number; gifId?: string; url?: string; uploaderId?: string };
 export type NotepadReplyMention = { id: string; kind: 'person' | 'role' | 'department'; start: number; end: number };
 export type NotepadReply = { id: string; authorId: string; authorName?: string; at: string; text: string; mentions?: NotepadReplyMention[]; replies: NotepadReply[] };
 export type NotepadDocument = {
@@ -37,7 +39,7 @@ export type NotepadBootstrap = {
 export const NOTEPAD_TEST_EMAILS = new Set(['assmgr@test.com', 'chief@test.com', 'frontmgr@test.com', 'gm@test.com', 'gpt@test.com', 'frontdesk@test.com']);
 export const NOTEPAD_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function notepadCanRead(note: Pick<NotepadNote, 'authorId' | 'audience'>, person: Pick<NotepadPerson, 'id' | 'roles' | 'active'>) {
-  return person.active && (note.authorId === person.id || note.audience.all || note.audience.people.includes(person.id) || person.roles.some(role => note.audience.roles.includes(role)));
+  return person.active && (note.authorId === person.id || note.audience.all || note.audience.people.includes(person.id) || person.roles.some(role => note.audience.roles.includes(role) || (role === 'system_admin' && note.audience.roles.includes('engineer'))));
 }
 export function notepadAudienceWithPeople(audience: NotepadAudience, ids: readonly string[]): NotepadAudience {
   if (!ids.length) return audience;
@@ -49,5 +51,5 @@ export function notepadDocument(note: NotepadDocument): NotepadDocument {
     fontSize: note.fontSize, fontFamily: note.fontFamily, titleFontFamily: note.titleFontFamily,
     ink: note.ink, itemThreads: note.itemThreads,
     ...(typeof note.untouchedDraft === 'boolean' ? { untouchedDraft: note.untouchedDraft } : {}),
-    attachments: note.attachments.map(attachment => { const copy = { ...attachment }; delete copy.url; return copy; }) };
+    attachments: note.attachments.map(attachment => { const copy = { ...attachment }; delete copy.url; delete copy.uploaderId; return copy; }) };
 }

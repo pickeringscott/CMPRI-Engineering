@@ -967,3 +967,7 @@
 .inline-attachment-preview{position:fixed;z-index:10001;display:grid;gap:4px;width:max-content;max-width:min(320px,calc(100vw - 10px));padding:5px;border:1px solid var(--cmpri-outline);border-radius:5px;background:var(--cmpri-modal-surface);color:var(--cmpri-modal-text);box-shadow:0 4px 14px #0006;font:12px/1.3 Arial,sans-serif;overflow-wrap:anywhere;pointer-events:none}
 .inline-attachment-preview :is(img,video){display:block;width:300px;max-width:100%;height:min(190px,40vh);object-fit:contain;background:var(--cmpri-modal-base)}
 .note-content [data-upload-pending]{display:inline-block;max-width:100%;margin-inline:3px;padding:2px 4px;border:1px solid var(--cmpri-outline);border-radius:4px;color:var(--cmpri-modal-muted);font:11px/1.3 Arial,sans-serif;vertical-align:middle;overflow-wrap:anywhere;user-select:none}
+
+.notepad-media-dialog.notepad-gif-viewer{width:max-content;max-width:calc(100% - 12px);padding:0;border:0;outline:0;background:transparent;box-shadow:none}
+.notepad-gif-viewer .notepad-attachment-body{padding:0;overflow:hidden}
+.notepad-gif-viewer .notepad-attachment-body>img{display:block}

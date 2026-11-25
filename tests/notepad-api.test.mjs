@@ -18,7 +18,7 @@ function fixture(){
  let signed=true,rpcError=null,preferences={},profile={role:'chief_engineer'};
  const calls=[],state={hotelId:hotel,userId:actor,people:[{id:actor,active:true,taggable:true}],roles:[],notes:[],rows:[],order:[],legacyAliases:{}},uploads=[];
  const admin={from(table){calls.push(['table',table]);const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:{preferences},error:null}),in(){return Promise.resolve({data:uploads,error:null})},upsert:async row=>{calls.push(['order',row]);return{error:null}}};return q},rpc:async(name,args)=>{calls.push([name,args]);return {error:rpcError,data:{id:args.p_id,hotel_id:args.p_hotel,author_user_id:state.notes[0]?.authorId||actor,document:args.p_document,revision:2,created_at:at,updated_at:at,deleted_at:args.p_document?null:at}}}};
- const route=loadTs('src/app/api/notepad/route.ts',{'next/server':{NextResponse:{json}},'@/lib/server/auth':{requireUser:async()=>signed?{principal:{hotelId:hotel,identity:{id:actor},profile},admin}:null},'@/lib/notepad':model,'@/lib/profile-preferences':preferencesTools,'@/lib/server/notepad-document':documentTools,'@/lib/server/notepad-store':{loadNotepad:async(_admin,property,user)=>{calls.push(['load',property,user]);return state},projectNotepadRow:row=>row.document?{...row.document,id:row.id,authorId:row.author_user_id,revision:row.revision,createdAt:row.created_at,updatedAt:row.updated_at}:null,signNotepadAttachments:async()=>{}}},{TextDecoder});
+ const route=loadTs('src/app/api/notepad/route.ts',{'next/server':{NextResponse:{json}},'@/lib/server/auth':{requireUser:async()=>signed?{principal:{hotelId:hotel,identity:{id:actor},profile},admin}:null},'@/lib/notepad':model,'@/lib/profile-preferences':preferencesTools,'@/lib/server/notepad-document':documentTools,'@/lib/server/notepad-store':{loadNotepad:async(_admin,property,user)=>{calls.push(['load',property,user]);return state},projectNotepadRow:row=>row.document?{...row.document,id:row.id,authorId:row.author_user_id,revision:row.revision,createdAt:row.created_at,updatedAt:row.updated_at}:null,signNotepadAttachments:async()=>{},notepadFileOwners:async(_admin,_hotel,_note,ids)=>new Map(uploads.filter(file=>ids.includes(file.id)).map(file=>[file.id,file.author_user_id]))}},{TextDecoder});
  return{route,calls,state,uploads,setSigned:value=>signed=value,setRpcError:value=>rpcError=value,setProfile:(next,setting)=>{profile=next;preferences=setting},body:()=>({id,expectedRevision:null,changeId:change,document:document()})};
 }
 test('Notepad APIs bind every load and mutation to the active principal and reject tenant or ownership injection',async()=>{
@@ -249,4 +249,19 @@ test('shared recipients read collaborators’ files; revocation and legacy UUID 
  assert.equal((await resolveNotepadAttachment(admin,hotel,actor,owner,fileId)).path,legacy.storage_path);
  const notes=[{...row.document,id,attachments:[{...attachment}]},{...document(),id:owner,attachments:[{...attachment}]}];
  await signNotepadAttachments(admin,hotel,notes,{[owner]:owner});assert.ok(notes[0].attachments[0].url.includes('/notepad/'));assert.ok(!notes[1].attachments[0].url.includes('/notepad/'));
+});
+
+test('file removal requires the uploader even when the actor created the note',async()=>{
+ const f=fixture();
+ const file={id:fileId,kind:'file',name:'Report.pdf',type:'application/pdf',size:32};
+ f.state.notes=[{...document(),id,authorId:actor,revision:1,attachments:[file]}];
+ f.state.rows=[{id,revision:1,author_user_id:actor,change_id:owner}];
+ f.uploads.push({id:fileId,author_user_id:owner});
+ const input={...f.body(),expectedRevision:1};
+ const denied=await f.route.PUT(request(input));
+ assert.equal(denied.status,403);
+ assert.match(denied.body.error,/Only the uploader/);
+ assert.equal(f.calls.some(([call])=>call==='cmpri_save_notepad'),false);
+ f.uploads[0].author_user_id=actor;
+ assert.equal((await f.route.PUT(request(input))).status,200);
 });

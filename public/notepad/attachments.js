@@ -484,7 +484,8 @@
       }
       const version = ++viewerVersion;
       const dialog = document.createElement('dialog');
-      dialog.className = 'notepad-media-dialog notepad-attachment-viewer';
+      const gifViewer = attachment.kind === 'gif' || attachment.type === 'image/gif';
+      dialog.className = 'notepad-media-dialog notepad-attachment-viewer' + (gifViewer ? ' notepad-gif-viewer' : '');
       dialog.setAttribute('aria-label', attachment.name || 'Attachment');
       const header = document.createElement('header');
       const name = document.createElement('span');
@@ -495,14 +496,17 @@
       const body = document.createElement('div');
       body.className = 'notepad-attachment-body';
       body.textContent = 'Loading attachment…';
-      dialog.append(header, body);
+      if (!gifViewer) dialog.append(header);
+      else dialog.tabIndex = -1;
+      dialog.append(body);
       const session = { dialog, opener, tab, note: target };
       viewer = session;
       document.body.append(dialog);
       dismiss.addEventListener('click', () => closeViewer());
       dialog.addEventListener('cancel', event => { event.preventDefault(); closeViewer(); });
+      if (gifViewer) dialog.addEventListener('click', event => { if (event.target === dialog) closeViewer(); });
       try { dialog.showModal(); } catch { closeViewer(); return; }
-      focus(dismiss);
+      focus(gifViewer ? dialog : dismiss);
       try {
         let url = '', type = attachment.type || 'application/octet-stream';
         if (attachment.kind === 'gif') {
@@ -541,7 +545,7 @@
         if (imageType || videoType || audioType) {
           const media = document.createElement(imageType ? 'img' : videoType ? 'video' : 'audio');
           if (imageType) media.alt = attachment.name || 'Attachment';
-          else { media.controls = true; media.preload = 'none'; if (videoType) media.playsInline = true; }
+          else { media.controls = true; media.preload = videoType ? 'auto' : 'none'; if (videoType) media.playsInline = true; }
           // No audio/video element or src exists before this explicit open action.
           media.src = url;
           media.addEventListener('error', () => {

@@ -73,7 +73,7 @@ test('the real installed Google provider serializes every native tool and the st
   assert.equal(h.requests.length, 1);
   assert.equal(h.nativeCalls.length, 0);
   const { url, body } = h.requests[0];
-  assert.match(url, /\/models\/gemini-3\.5-flash:generateContent$/);
+  assert.match(url, /\/models\/gemini-3\.6-flash:generateContent$/);
   assert.equal(body.generationConfig.responseMimeType, 'application/json');
   assert.equal(body.generationConfig.responseJsonSchema.type, 'object');
   const declarations = body.tools.flatMap(tool => tool.functionDeclarations || []);

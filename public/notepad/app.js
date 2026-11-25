@@ -122,7 +122,7 @@ function restoreTagPrefixes(root) {
 const actor=()=>personById(currentPerson);
 const note=()=>notes.find(n=>n.id===activeNote);
 const canEditTitle=n=>!!n&&n.authorId===currentPerson;
-function canView(n) {const a=n.audience;return n.authorId===currentPerson || a.all || a.people.includes(currentPerson) || actor().roles.some(r=>a.roles.includes(r));}
+function canView(n) {const a=n.audience;return n.authorId===currentPerson || a.all || a.people.includes(currentPerson) || actor().roles.some(r=>a.roles.includes(r)||(r==='system_admin'&&a.roles.includes('engineer')));}
 function orderedNotes() {
   const order=orders[currentPerson]||[];
   return notes.filter(canView).sort((a,b)=>{const ai=order.indexOf(a.id),bi=order.indexOf(b.id);return(ai<0?order.length+notes.indexOf(a):ai)-(bi<0?order.length+notes.indexOf(b):bi);});
@@ -136,7 +136,7 @@ function audienceLabel(a) {
   return [...a.people.map(p=>personById(p).short),...roleNames].join(', ');
 }
 function documentFor(n) {
-  return {title:n.title,audience:n.audience,content:n.content,priority:n.priority,fontSize:n.fontSize||16,fontFamily:n.fontFamily||'Comic Sans MS',titleFontFamily:n.titleFontFamily||'Comic Sans MS',ink:n.ink||[],itemThreads:n.itemThreads||{},attachments:(n.attachments||[]).map(({url,preview,original,...file})=>file),...(typeof n.untouchedDraft==='boolean'?{untouchedDraft:n.untouchedDraft}:{})};
+  return {title:n.title,audience:n.audience,content:n.content,priority:n.priority,fontSize:n.fontSize||16,fontFamily:n.fontFamily||'Comic Sans MS',titleFontFamily:n.titleFontFamily||'Comic Sans MS',ink:n.ink||[],itemThreads:n.itemThreads||{},attachments:(n.attachments||[]).map(({url,preview,original,uploaderId,...file})=>file),...(typeof n.untouchedDraft==='boolean'?{untouchedDraft:n.untouchedDraft}:{})};
 }
 function prepareNote(n) {return {...n,content:sanitizeContent(n.content),ink:n.ink||[],inkUndo:[],inkRedo:[],openThreads:[],itemThreads:n.itemThreads||{},attachments:n.attachments||[],completionEvents:[]};}
 function markEdited(n=note()) {if(n)n.untouchedDraft=false;}
@@ -333,7 +333,7 @@ function inlineThumbnail(attachment) {
   }
   const remove=document.createElement('button');remove.type='button';remove.className='inline-attachment-remove';
   remove.dataset.removeInlineAttachment=attachment.id;remove.setAttribute('aria-label','Remove '+name);remove.innerHTML=icon('close');
-  return [button,remove];
+  return attachment.uploaderId===currentPerson?[button,remove]:[button];
 }
 function showThumbnailMedia(button,url,video=false) {
   const media=document.createElement(video?'video':'img');
@@ -420,13 +420,14 @@ function noteAttachmentsChanged(change) {
     }
     return;
   }
+  for(const file of change.additions)file.uploaderId=currentPerson;
   markEdited(change.note);
   if(insertInlineAttachment(change))syncEditor();
   else {save();if(change.noteId===activeNote)refreshAttachmentViews();}
 }
 function removeNoteAttachment(id) {
   closeAttachmentPreview();
-  const target=note();if(!target?.attachments.some(file=>file.id===id))return;
+  const target=note();if(!target?.attachments.some(file=>file.id===id&&file.uploaderId===currentPerson))return;
   target.attachments=target.attachments.filter(file=>file.id!==id);
   for(const marker of $$(inlineAttachmentSelector,$('.note-content')))if(marker.dataset.notepadAttachmentId===id)marker.remove();
   markEdited(target);syncEditor();
@@ -436,7 +437,7 @@ function attachmentMarkup(n,inlineIds=new Set()) {
     if(inlineIds.has(a.id))return '';
     const photo=window.NotepadAttachments.photoPreview(a),name=escape(a.name);
     const preview=photo?'<img src="'+escape(photo)+'" loading="lazy" alt="">':name;
-    return '<div class="attachment-chip'+(photo?' is-photo':'')+'">'+(photo?'':icon(a.kind==='gif'?'book':'check'))+'<button type="button" class="attachment-open" data-open-attachment="'+i+'" aria-label="Open '+name+'" title="'+name+'">'+preview+'</button><button type="button" data-remove-attachment="'+i+'" aria-label="Remove '+name+'">×</button></div>';
+    return '<div class="attachment-chip'+(photo?' is-photo':'')+'">'+(photo?'':icon(a.kind==='gif'?'book':'check'))+'<button type="button" class="attachment-open" data-open-attachment="'+i+'" aria-label="Open '+name+'" title="'+name+'">'+preview+'</button>'+(a.uploaderId===currentPerson?'<button type="button" data-remove-attachment="'+i+'" aria-label="Remove '+name+'">×</button>':'')+'</div>';
   }).join('');
 }
 function renderNotes() {

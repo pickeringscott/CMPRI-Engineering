@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import React, { act } from "react";
 import * as jsx from "react/jsx-runtime";
 import { JSDOM } from "jsdom";
@@ -22,10 +23,11 @@ const bootstrap = userId => ({ hotelId: "property", userId, people: [{ id: userI
 
 async function fixture({ holdInitial = false, count = 1 } = {}) {
   window.localStorage.clear();
+  window.sessionStorage.clear();
   const container = document.createElement("div"); document.body.append(container);
   const root = createRoot(container), authCallbacks = [], outgoing = [], requests = [];
   const firstGet = deferred();
-  const state = { userId: "account-A", writeGate: null, writeStatus: 200, readStatus: 200, uploadGate: null, savedNote: null };
+  const state = { userId: "account-A", writeGate: null, writeStatus: 200, readStatus: 200, readGate: null, uploadGate: null, savedNote: null };
   let readCount = 0;
   const client = { auth: { onAuthStateChange: callback => { authCallbacks.push(callback); return { data: { subscription: { unsubscribe() {} } } }; } },
     channel: () => { const channel = { on: () => channel, subscribe: () => channel }; return channel; }, removeChannel: async () => {},
@@ -37,7 +39,7 @@ async function fixture({ holdInitial = false, count = 1 } = {}) {
     "@/lib/general-notes-session": { isNotesSessionRestart: async () => false }, "@/lib/giphy": {}, "@/lib/staff-note-media": { STAFF_FILE_BUCKET: "staff-note-files", staffFileInput: value => value },
     "@/lib/notepad-sync": syncModule, "@/lib/ui/notepad-close": closeModule, "@/lib/notepad": notepadModule,
     "@/lib/notepad-device-drafts": { recoverNotepadDeviceDrafts: async (_data, restored) => restored },
-  }, { window, document, localStorage: window.localStorage, crypto, URL, URLSearchParams, Headers, AbortController, Error, File,
+  }, { window, document, localStorage: window.localStorage, crypto: { randomUUID: () => crypto.randomUUID(), subtle: { digest: async (_algorithm, bytes) => createHash("sha256").update(bytes).digest() } }, URL, URLSearchParams, Headers, AbortController, Error, File, TextEncoder, Uint8Array,
     getComputedStyle: dom.window.getComputedStyle, MutationObserver: dom.window.MutationObserver, queueMicrotask,
     fetch: async (path, options) => {
       assert.ok(["/api/notepad", "/api/notepad/uploads"].includes(path) || path.startsWith("/api/notepad/history?"));
@@ -55,6 +57,7 @@ async function fixture({ holdInitial = false, count = 1 } = {}) {
         const result = bootstrap(userId), index = ++readCount;
         if (state.savedNote?.authorId === userId) result.notes = [state.savedNote];
         if (holdInitial && index === 1) await firstGet.promise;
+        if (state.readGate) await state.readGate.promise;
         return state.readStatus === 200 ? Response.json(result) : Response.json({ error: "Current account access denied" }, { status: state.readStatus });
       }
       if (method === "PUT") {
@@ -78,6 +81,12 @@ async function fixture({ holdInitial = false, count = 1 } = {}) {
   });
   for (const index of frames.keys()) await send("ready", {}, index);
   return { container, frames, outgoing, requests, state, send,
+    async reopen() {
+      await act(async () => { root.render(React.createElement(Component, { key: "reopened" })); await settle(); });
+      frames[0] = container.querySelector("iframe");
+      frames[0].contentWindow.postMessage = (data, origin) => outgoing.push({ index: 0, data, origin });
+      await send("ready");
+    },
     async releaseInitial() { await act(async () => { firstGet.resolve(); await settle(); }); },
     async account(userId, notify = true) { await act(async () => { state.userId = userId; if (notify) for (const callback of authCallbacks) callback("SIGNED_IN", { user: { id: userId } }); await settle(); }); },
     async close() { await act(async () => { root.unmount(); await settle(); }); container.remove(); },
@@ -229,5 +238,22 @@ test("opening history waits for the queued save and fetches the saved revision u
     const result = f.outgoing.find(message => message.data.type === "result" && message.data.payload.requestId === "history-request").data.payload.result;
     assert.equal(result.entries[0].revision, 2);
     assert.equal(result.entries[0].after.title, "Latest saved title");
+  } finally { await f.close(); }
+});
+
+
+test("reopening Notepad renders the same account’s cached notes before the refresh finishes", async () => {
+  const f = await fixture();
+  try {
+    f.outgoing.length = 0;
+    f.state.readGate = deferred();
+    await f.reopen();
+    assert.equal(f.container.querySelector(".cmpri-notepad-loading"), null);
+    const initial = f.outgoing.find(message => message.data.type === "initialize");
+    assert.equal(initial?.data.payload.notes[0].title, "account-A's note");
+    assert.equal(f.requests.filter(request => request.method === "GET").length, 2);
+    f.state.readGate.resolve();
+    await act(settle);
+    assert.ok(f.outgoing.some(message => message.data.type === "remote"));
   } finally { await f.close(); }
 });

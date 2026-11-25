@@ -21,7 +21,7 @@ const modalSignals=readFileSync('supabase/migrations/20261106133511_modal_resour
 await db.exec('alter table profiles add column full_name text');
 await db.query('update profiles set full_name=$1 where id=$2',['Avery Reed',owner]);
 await db.query('update profiles set full_name=$1 where id=$2',['Morgan Ellis',tech]);
-for(const suffix of ['_notepad_shared_documents.sql','_notepad_edit_history.sql','_notepad_history_share_revision.sql','_notepad_tag_sharing.sql']){
+for(const suffix of ['_notepad_shared_documents.sql','_notepad_edit_history.sql','_notepad_history_share_revision.sql','_notepad_tag_sharing.sql','_notepad_chief_engineer_admin_visibility.sql']){
  const name=readdirSync('supabase/migrations').find(n=>n.endsWith(suffix));await db.exec(readFileSync('supabase/migrations/'+name,'utf8'));
 }
 return db}
@@ -167,5 +167,20 @@ test('history can begin after an older note lacking optional snapshot data',asyn
   assert.equal(rows[0].before_fields.drawing,undefined);
   assert.equal(rows[0].before_fields.attachments,undefined);
   assert.equal(rows[0].before_fields.itemThreads,undefined);
+ }finally{await db.close();}
+});
+
+test('System Administrators can read Chief Engineer role shares in their active property', async()=>{
+ const db=await fixture();
+ try{
+  await db.query("update profiles set role='System Administrator' where id=$1",[manager]);
+  await db.exec('set role service_role');
+  const audience=(roles)=>JSON.stringify({...doc,audience:{all:false,roles,people:[]}});
+  const canRead=async (roles,property=hotel)=>(await db.query(
+    'select cmpri_private.notepad_can_read($1,$2,$3,$4::jsonb) as allowed',
+    [property,manager,owner,audience(roles)])).rows[0].allowed;
+  assert.equal(await canRead(['engineer']),true);
+  assert.equal(await canRead(['engineer'],other),false);
+  assert.equal(await canRead([]),false);
  }finally{await db.close();}
 });

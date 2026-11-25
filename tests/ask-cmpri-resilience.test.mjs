@@ -55,7 +55,7 @@ function fixture(respond = () => providerResponse([{ text: JSON.stringify(answer
   };
   const fileName = 'src/lib/server/ask-cmpri-native-agent.ts', exports = {};
   const compiled = ts.transpileModule(readFileSync(fileName, 'utf8'), { fileName, compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } });
-  vm.runInNewContext(compiled.outputText, { exports, Buffer, console, Date, Intl, Error, URL, AbortSignal, process: { env: {} }, require(name) {
+  vm.runInNewContext(compiled.outputText, { exports, Buffer, console, Date, Intl, Error, URL, AbortSignal, structuredClone, process: { env: {} }, require(name) {
     assert.ok(name in dependencies, `Unexpected agent import: ${name}`);
     return dependencies[name];
   } });

@@ -152,6 +152,10 @@ async def main():
         grid = picker.locator(".staff-gif-grid")
         close = picker.get_by_role("button", name="Close GIF picker")
 
+        async def dismiss_media_on_backdrop():
+            frame = await page.locator('iframe[title="Notepad"]').bounding_box()
+            await page.mouse.click(frame["x"] + 5, frame["y"] + 5)
+
         async def open_picker():
             await trigger.click()
             await expect(picker).to_be_visible()
@@ -319,7 +323,9 @@ async def main():
         await editor.get_by_role("button", name="Open Fixture pump-0").click()
         viewer = editor.get_by_role("dialog", name="Fixture pump-0")
         await expect(viewer.locator("img")).to_have_attribute("src", "https://media.giphy.com/pump-0-full.gif")
-        await viewer.get_by_role("button", name="Close attachment").click()
+        await expect(viewer.locator("header,button")).to_have_count(0)
+        await dismiss_media_on_backdrop()
+        await expect(viewer).to_have_count(0)
 
         await page.set_viewport_size({"width": 1024, "height": 720})
         await expect(editor.get_by_role("button", name="Open Fixture pump-0")).to_be_visible()
@@ -377,7 +383,8 @@ async def main():
         await expect(editor.locator(".inline-attachment-preview")).to_have_count(0)
         photo_viewer = editor.get_by_role("dialog", name="photo.gif")
         await photo_viewer.locator("img").evaluate("image => image.decode()")
-        await photo_viewer.get_by_role("button", name="Close attachment").click()
+        await dismiss_media_on_backdrop()
+        await expect(photo_viewer).to_have_count(0)
         clip = editor.get_by_role("button", name="Open clip.webm", exact=True)
         await clip.hover()
         await editor.locator(".inline-attachment-preview video").evaluate("""async video => {
@@ -386,6 +393,9 @@ async def main():
         }""", timeout=10000)
         await clip.click()
         video_viewer = editor.get_by_role("dialog", name="clip.webm")
+        await expect(video_viewer.locator("video")).to_have_js_property("paused", True)
+        await expect(video_viewer.locator("video")).to_have_js_property("readyState", 4)
+        assert await video_viewer.locator("video").evaluate("video => video.currentTime") == 0
         await video_viewer.locator("video").evaluate("async video => { await video.play(); }")
         assert await video_viewer.locator("video").evaluate("video => video.videoWidth") == 16
         await video_viewer.get_by_role("button", name="Close attachment").click()

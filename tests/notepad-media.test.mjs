@@ -145,14 +145,14 @@ test('an upload completing after its account scope disappears cannot attach to a
   assert.match(s.errors[0],/original note is no longer available/);
  }finally{s.cleanup()}
 });
-test('video is resolved and receives a src only after an explicit open, with preload disabled',async()=>{
+test('video is resolved and receives a src only after an explicit open, preloads its first frame without autoplay',async()=>{
  const calls=[];const s=setup(async(action,payload)=>{calls.push({action,payload});return {url:'https://storage.example/verified.mp4?token=test',type:'video/mp4'}});
  try{
   const item={id:uuid(3),kind:'file',name:'Video',type:'video/mp4',size:200};s.original.attachments.push(item);
   assert.equal(calls.length,0);assert.equal(s.window.document.querySelector('video'),null);
   await s.controller.openAttachment(item);
   assert.equal(calls.length,1);assert.equal(calls[0].action,'attachment');assert.equal(calls[0].payload.noteId,s.original.id);
-  const video=s.window.document.querySelector('video');assert.ok(video);assert.equal(video.preload,'none');assert.equal(video.autoplay,false);assert.equal(video.src,'https://storage.example/verified.mp4?token=test');
+  const video=s.window.document.querySelector('video');assert.ok(video);assert.equal(video.preload,'auto');assert.equal(video.autoplay,false);assert.equal(video.src,'https://storage.example/verified.mp4?token=test');
   await s.controller.close({immediate:true});assert.equal(s.window.document.querySelector('video'),null);
  }finally{s.cleanup()}
 });

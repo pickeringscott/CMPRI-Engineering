@@ -2,6 +2,7 @@
 import { DeviceDataCache } from './core';
 import { IndexedDataStore, MemoryDataStore } from './store';
 import { dataCachePolicy, mutationTopics } from './policy';
+import { NOTEPAD_CACHE_KEY } from '../notepad';
 
 type Session = { user: { id: string; role: string; secondary_roles?: string[] }; hotelId: string; capabilities: string[] };
 const sessionChanged = () => new Response(JSON.stringify({ error: 'The device session changed. Reload to continue.' }), { status: 401, headers: { 'Content-Type': 'application/json', 'X-CMPRI-Session-Changed': '1' } });
@@ -88,11 +89,16 @@ class BrowserDataCache {
   async clear(broadcast = true) {
     this.generation++; this.scope = undefined; this.identity = undefined; this.authorization = ''; this.validated = 0; this.authRead = undefined; this.revisionRead = undefined;
     try { this.host.localStorage.removeItem('cmpri:data-cache:scope'); } catch {}
+    this.clearNotepad();
     if (broadcast) this.channel?.postMessage({ type: 'clear' });
     await this.cache.clear(); this.notify(['session']);
   }
+  private clearNotepad() {
+    try { this.host.sessionStorage.removeItem(NOTEPAD_CACHE_KEY); } catch {}
+  }
   async invalidate(topics?: readonly string[], broadcast = true, emit = true) {
     if (topics?.length === 0) return;
+    if (!topics || topics.some(topic => ['notepad', 'general-notes', 'staff-notes', 'session'].includes(topic))) this.clearNotepad();
     const scope = this.scope;
     await this.cache.invalidate(scope, topics);
     if (broadcast) this.channel?.postMessage({ type: 'invalidate', scope, topics });
@@ -141,7 +147,7 @@ class BrowserDataCache {
         if (session.user?.id && session.hotelId && Array.isArray(session.capabilities)) {
           const scope = permissionKey(session);
           let previous; try { previous = this.host.localStorage.getItem('cmpri:data-cache:scope'); } catch {}
-          if ((this.scope && this.scope !== scope) || (previous && previous !== scope)) { this.generation++; await this.cache.clear(); }
+          if ((this.scope && this.scope !== scope) || (previous && previous !== scope)) { this.generation++; this.clearNotepad(); await this.cache.clear(); }
           const changed = this.scope !== scope;
           this.scope = scope; this.identity = session; this.authorization = authorization; this.validated = Date.now();
           try { this.host.localStorage.setItem('cmpri:data-cache:scope', scope); } catch {}

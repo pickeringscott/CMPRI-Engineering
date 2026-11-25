@@ -6,13 +6,32 @@ import { isNotesSessionRestart } from '@/lib/general-notes-session';
 import { requestGiphy } from '@/lib/giphy';
 import { STAFF_FILE_BUCKET, staffFileInput } from '@/lib/staff-note-media';
 import { NotepadSync, NotepadSyncError, type NotepadSyncState } from '@/lib/notepad-sync';
-import { NOTEPAD_UUID, type NotepadBootstrap, type NotepadDocument } from '@/lib/notepad';
+import { NOTEPAD_CACHE_KEY, NOTEPAD_UUID, type NotepadBootstrap, type NotepadDocument } from '@/lib/notepad';
 import { recoverNotepadDeviceDrafts } from '@/lib/notepad-device-drafts';
 import { NOTEPAD_CLOSE_REQUEST, type NotepadCloseRequest } from '@/lib/ui/notepad-close';
 import './notepad/notepad-host.css';
 
 type Props = { targetNoteId?: string | null; onOpenWorkOrder?: (id: string) => void; compact?: boolean };
 const CHANNEL = 'cmpri-notepad';
+type CachedNotepad = { session: string; storedAt: number; data: NotepadBootstrap };
+
+async function sessionCacheKey(token: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+function readCachedNotepad(session: string, userId: string): CachedNotepad | undefined {
+  try {
+    const cached = JSON.parse(window.sessionStorage.getItem(NOTEPAD_CACHE_KEY) || 'null') as CachedNotepad | null;
+    if (cached?.session === session && cached.data?.userId === userId && Date.now() - cached.storedAt < 5 * 60_000) return cached;
+  } catch { /* Session storage can be blocked. */ }
+}
+function cacheNotepad(cached?: CachedNotepad) {
+  try {
+    if (cached) window.sessionStorage.setItem(NOTEPAD_CACHE_KEY, JSON.stringify(cached));
+    else window.sessionStorage.removeItem(NOTEPAD_CACHE_KEY);
+  } catch { /* Large notes and storage limits still allow a normal load. */ }
+}
+
 const EMPTY_STATE: NotepadSyncState = { message: '', pending: 0, conflictIds: [], error: false };
 
 /** The approved HTML is the editor. This host supplies the authenticated CMPRI transport. */
@@ -25,7 +44,7 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
   const send = useRef<(type: string, payload?: unknown) => void>(() => {});
   const reload = useRef<() => Promise<void>>(async () => {});
   const [source, setSource] = useState('');
-  const [notice, setNotice] = useState('Loading Notepad…');
+  const [notice, setNotice] = useState('');
   const [state, setState] = useState<NotepadSyncState>(EMPTY_STATE);
   useEffect(() => { openWorkOrder.current = onOpenWorkOrder; }, [onOpenWorkOrder]);
   useEffect(() => { target.current = targetNoteId; send.current('select', { id: targetNoteId }); }, [targetNoteId]);
@@ -38,6 +57,7 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
     const client = createClient(), token = crypto.randomUUID();
     const controllers = new Set<AbortController>();
     const uploads = new Set<string>();
+    let cachedNotepad: CachedNotepad | undefined;
     const post = (type: string, payload?: unknown) => {
       if (alive) frame.current?.contentWindow?.postMessage({ channel: CHANNEL, token, type, payload }, window.location.origin);
     };
@@ -84,53 +104,88 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
       if (ready) post('flush', { requestId: closingRequested.flushId });
       else void sync.current?.flushAll().then(finishRequestedClose);
     };
-    const resetSession = (userId: string | null, retry: boolean, message = 'Checking your CMPRI session…') => {
+    const resetSession = (userId: string | null, retry: boolean, message = '') => {
+      cachedNotepad = undefined;
+      cacheNotepad();
       epoch++; controllers.forEach(controller => controller.abort()); sync.current?.stop(); sync.current = null;
       if (subscription) { void client.removeChannel(subscription); subscription = null; }
       authorizedUserId = userId; bootstrap = null; loading = null; closingRequested = null; uploads.clear();
       post('clear'); setNotice(message); setState(EMPTY_STATE);
       if (retry && userId) queueMicrotask(() => { if (alive) void load(); });
     };
+    const installBootstrap = async (data: NotepadBootstrap, version: number) => {
+      bootstrap = data;
+      const scope = { hotelId: data.hotelId, userId: data.userId };
+      const coordinator = new NotepadSync(scope, localStorage, {
+        write: (pending, keepalive) => { const body = JSON.stringify({ id: pending.id, expectedRevision: pending.expectedRevision, expectedLegacyVersion: pending.expectedLegacyVersion, changeId: pending.changeId, document: pending.document }); return request('/api/notepad', { method: 'PUT', body, keepalive: keepalive && body.length < 50_000 }, data); },
+        order: async order => { await request('/api/notepad', { method: 'PATCH', body: JSON.stringify({ order }) }, data); },
+      });
+      coordinator.onState = next => { if (alive && version === epoch) { setState(next); post('status', next); finishRequestedClose(); } };
+      coordinator.onSaved = (id, sequence, note, revision, taggedPeople) => {
+        if (!alive || version !== epoch) return;
+        if (cachedNotepad?.data.userId === data.userId && cachedNotepad.data.hotelId === data.hotelId) {
+          const notes = cachedNotepad.data.notes.filter(entry => entry.id !== id);
+          if (note) notes.unshift(note);
+          cachedNotepad.data = { ...cachedNotepad.data, notes };
+          cacheNotepad(cachedNotepad);
+        }
+        post('saved', { id, sequence, note, revision, taggedPeople });
+      };
+      sync.current = coordinator;
+      bootstrap = coordinator.restore(data);
+      try {
+        const recovered = await recoverNotepadDeviceDrafts(data, bootstrap, coordinator, localStorage);
+        if (!alive || version !== epoch) return;
+        bootstrap = recovered;
+      } catch { if (alive && version === epoch) setState(current => ({ ...current, error: true, message: 'Some older device drafts could not be imported. Their original browser data is unchanged.' })); }
+      if (!alive || version !== epoch) return;
+      initializeFrame();
+      void coordinator.flushAll();
+      subscription = client.channel(`notepad:${data.hotelId}:${data.userId}:${token}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'cmpri_resource_signals', filter: `recipient_user_id=eq.${data.userId}` }, change => {
+          const row = change.new as { topic?: string };
+          if (!document.hidden && row.topic === 'notepad') void load();
+        }).subscribe(status => { if (status === 'SUBSCRIBED' && !document.hidden) void load(); });
+    };
     const load = async () => {
       if (loading) return loading;
       const version = epoch;
       loading = (async () => {
         try {
-          const data = await request('/api/notepad', {}, bootstrap) as NotepadBootstrap;
+          let restoredFromCache = false;
+          if (!bootstrap) {
+            const current = await getValidSession();
+            const key = current?.access_token ? await sessionCacheKey(current.access_token) : '';
+            if (!alive || version !== epoch) return;
+            const cached = current && key ? readCachedNotepad(key, current.user.id) : undefined;
+            if (cached) {
+              restoredFromCache = true;
+              cachedNotepad = cached;
+              await installBootstrap(cached.data, version);
+              if (!alive || version !== epoch) return;
+            }
+          }
+          const data = await request('/api/notepad', {}, restoredFromCache ? null : bootstrap) as NotepadBootstrap;
           // Authentication can change while the first GET is in flight, before
           // bootstrap exists. Recheck the actual current account before display.
           const session = await getValidSession();
           if (!alive || version !== epoch) return;
           if (!data.hotelId || !data.userId || !Array.isArray(data.notes)) throw Error('Notepad returned an incomplete session.');
           if (!session?.access_token || session.user.id !== data.userId) {
-            resetSession(session?.user.id || null, true, session?.user.id ? 'Checking your CMPRI session…' : 'Sign in to open Notepad.');
+            resetSession(session?.user.id || null, true, session?.user.id ? '' : 'Sign in to open Notepad.');
+            return;
+          }
+          if (bootstrap && bootstrap.hotelId !== data.hotelId) {
+            resetSession(data.userId, true);
             return;
           }
           authorizedUserId = data.userId;
+          const sessionKey = await sessionCacheKey(session.access_token);
+          if (!alive || version !== epoch) return;
+          cachedNotepad = { session: sessionKey, storedAt: Date.now(), data };
+          cacheNotepad(cachedNotepad);
           if (!bootstrap) {
-            bootstrap = data;
-            const scope = { hotelId: data.hotelId, userId: data.userId };
-            const coordinator = new NotepadSync(scope, localStorage, {
-              write: (pending, keepalive) => { const body = JSON.stringify({ id: pending.id, expectedRevision: pending.expectedRevision, expectedLegacyVersion: pending.expectedLegacyVersion, changeId: pending.changeId, document: pending.document }); return request('/api/notepad', { method: 'PUT', body, keepalive: keepalive && body.length < 50_000 }, data); },
-              order: async order => { await request('/api/notepad', { method: 'PATCH', body: JSON.stringify({ order }) }, data); },
-            });
-            coordinator.onState = next => { if (alive && version === epoch) { setState(next); post('status', next); finishRequestedClose(); } };
-            coordinator.onSaved = (id, sequence, note, revision, taggedPeople) => { if (alive && version === epoch) post('saved', { id, sequence, note, revision, taggedPeople }); };
-            sync.current = coordinator;
-            bootstrap = coordinator.restore(data);
-            try {
-              const recovered = await recoverNotepadDeviceDrafts(data, bootstrap, coordinator, localStorage);
-              if (!alive || version !== epoch) return;
-              bootstrap = recovered;
-            } catch { if (alive && version === epoch) setState(current => ({ ...current, error: true, message: 'Some older device drafts could not be imported. Their original browser data is unchanged.' })); }
-            if (!alive || version !== epoch) return;
-            initializeFrame();
-            void coordinator.flushAll();
-            subscription = client.channel(`notepad:${data.hotelId}:${data.userId}:${token}`)
-              .on('postgres_changes', { event: '*', schema: 'public', table: 'cmpri_resource_signals', filter: `recipient_user_id=eq.${data.userId}` }, change => {
-                const row = change.new as { topic?: string };
-                if (!document.hidden && row.topic === 'notepad') void load();
-              }).subscribe(status => { if (status === 'SUBSCRIBED' && !document.hidden) void load(); });
+            await installBootstrap(data, version);
           } else {
             bootstrap = sync.current?.remote(data) || data;
             post('remote', bootstrap);
@@ -277,6 +332,7 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
       const userId = session?.user.id || null;
       if (event === 'SIGNED_OUT') { resetSession(null, false, 'Sign in to open Notepad.'); return; }
       if (!userId) return;
+      if (!authorizedUserId) { authorizedUserId = userId; return; }
       if (userId !== authorizedUserId) { resetSession(userId, true); return; }
       if (!bootstrap && !loading) queueMicrotask(() => { if (alive) void load(); });
     });

@@ -21,7 +21,7 @@ export function legacyStaffNotes(rows: StaffRow[]) {
   const byId=new Map(rows.map(row=>[row.id,row])),aliases:Record<string,string>={},children=new Map<string,StaffRow[]>();
   for(const row of rows)if(row.parent_id){const list=children.get(row.parent_id)||[];list.push(row);children.set(row.parent_id,list)}
   for(const row of rows){let current=row;const seen=new Set<string>();while(current.parent_id&&byId.has(current.parent_id)&&!seen.has(current.id)){seen.add(current.id);current=byId.get(current.parent_id)!}aliases[row.id]=current.id}
-  const files=(row:StaffRow):NotepadAttachment[]=>[...(row.attachments||[]).map(a=>({...a,kind:'file' as const})),...(row.gif_ids||[]).map(gifId=>({id:'gif:'+gifId,kind:'gif' as const,gifId,name:'GIPHY GIF'}))];
+  const files=(row:StaffRow):NotepadAttachment[]=>[...(row.attachments||[]).map(a=>({...a,kind:'file' as const})),...(row.gif_ids||[]).map(gifId=>({id:'gif:'+gifId,kind:'gif' as const,gifId,name:'GIPHY GIF',uploaderId:row.author_user_id}))];
   const notes=rows.filter(row=>!row.parent_id||!byId.has(row.parent_id)).map(row=>{
     const item='legacy-staff-'+row.id,attachments=files(row),seen=new Set([row.id]);
     const legacyVersion='staff:'+createHash('sha256').update(rows.filter(member=>aliases[member.id]===row.id).sort((a,b)=>a.id.localeCompare(b.id)).map(member=>member.id+':'+String(member.notepad_revision||0)).join('\n')).digest('hex');
@@ -68,16 +68,42 @@ export function notepadAttachmentURL(url:string,type:string,name:string) {
   return type==='application/pdf'||staffInlineMedia(type)?url:url+'&download='+encodeURIComponent(name);
 }
 
+async function attachedNotepadFiles(admin:SupabaseClient,hotelId:string,ids:string[]) {
+  const files:Array<{id:string;note_id:string|null;author_user_id:string;storage_path:string;name:string;media_type:string;legacy:boolean}>=[];
+  for(let at=0;at<ids.length;at+=200){
+    const batch=ids.slice(at,at+200);
+    const cols='id,note_id,author_user_id,storage_path,name,media_type';
+    const [own,legacy]=await Promise.all([
+      admin.from('cmpri_notepad_uploads').select(cols).eq('hotel_id',hotelId).eq('ready',true).in('id',batch),
+      admin.from('cmpri_staff_note_uploads').select(cols).eq('hotel_id',hotelId).eq('ready',true).in('id',batch),
+    ]);
+    if(own.error||legacy.error)throw Error('Attachments could not be loaded.');
+    files.push(...(own.data||[]).map(row=>({...row,legacy:false})),...(legacy.data||[]).map(row=>({...row,legacy:true})));
+  }
+  return files;
+}
+function fileNoteId(file:{note_id:string|null;legacy:boolean},aliases:Record<string,string>){
+  return file.note_id&&(file.legacy?aliases[file.note_id]:file.note_id);
+}
+export async function notepadFileOwners(admin:SupabaseClient,hotelId:string,noteId:string,ids:string[],aliases:Record<string,string>) {
+  const files=await attachedNotepadFiles(admin,hotelId,ids);
+  return new Map(files.filter(file=>fileNoteId(file,aliases)===noteId).map(file=>[file.id,file.author_user_id]));
+}
 export async function signNotepadAttachments(admin:SupabaseClient,hotelId:string,notes:NotepadNote[],aliases:Record<string,string>) {
-  const ids=[...new Set(notes.flatMap(n=>n.attachments.filter(a=>a.kind==='file').map(a=>a.id)))];if(!ids.length)return;
-  const files:Array<{id:string;note_id:string|null;storage_path:string;name:string;media_type:string;legacy:boolean}>=[];
-  for(let at=0;at<ids.length;at+=200){const [own,legacy]=await Promise.all([
-    admin.from('cmpri_notepad_uploads').select('id,note_id,storage_path,name,media_type').eq('hotel_id',hotelId).eq('ready',true).in('id',ids.slice(at,at+200)),
-    admin.from('cmpri_staff_note_uploads').select('id,note_id,storage_path,name,media_type').eq('hotel_id',hotelId).eq('ready',true).in('id',ids.slice(at,at+200)),
-  ]);if(own.error||legacy.error)throw Error('Attachments could not be loaded.');files.push(...(own.data||[]).map(row=>({...row,legacy:false})),...(legacy.data||[]).map(row=>({...row,legacy:true})));}
-  const approved=files.filter(file=>notes.some(note=>note.attachments.some(a=>a.id===file.id)&&file.note_id&&(file.legacy?aliases[file.note_id]===note.id:file.note_id===note.id)));
-  for(let at=0;at<approved.length;at+=200){const batch=approved.slice(at,at+200),signed=await admin.storage.from(STAFF_FILE_BUCKET).createSignedUrls(batch.map(file=>file.storage_path),3600);if(signed.error)throw Error('Attachments could not be opened.');
-    for(const file of batch){const url=signed.data?.find(s=>s.path===file.storage_path)?.signedUrl;if(url)for(const note of notes){if(file.note_id&&(file.legacy?aliases[file.note_id]:file.note_id)!==note.id)continue;const a=note.attachments.find(a=>a.kind==='file'&&a.id===file.id);if(a)a.url=notepadAttachmentURL(url,file.media_type,file.name)}}
+  const ids=[...new Set(notes.flatMap(n=>n.attachments.filter(a=>a.kind==='file').map(a=>a.id)))];
+  const files=await attachedNotepadFiles(admin,hotelId,ids);
+  const approved=files.filter(file=>notes.some(note=>fileNoteId(file,aliases)===note.id&&note.attachments.some(a=>a.kind==='file'&&a.id===file.id)));
+  for(let at=0;at<approved.length;at+=200){
+    const batch=approved.slice(at,at+200),signed=await admin.storage.from(STAFF_FILE_BUCKET).createSignedUrls(batch.map(file=>file.storage_path),3600);
+    if(signed.error)throw Error('Attachments could not be opened.');
+    for(const file of batch){
+      const url=signed.data?.find(s=>s.path===file.storage_path)?.signedUrl;
+      const attachment=notes.find(note=>note.id===fileNoteId(file,aliases))?.attachments.find(a=>a.kind==='file'&&a.id===file.id);
+      if(attachment){
+        attachment.uploaderId=file.author_user_id;
+        if(url)attachment.url=notepadAttachmentURL(url,file.media_type,file.name);
+      }
+    }
   }
 }
 

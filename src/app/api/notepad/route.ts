@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/server/auth';
 import { NOTEPAD_UUID, notepadAudienceWithPeople, notepadDocument, type NotepadDocument } from '@/lib/notepad';
 import { notepadPersonTagCounts, validateNotepadDocument } from '@/lib/server/notepad-document';
-import { loadNotepad, projectNotepadRow, signNotepadAttachments, type NotepadRow } from '@/lib/server/notepad-store';
+import { loadNotepad, notepadFileOwners, projectNotepadRow, signNotepadAttachments, type NotepadRow } from '@/lib/server/notepad-store';
 import { resolveProfileTimeFormat } from '@/lib/profile-preferences';
 
 const headers = { 'Cache-Control':'private, no-store' };
@@ -65,6 +65,16 @@ export async function PUT(request:NextRequest) {
       if(document.audience.people.length+taggedPeople.length>500)return response({error:'The note can be shared with at most 500 individual recipients.'},400);
       document.audience=notepadAudienceWithPeople(document.audience,taggedPeople);
       if(replay&&previous&&previous.authorId!==actor&&!sameAudience(document.audience,previous.audience))return response({error:'Only the creator can change sharing.'},403);
+      const previousAttachments=new Map(previous?.attachments.map(file=>[file.id,file]));
+      const nextAttachments=new Map(document.attachments.map(file=>[file.id,file]));
+      const removed=[...previousAttachments.values()].filter(file=>!nextAttachments.has(file.id));
+      const owners=await notepadFileOwners(auth.admin,hotel,input.id,removed.filter(file=>file.kind==='file').map(file=>file.id),state.legacyAliases);
+      if(removed.some(file=>(file.kind==='file'?owners.get(file.id):file.uploaderId)!==actor))return response({error:'Only the uploader can remove an attachment.'},403);
+      for(const file of document.attachments){
+        const old=previousAttachments.get(file.id);
+        if(old&&(file.kind!==old.kind||file.gifId!==old.gifId||file.name!==old.name||file.type!==old.type||file.size!==old.size))return response({error:'An existing attachment cannot be replaced. Upload the new file separately.'},400);
+        if(file.kind==='gif'&&(!old||old.uploaderId))file.uploaderId=old?.uploaderId||actor;
+      }
       const added=document.attachments.filter(file=>file.kind==='file'&&!previous?.attachments.some(old=>old.id===file.id));
       if(added.length>20)return response({error:'Attach at most 20 new files at a time.'},400);
       if(added.length){const files=await auth.admin.from('cmpri_notepad_uploads').select('id,author_user_id,note_id,name,media_type,size_bytes,ready').eq('hotel_id',hotel).in('id',added.map(a=>a.id));
