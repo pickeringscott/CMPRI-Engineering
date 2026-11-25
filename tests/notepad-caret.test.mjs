@@ -64,7 +64,7 @@ function setup({native=false,reduced=false}={}){
   };
 }
 
-test('urgent marks remain visible across a full caret cycle and both phases survive focus and typing',()=>{
+test('urgent marks are lit for on/off/on and dark for off/on/off without resetting during focus and typing',()=>{
   const s=setup({native:true});
   try{
     assert.equal(s.root.dataset.notepadCaret,'native');assert.equal(s.overlay(),null);
@@ -75,10 +75,15 @@ test('urgent marks remain visible across a full caret cycle and both phases surv
     s.advance(500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'1');
     assert.equal(s.root.dataset.notepadBlinkOn,'false');
     s.advance(999);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'1');
-    s.advance(1000);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'0');
+    s.advance(1000);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');
     assert.equal(s.root.dataset.notepadBlinkOn,'true');
+    s.advance(1499);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');
     s.advance(1500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'0');
-    s.advance(2000);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');
+    s.advance(2000);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'0');
+    s.advance(2500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'0');
+    s.advance(2999);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'0');
+    s.advance(3000);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');
+    s.advance(4500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'0');
   }finally{s.close();}
 });
 
@@ -87,11 +92,11 @@ test('reduced motion keeps icons and caret steady, and visibility resumes the sa
   try{
     s.advance(1600);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'0');
     s.motion(true);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');assert.equal(s.timers.size,0);
-    s.advance(2200);s.motion(false);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');
-    s.advance(2500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'1');
+    s.advance(2200);s.motion(false);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'0');
+    s.advance(2500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'0');
     s.visibility(true);assert.equal(s.timers.size,0);
-    s.advance(3300);s.visibility(false);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'0');
-    s.advance(3500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'0');
+    s.advance(3300);s.visibility(false);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');
+    s.advance(3500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'1');
   }finally{s.close();}
 });
 

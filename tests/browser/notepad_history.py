@@ -31,7 +31,10 @@ async def main():
     notes = [example["note"] for example in examples]
     for note in notes:
         note.update(authorId=UID, createdAt="2026-11-25T04:38:00Z")
-    notes[0].update(priority="Urgent", titleFontFamily="", audience={"all": False, "people": [TECH], "roles": []})
+    notes[0].update(
+        title="Synthetic note about the overnight boiler inspection, replacement parts, and the morning shift handoff",
+        priority="Urgent", titleFontFamily="", audience={"all": False, "people": [TECH], "roles": []},
+    )
     notes[0]["content"] = (
         '<p><span class="mention" contenteditable="false" data-mention-kind="location" '
         'data-mention-id="lobby">@Lobby</span> '
@@ -86,7 +89,32 @@ async def main():
         await expect(title).to_have_value(notes[0]["title"], timeout=60_000)
         creator = frame.locator(".note-attribution")
         history_link = creator.get_by_role("button", name="Edit History")
-        assert (await history_link.bounding_box())["y"] >= (await creator.locator("time").bounding_box())["y"]
+        priority = frame.locator('select[aria-label="Priority"]')
+        share_button = frame.get_by_role("button", name="Shared with…")
+        trash_button = frame.get_by_role("button", name="Delete note")
+        priority_label = frame.locator('label[for="note-priority"]')
+
+        async def header_geometry():
+            title_box, label_box = await title.bounding_box(), await priority_label.bounding_box()
+            share_box, trash_box = await share_button.bounding_box(), await trash_button.bounding_box()
+            attribution_box = await creator.bounding_box()
+            stamp_box, history_box = await creator.locator("time").bounding_box(), await history_link.bounding_box()
+            assert label_box["y"] >= title_box["y"] + title_box["height"] - 1
+            assert abs(label_box["x"] - (title_box["x"] + 2)) <= 1
+            assert abs(share_box["y"] + share_box["height"] - trash_box["y"] - trash_box["height"]) <= 1
+            assert 0 < attribution_box["y"] - (trash_box["y"] + trash_box["height"]) <= 5
+            assert history_box["x"] >= stamp_box["x"] + stamp_box["width"]
+            assert abs(history_box["y"] - stamp_box["y"]) <= 1
+
+        await header_geometry()
+        for control in [priority, priority_label]:
+            assert await control.evaluate("element => getComputedStyle(element).fontSize") == "16px"
+        assert await priority.evaluate("element => getComputedStyle(element).borderTopWidth") == "0px"
+        share_style = "button => {const s=getComputedStyle(button);return [s.color,s.boxShadow,s.cursor];}"
+        before_hover, shadow, cursor = await share_button.evaluate(share_style)
+        await share_button.hover()
+        hovered, hover_shadow, hover_cursor = await share_button.evaluate(share_style)
+        assert before_hover != hovered and shadow == hover_shadow == "none" and cursor == hover_cursor == "pointer"
         active_row = frame.locator(f'[data-note="{through[0]}"]')
         await expect(active_row.locator(".audience-meta")).to_have_text("Morgan")
         await expect(active_row.locator("time")).to_have_text("24 Nov 22:38")
@@ -94,10 +122,12 @@ async def main():
         await page.set_viewport_size({"width": 440, "height": 700})
         await expect(active_row.locator("time")).to_be_visible()
         await expect(active_row.locator(".audience-meta")).to_be_visible()
+        await header_geometry()
+        assert await title.evaluate("textarea => textarea.clientHeight > 32 && textarea.scrollHeight <= textarea.clientHeight + 1")
         await page.set_viewport_size({"width": 1280, "height": 840})
         assert "Comic Sans MS" in await title.evaluate("element => getComputedStyle(element).fontFamily")
         for label, value in (("Font", "Times New Roman"), ("Font Size", "36")):
-            dropdown = frame.get_by_role("combobox", name=label, exact=True)
+            dropdown = frame.locator(f'select[aria-label="{label}"]')
             assert await dropdown.evaluate("""(control, label) => {
                 const style = getComputedStyle(control);
                 const canvas = document.createElement('canvas').getContext('2d');
@@ -106,6 +136,28 @@ async def main():
                     && control.clientWidth - parseFloat(style.paddingLeft) - 22 >= canvas.measureText(label).width;
             }""", value)
 
+        for dropdown in (priority, frame.get_by_label("Font", exact=True), frame.get_by_label("Font Size", exact=True)):
+            assert await dropdown.evaluate("control => getComputedStyle(control).borderTopWidth") == "0px"
+            await dropdown.click()
+            active_option = dropdown.locator("option:checked")
+            await expect(active_option).to_be_visible()
+            assert await dropdown.evaluate("""control => {
+                const picker = getComputedStyle(control, '::picker(select)');
+                return picker.borderTopWidth === '0px' && picker.overflowY === 'auto'
+                    && picker.scrollbarColor !== 'auto';
+            }""")
+            hovered_option = dropdown.locator("option:not(:checked)").first
+            await hovered_option.hover()
+            for option in (active_option, hovered_option):
+                assert await option.evaluate("""option => {
+                    const style = getComputedStyle(option);
+                    const accent = new Option();
+                    accent.style.color = style.getPropertyValue('--accent').trim();
+                    return style.color === accent.style.color;
+                }""")
+            await page.keyboard.press("Escape")
+            assert not await dropdown.evaluate("control => control.matches(':open')")
+
         location = frame.locator('.note-content [data-mention-kind="location"]')
         mention = frame.locator('.note-content [data-mention-kind="person"]')
         await expect(location).to_have_text("Lobby")
@@ -113,17 +165,36 @@ async def main():
         color = "element => getComputedStyle(element).color"
         assert await location.evaluate(color) != await mention.evaluate(color)
 
-        await frame.get_by_role("button", name="Shared with…").click()
+        await share_button.click()
         form = frame.locator(".recipient-dialog")
         await expect(form.get_by_text("Morgan Rivera (Maintenance Technician)", exact=True)).to_be_visible()
         await expect(form.get_by_text("Scott Pickering (Chief Engineer)", exact=True)).to_be_visible()
         first_group = form.get_by_role("heading", name="Individual Names")
         second_group = form.get_by_role("heading", name="Roles and Departments")
         assert (await first_group.bounding_box())["y"] < (await second_group.bounding_box())["y"]
-        await form.get_by_role("button", name="Cancel", exact=True).click()
+        await expect(form.get_by_role("button", name="Cancel", exact=True)).to_have_count(0)
+        await expect(form.get_by_role("button", name="Close recipients")).to_be_visible()
+        await form.get_by_text("Scott Pickering (Chief Engineer)", exact=True).click()
+        bounds = await form.bounding_box()
+        await page.mouse.click(bounds["x"] - 8, bounds["y"] + bounds["height"] / 2)
         await expect(form).to_have_count(0)
+        assert notes[0]["audience"] == {"all": False, "people": [TECH], "roles": []}
+
+        await frame.get_by_role("button", name="New Note", exact=True).click()
+        create = form.get_by_role("button", name="Create Note", exact=True)
+        private_choice = form.get_by_text("Just Me", exact=True).locator("..")
+        await expect(create).to_be_visible()
+        await expect(form).to_have_css("opacity", "1")
+        bounds, create_box, private_box = await form.bounding_box(), await create.bounding_box(), await private_choice.bounding_box()
+        assert abs(create_box["x"] + create_box["width"] / 2 - bounds["x"] - bounds["width"] / 2) <= 2
+        assert abs(create_box["y"] + create_box["height"] / 2 - private_box["y"] - private_box["height"] / 2) <= 1
+        assert create_box["width"] >= 100
+        await page.mouse.click(bounds["x"] - 8, bounds["y"] + bounds["height"] / 2)
+        await expect(form).to_have_count(0)
+        assert len(notes) == 5
 
         await title.click()
+        await title.press("End")
         samples = await title.evaluate("""async title => {
             const sidebar = document.querySelector('.note-item[aria-current="true"] .note-urgent');
             const marker = title.parentElement.querySelector('.note-urgent');
@@ -169,7 +240,7 @@ async def main():
         await expect(active_row.locator("time")).to_have_text("24 Nov 10:38 PM", timeout=60_000)
         assert bootstrap_reads > before
         assert not errors, errors
-        print("Five histories, add/remove diffs, both time formats, recipient order, tags, drawing cursors, and both urgent indicators across both caret phases passed.")
+        print("Header geometry, recipient dismissal and Create Note alignment, five histories, both time formats, tags, drawing cursors, and caret timing passed.")
         await browser.close()
 
 

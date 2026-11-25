@@ -67,6 +67,28 @@ test('shared collaborators edit content but cannot change the audience, delete, 
  const conflict=await f.route.PUT(request({...body,expectedRevision:2}));assert.equal(conflict.status,409);assert.equal(conflict.body.code,'NOTEPAD_CONFLICT');
  f.state.notes=[];assert.equal((await f.route.PUT(request({...body,expectedRevision:null}))).status,403);
 });
+test('only the authenticated creator can change titles for both current and legacy notes',async()=>{
+ const f=fixture();
+ for(const legacy of [false,true]){
+  const legacyVersion=legacy?'staff:'+'a'.repeat(64):undefined,revision=legacy?0:3;
+  const previous={...document(),id,authorId:owner,revision,createdAt:at,updatedAt:at,...(legacy?{legacySource:'staff',legacyVersion}:{})};
+  f.state.notes=[previous];
+  f.state.rows=legacy?[]:[{id,revision,author_user_id:owner,change_id:owner}];
+  const body={...f.body(),expectedRevision:revision,expectedLegacyVersion:legacyVersion,document:{...document(),title:'Unauthorized rename'}};
+  const start=f.calls.filter(([key])=>key==='cmpri_save_notepad').length;
+  for(const modified of [body.document,{...document(),titleFontFamily:'Arial'}]){
+   const denied=await f.route.PUT(request({...body,document:modified}));
+   assert.equal(denied.status,403);
+   assert.match(denied.body.error,/creator.*title/);
+  }
+  assert.equal(f.calls.filter(([key])=>key==='cmpri_save_notepad').length,start);
+  const edit={...body,document:{...document(),content:'<p>Authorized body edit</p>',fontFamily:'Georgia'}};
+  assert.equal((await f.route.PUT(request(edit))).status,200);
+  f.state.notes=[{...previous,authorId:actor}];
+  f.state.rows=legacy?[]:[{id,revision,author_user_id:actor,change_id:owner}];
+  assert.equal((await f.route.PUT(request({...body,document:{...body.document,title:'Creator rename',titleFontFamily:'Arial'}}))).status,200);
+ }
+});
 test('saving validates active recipients and trusted upload ownership before invoking SQL; old staff authors remain authoritative',async()=>{
  const f=fixture();let body=f.body();body.document.audience.people=[owner];assert.equal((await f.route.PUT(request(body))).status,400);
  f.state.people.push({id:owner,active:true,taggable:false});assert.equal((await f.route.PUT(request(body))).status,400);

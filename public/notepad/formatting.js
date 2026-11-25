@@ -83,6 +83,11 @@
       titleActive=true;
       titleSelection={start:titleInput.selectionStart,end:titleInput.selectionEnd,direction:titleInput.selectionDirection};
     }
+    function setTitleFont(value) {
+      if(!titleInput)return;
+      titleFontFamily=familyName(value,FONT_DEFAULT);
+      titleInput.style.fontFamily=family(titleFontFamily);
+    }
     function capture() {
       if(destroyed||colorMenu)return;
       if(titleInput&&doc.activeElement===titleInput){captureTitle();return;}
@@ -531,11 +536,10 @@
     function run(command,value) {
       if(destroyed||composing)return false;
       if(titleActive&&titleInput){
-        if(command!=='font'){refresh();return false;}
+        if(titleInput.readOnly||command!=='font'){refresh();return false;}
         status('');
         if(value==='__installed__'){installedFonts();return true;}
-        titleFontFamily=familyName(value,FONT_DEFAULT);
-        titleInput.style.fontFamily=family(titleFontFamily);
+        setTitleFont(value);
         const selection=titleSelection;
         onTitleFontChange(titleFontFamily);
         titleInput.focus({preventScroll:true});
@@ -569,6 +573,7 @@
         const primary=titleActive?titleFontFamily:computed.fontFamily.split(',')[0].trim().replace(/^["']|["']$/g,'')||FONT_DEFAULT;
         selectedFamily=primary;
         const font=$('[data-format-select=font]',toolbar);
+        font.disabled=Boolean(titleActive&&titleInput?.readOnly);
         if(!Array.from(font.options).some(o=>o.value===primary)){const option=doc.createElement('option');option.value=primary;option.textContent=primary;font.insertBefore(option,$('option[value="__installed__"]',font));}
         if(doc.activeElement!==font)font.value=primary;
         const size=$('[data-format-select=size]',toolbar),number=Math.round(parseFloat(computed.fontSize)||16);
@@ -593,8 +598,7 @@
     editor.style.fontFamily=family(note?.fontFamily||FONT_DEFAULT);
     for(const record of items())if(record.kind!=='plain')restoreMarkerSize(record.node);
     if(titleInput){
-      titleFontFamily=familyName(note?.titleFontFamily,FONT_DEFAULT);
-      titleInput.style.fontFamily=family(titleFontFamily);
+      setTitleFont(note?.titleFontFamily);
       listen(titleInput,'select',()=>{if(doc.activeElement===titleInput){captureTitle();refresh();}});
       listen(titleInput,'compositionstart',()=>{composing=true;});
       listen(titleInput,'compositionend',()=>{composing=false;captureTitle();refresh();});
@@ -639,7 +643,7 @@
     });
     listen(doc,'selectionchange',()=>{if(!composing){capture();refresh();}});
     refresh();
-    return {destroy,refresh,run,isInteracting:()=>!!colorMenu};
+    return {destroy,refresh,run,setTitleFont,isInteracting:()=>!!colorMenu};
   }
   global.NotepadFormatting=Object.freeze({html,attach});
 })(window);

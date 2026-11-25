@@ -79,7 +79,7 @@ const baseNote = (id,title,audience,content,extra={}) => ({id,title,audience,con
 let notes=[], orders={}, currentPerson='', activeNote='', query='', mode='text', device=innerWidth<650?'mobile':'desktop';
 let inkColor='#ffffff',penWidth=4,textColor='#f6ebff',textSize=16;
 let inkController=null, popoverAnchor=null, selectionRange=null, toastTimer, mentionSession=null, draggedNote=null, pointerDrag=null, suppressNoteClick=false;
-let recipientDraft=null, recipientSession=null, deleteSession=null, deleteGesture=null, isComposing=false;
+let recipientDraft=null, recipientSession=null, deleteSession=null, deleteGesture=null, titleEdit=null, isComposing=false;
 let formattingController=null, attachmentController=null, historyController=null, titleResizeObserver=null, paperResizeObserver=null, resizeGesture=null, paneWidths={desktop:220,mobile:110}, noteTransition=0, activeNoteTransition=0;
 const replyTargets={};
 function sanitizeContent(html) {
@@ -95,6 +95,7 @@ function sanitizeContent(html) {
 
 const actor=()=>personById(currentPerson);
 const note=()=>notes.find(n=>n.id===activeNote);
+const canEditTitle=n=>!!n&&n.authorId===currentPerson;
 function canView(n) {const a=n.audience;return n.authorId===currentPerson || a.all || a.people.includes(currentPerson) || actor().roles.some(r=>a.roles.includes(r));}
 function orderedNotes() {
   const order=orders[currentPerson]||[];
@@ -143,8 +144,41 @@ function syncEditor() {
   const clean=el.cloneNode(true);
   $$('.item-reply-actions,.item-thread,.task-completion,.task-stamp',clean).forEach(node=>node.remove());
   n.content=clean.innerHTML;n.fontSize=parseInt(el.style.fontSize)||n.fontSize||16;
-  const title=$('#note-title');if(title)n.title=title.value;
   save();
+}
+function startTitleEdit(input) {
+  const n=note();
+  if(!input||!canEditTitle(n)||input!==$('#note-title'))return false;
+  if(titleEdit?.input!==input)titleEdit={input,id:n.id,original:n.title,fontFamily:n.titleFontFamily||'Comic Sans MS',changed:false};
+  return true;
+}
+function stageTitleFont(family) {
+  if(!startTitleEdit($('#note-title')))return;
+  titleEdit.fontFamily=family;
+  sizeNoteTitle();
+}
+function finishTitleEdit(cancel=false) {
+  const edit=titleEdit,n=note();
+  titleEdit=null;
+  if(!edit||n?.id!==edit.id||!canEditTitle(n))return;
+  if(cancel){
+    edit.input.value=edit.original;
+    formattingController?.setTitleFont(n.titleFontFamily);
+    sizeNoteTitle();
+    return;
+  }
+  const title=edit.changed?edit.input.value:n.title;
+  const fontChanged=edit.fontFamily!==(n.titleFontFamily||'Comic Sans MS');
+  if(title===n.title&&!fontChanged&&(!edit.changed||n.untouchedDraft===false))return;
+  markEdited(n);
+  n.title=title;
+  if(fontChanged)n.titleFontFamily=edit.fontFamily;
+  n.updatedAt=new Date().toISOString();
+  save();
+  refreshSidebar();
+}
+function inTitleEditor(element) {
+  return element===titleEdit?.input||!!element?.closest?.('.notepad-formatting,.notepad-color-popover');
 }
 function attachmentMarkup(n) {
   return (n.attachments||[]).map((a,i)=>'<div class="attachment-chip">'+icon(a.kind==='gif'?'book':'check')+'<button class="attachment-open" data-open-attachment="'+i+'" aria-label="Open '+escape(a.name)+'">'+escape(a.name)+'</button><button data-remove-attachment="'+i+'" aria-label="Remove '+escape(a.name)+'">×</button></div>').join('');
@@ -164,13 +198,19 @@ function editor() {
   const n=note();if(!n)return '<div class="editor-empty"><strong>Your Notepad</strong><p>Use + in the search bar to create a note.</p></div>';
   const author=n.authorName?{name:n.authorName,short:n.authorName}:personById(n.authorId);
   return '<article class="general-notes-editor">'+
-    '<div class="title-row"><div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="Edit title · Choose its font in the toolbar" placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div><div class="title-identity"><div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="'+(n.authorId===currentPerson?'Delete note':'Only the note’s creator can delete it.')+'" aria-disabled="'+(n.authorId!==currentPerson)+'">'+icon('trash')+'</button></div><div class="note-attribution"><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.name)+'</span>'+timestamp(n.createdAt)+'<button type="button" class="note-history-link" data-action="open-history" aria-controls="note-history" aria-expanded="false">Edit History</button></div></div>'+
-    '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select></div></div>'+
+    '<div class="title-row"><div class="note-title-fields">'+
+      '<div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="'+(canEditTitle(n)?'Edit title · Choose its font in the toolbar':'Only the note’s creator can edit its title.')+'"'+(canEditTitle(n)?'':' readonly')+' placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div>'+
+      '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select></div>'+
+    '</div><div class="title-identity">'+
+      '<div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="'+(n.authorId===currentPerson?'Delete note':'Only the note’s creator can delete it.')+'" aria-disabled="'+(n.authorId!==currentPerson)+'">'+icon('trash')+'</button></div>'+
+      '<div class="note-attribution"><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.name)+'</span>'+timestamp(n.createdAt)+'<button type="button" class="note-history-link" data-action="open-history" aria-controls="note-history" aria-expanded="false">Edit History</button></div>'+
+    '</div></div>'+
     window.NotepadFormatting.html()+
     '<div class="general-notes-workspace"><div class="general-notes-body"><div class="general-notes-scroll"><div class="general-notes-paper '+(mode!=='text'?'is-drawing':'')+'"><div class="note-content" style="font-size:'+(n.fontSize||16)+'px;font-family:&quot;'+escape(n.fontFamily||'Comic Sans MS')+'&quot;,&quot;Comic Sans MS&quot;,cursive" role="textbox" aria-label="Notepad writing area" aria-multiline="true" contenteditable="'+(mode==='text')+'" spellcheck="true" data-placeholder="Write a note, add a checklist, or type @…">'+n.content+'</div><svg class="note-ink" xmlns="http://www.w3.org/2000/svg" aria-label="Handwriting canvas"></svg></div></div></div>'+
     '<div class="editor-attachments">'+attachmentMarkup(n)+'</div>'+tools()+'</div><section id="note-history" class="note-history" aria-label="Edit History" hidden></section></article>';
 }
 function render() {
+  finishTitleEdit();
   noteTransition++;activeNoteTransition=0;
   closePopover();closeMentions();selectionRange=null;
   formattingController?.destroy();formattingController=null;attachmentController?.destroy();attachmentController=null;
@@ -188,7 +228,7 @@ function render() {
     $$('.task-label').forEach(el=>el.contentEditable=String(mode==='text'));
     inkController=window.NotepadInk.attach({paper:$('.general-notes-paper'),textLayer:$('.note-content'),svg:$('.note-ink'),getNote:note,getMode:()=>mode,getColor:()=>inkColor,getWidth:()=>penWidth,onSave:changed=>{markEdited(changed);save();},onModeChange:next=>setMode(next)});
     normalizeSharedItems();
-    formattingController=window.NotepadFormatting.attach({editor:$('.note-content'),toolbar:$('.notepad-formatting'),titleInput:$('#note-title'),getNote:note,onTitleFontChange:family=>{const n=note();markEdited(n);n.titleFontFamily=family;n.updatedAt=new Date().toISOString();$('#note-title').style.fontFamily=titleFontFamily(n);sizeNoteTitle();save();refreshSidebar();},onChange:()=>{markEdited();normalizeSharedItems();syncEditor();}});
+    formattingController=window.NotepadFormatting.attach({editor:$('.note-content'),toolbar:$('.notepad-formatting'),titleInput:$('#note-title'),getNote:note,onTitleFontChange:stageTitleFont,onChange:()=>{markEdited();normalizeSharedItems();syncEditor();}});
     if(typeof ResizeObserver==='function'){
       let titleWidth=-1;
       titleResizeObserver=new ResizeObserver(entries=>{const width=entries[0]?.contentRect.width;if(width!==undefined&&width!==titleWidth){titleWidth=width;sizeNoteTitle();}});
@@ -203,6 +243,7 @@ function render() {
   applyPaneWidth();save();
 }
 async function selectNote(id) {
+  finishTitleEdit();
   if(id===activeNote){
     noteTransition++;activeNoteTransition=0;
     const current=$('.general-notes-editor');current?.getAnimations().forEach(a=>a.cancel());if(current)current.style.pointerEvents='';
@@ -286,11 +327,15 @@ function showPopover(content,anchor,cls='') {
   $('#popover-layer').innerHTML='<section class="preview-popover '+cls+'">'+content+'</section>';
   const el=$('.preview-popover');positionPopover(el,anchor,cls==='tool-bubble');anchor.setAttribute('aria-expanded','true');return el;
 }
-function recipientForm(a) {
+function recipientForm(a,purpose) {
   const isPrivate=!a.all&&!a.roles.length&&!a.people.length;
   const pill=(kind,label,value='',checked=false)=>'<label class="recipient-pill"><input type="checkbox" data-recipient="'+kind+'"'+(value?' value="'+escape(value)+'"':'')+(checked?' checked':'')+'><span>'+escape(label)+'</span></label>';
   const roleLabel=p=>p.displayRole||roles.find(r=>r.id===p.role)?.label||roles.find(r=>p.roles?.includes(r.id))?.label||String(p.role||'').replace(/_/g,' ');
-  return '<div class="recipient-private-choice">'+pill('private','Just me','',isPrivate)+'</div><section class="recipient-section" aria-labelledby="recipient-people-heading"><h3 id="recipient-people-heading">Individual Names</h3><div class="recipient-options">'+people.filter(p=>isTaggableAccount(p)&&p.recipientSelectable!==false).map(p=>pill('person',p.name+' ('+roleLabel(p)+')',p.id)).join('')+'</div></section><section class="recipient-section" aria-labelledby="recipient-roles-heading"><h3 id="recipient-roles-heading">Roles and Departments</h3><div class="recipient-options">'+pill('all','All Roles','',a.all)+pill('engineering','Engineering')+roles.map(r=>pill('role',r.label,r.id)).join('')+'</div></section>';
+  const create=purpose==='new'?'<button class="recipient-submit recipient-create" type="submit">Create Note</button>':'';
+  return '<div class="recipient-private-choice">'+pill('private','Just Me','',isPrivate)+create+'</div>'+
+    '<section class="recipient-section" aria-labelledby="recipient-people-heading"><h3 id="recipient-people-heading">Individual Names</h3><div class="recipient-options">'+people.filter(p=>isTaggableAccount(p)&&p.recipientSelectable!==false).map(p=>pill('person',p.name+' ('+roleLabel(p)+')',p.id)).join('')+'</div></section>'+
+    '<section class="recipient-section" aria-labelledby="recipient-roles-heading"><h3 id="recipient-roles-heading">Roles and Departments</h3><div class="recipient-options">'+pill('all','All Roles','',a.all)+pill('engineering','Engineering')+roles.map(r=>pill('role',r.label,r.id)).join('')+'</div></section>'+
+    (purpose==='share'?'<div class="recipient-footer"><button class="recipient-submit" type="submit">Save recipients</button></div>':'');
 }
 function animateRecipientDialog(session,opening,done=()=>{}) {
   const dialog=session.dialog;
@@ -315,6 +360,7 @@ function reopenUntouchedDraft() {
 }
 function openRecipients(purpose='new',origin) {
   if(!initialized)return;
+  finishTitleEdit();
   syncEditor();closePopover();closeMentions();
   if(purpose==='new'&&reopenUntouchedDraft())return;
   if(purpose==='share'&&!note())return;
@@ -322,9 +368,22 @@ function openRecipients(purpose='new',origin) {
   recipientDraft=purpose==='new'?privateAudience():clone(note().audience);
   origin ||= $('[data-action="'+(purpose==='new'?'new':'share')+'"]');
   const dialog=document.createElement('dialog');dialog.className='recipient-dialog';dialog.setAttribute('aria-labelledby','recipient-heading');
-  dialog.innerHTML='<form id="recipient-form" method="dialog"><div class="recipient-heading"><h2 id="recipient-heading">Who’s it for?</h2><button type="button" data-action="cancel-recipients" aria-label="Close recipients">×</button></div>'+recipientForm(recipientDraft)+'<div class="recipient-footer"><button type="button" data-action="cancel-recipients">Cancel</button><button type="submit">'+(purpose==='new'?'Create Note':'Save recipients')+'</button></div></form>';
+  dialog.innerHTML='<form id="recipient-form" method="dialog"><div class="recipient-heading"><h2 id="recipient-heading">Who’s it for?</h2><button type="button" data-action="cancel-recipients" aria-label="Close recipients">×</button></div>'+recipientForm(recipientDraft,purpose)+'</form>';
   recipientSession={dialog,origin,originRect:origin.getBoundingClientRect(),purpose,noteId:purpose==='share'?activeNote:null,generation:accountGeneration,closing:false,animation:null};
   dialog.addEventListener('cancel',e=>{e.preventDefault();closeRecipients();});
+  const onBackdrop=e=>{
+    if(e.target!==dialog)return false;
+    const bounds=dialog.getBoundingClientRect();
+    return e.clientX<bounds.left||e.clientX>bounds.right||e.clientY<bounds.top||e.clientY>bounds.bottom;
+  };
+  let pressedBackdrop=false;
+  dialog.addEventListener('pointerdown',e=>{pressedBackdrop=e.button===0&&onBackdrop(e);});
+  dialog.addEventListener('pointercancel',()=>{pressedBackdrop=false;});
+  dialog.addEventListener('click',e=>{
+    const dismiss=pressedBackdrop&&onBackdrop(e);
+    pressedBackdrop=false;
+    if(dismiss)closeRecipients();
+  });
   document.body.append(dialog);updateRecipientChecks();if(purpose==='share'&&note().authorId!==currentPerson){$$('input,button[type=submit]',dialog).forEach(control=>control.disabled=true);}dialog.showModal();$('[data-recipient=private]',dialog).focus();animateRecipientDialog(recipientSession,true);
 }
 function closeRecipients({immediate=false,restoreFocus=true,onClose}={}) {
@@ -600,7 +659,7 @@ function closeDelete({restoreFocus=true}={}) {
 function openDelete(origin) {
   const n=note();if(!initialized||!n)return;
   if(n.authorId!==currentPerson){toast('Only the note’s creator can delete it.');return;}
-  syncEditor();closePopover();closeMentions();closeDelete({restoreFocus:false});
+  finishTitleEdit();syncEditor();closePopover();closeMentions();closeDelete({restoreFocus:false});
   const dialog=document.createElement('dialog');dialog.className='delete-dialog';dialog.setAttribute('aria-labelledby','delete-heading');dialog.setAttribute('aria-describedby','delete-message');
   dialog.innerHTML='<h2 id="delete-heading">Delete this note</h2><p id="delete-message">Remove <strong>'+escape(n.title||'Untitled')+'</strong> from Notepad</p><div class="delete-actions"><button type="button" data-action="cancel-delete">Cancel</button><button type="button" data-action="confirm-delete">Delete</button></div>';
   deleteSession={dialog,origin,noteId:n.id,generation:accountGeneration};
@@ -761,7 +820,10 @@ function finishPointerDrag(e) {
 document.addEventListener('pointerup',finishPointerDrag);
 document.addEventListener('pointercancel',e=>{if(deleteGesture?.pointerId===e.pointerId)deleteGesture=null;if(pointerDrag?.pointerId===e.pointerId){pointerDrag=null;clearDragMarks();}if(resizeGesture?.pointerId===e.pointerId){applyPaneWidth(resizeGesture.startWidth);resizeGesture=null;save();}});
 document.addEventListener('dblclick',e=>{if(e.target.closest('.pane-divider')){applyPaneWidth(device==='mobile'?110:220);save();}});
-document.addEventListener('focusin',e=>{if(e.target.closest('.notepad-formatting')&&mode!=='text')setMode('text');});
+document.addEventListener('focusin',e=>{
+  if(e.target.matches('#note-title'))startTitleEdit(e.target);
+  if(e.target.closest('.notepad-formatting')&&mode!=='text')setMode('text');
+});
 document.addEventListener('dragstart',e=>{
   const row=e.target.closest('.note-row');if(!row||pointerDrag){e.preventDefault();return;}
   draggedNote=row.dataset.row;e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',draggedNote);row.classList.add('is-dragging');
@@ -788,7 +850,12 @@ document.addEventListener('click',e=>{
 });
 document.addEventListener('input',e=>{
   const t=e.target;
-  if(t.matches('#note-title')){markEdited();sizeNoteTitle();note().title=t.value;note().updatedAt=new Date().toISOString();save();refreshSidebar();}
+  if(t.matches('#note-title')){
+    if(startTitleEdit(t))titleEdit.changed||=t.value!==titleEdit.original;
+    else if(note())t.value=note().title;
+    sizeNoteTitle();
+    return;
+  }
   if(t.closest('.note-content')&&!t.closest('.item-thread')){markEdited();if(!e.isComposing&&!isComposing)normalizeSharedItems();note().updatedAt=new Date().toISOString();if(t.closest('.note-check'))updateTaskAccessibleLabel(t.closest('.note-check'));syncEditor();if(!e.isComposing)detectMention();}
   if(t.matches('.search-box input')){query=t.value;refreshSidebar();}
   if(t.matches('.width-control input')){penWidth=Number(t.value);t.style.setProperty('--pen-size',penWidth+'px');const out=t.parentElement.querySelector('output');if(out)out.value=penWidth;}
@@ -816,6 +883,14 @@ document.addEventListener('paste',e=>{
 
 document.addEventListener('keydown',e=>{
   if(e.defaultPrevented||e.isComposing||isComposing||e.keyCode===229)return;
+  if(titleEdit){
+    const cancel=e.key==='Escape'&&inTitleEditor(e.target);
+    const accept=e.key==='Enter'&&!e.shiftKey&&e.target===titleEdit.input;
+    if(cancel||accept){
+      if(cancel&&window.CSS?.supports?.('selector(:open)')&&e.target.closest('select:open'))return;
+      e.preventDefault();finishTitleEdit(cancel);restoreSelection();return;
+    }
+  }
   if(e.target.matches('.pane-divider')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const current=Number(e.target.getAttribute('aria-valuenow'));applyPaneWidth(e.key==='Home'?Number(e.target.getAttribute('aria-valuemin')):e.key==='End'?Number(e.target.getAttribute('aria-valuemax')):current+(e.key==='ArrowRight'?8:-8));save();return;}
   if(mentionSession&&['ArrowDown','ArrowUp','Enter','Tab','Escape'].includes(e.key)) {
     e.preventDefault();if(e.key==='Escape'){closeMentions();return;}
@@ -838,7 +913,7 @@ document.addEventListener('compositionstart',()=>{isComposing=true;closeMentions
 document.addEventListener('compositionend',e=>{isComposing=false;if(e.target.matches('.reply-input'))detectReplyMention(e.target);else if(e.target.closest('.note-content')){normalizeSharedItems();syncEditor();detectMention();}});
 document.addEventListener('selectionchange',()=>{rememberSelection();if(mentionSession?.range&&$('.note-content')?.contains(document.activeElement))detectMention();});
 window.addEventListener('resize',()=>{device=innerWidth<650?'mobile':'desktop';$('#window-wrap').classList.toggle('is-mobile',device==='mobile');closePopover();closeMentions();applyPaneWidth();});
-window.addEventListener('beforeunload',()=>{if(recipientSession?.closing&&recipientSession.onClose)closeRecipients({immediate:true,restoreFocus:false});inkController?.destroy();syncEditor();sendHost('flush');});
+window.addEventListener('beforeunload',()=>{finishTitleEdit();if(recipientSession?.closing&&recipientSession.onClose)closeRecipients({immediate:true,restoreFocus:false});inkController?.destroy();syncEditor();sendHost('flush');});
 function applyPalette(values) {
   if(!values||typeof values!=='object')return;
   for(const key of ['--cmpri-action-rgb','--cmpri-modal-base','--cmpri-modal-surface','--cmpri-modal-text','--cmpri-outline','--cmpri-modal-muted','--accent'])if(typeof values[key]==='string')document.documentElement.style.setProperty(key,values[key]);
@@ -846,7 +921,7 @@ function applyPalette(values) {
 }
 function editingCurrent() {
   const element=document.activeElement;
-  return activeNoteTransition!==0||isComposing||!!historyController||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.title-actions,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover'));
+  return activeNoteTransition!==0||!!titleEdit||isComposing||!!historyController||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.title-actions,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover'));
 }
 function installRemote(incoming,renderCurrent=true) {
   // A refresh started before deletion may arrive after the save acknowledgement.
@@ -876,6 +951,7 @@ window.addEventListener('message',event=>{
   }
   if(data.type==='palette'){applyPalette(payload);return;}
   if(data.type==='clear'){
+    titleEdit=null;
     initialized=false;accountGeneration++;noteTransition++;activeNoteTransition=0;closeRecipients({immediate:true,restoreFocus:false});closeDelete({restoreFocus:false});closePopover();closeMentions();
     inkController?.destroy();formattingController?.destroy();attachmentController?.destroy();inkController=null;formattingController=null;attachmentController=null;
     titleResizeObserver?.disconnect();titleResizeObserver=null;
@@ -887,7 +963,7 @@ window.addEventListener('message',event=>{
     for(const pending of requests.values())pending.reject(Error('Your CMPRI session changed.'));requests.clear();
     $('#layout-body').innerHTML='<p class="editor-empty">Sign in to open Notepad.</p>';return;
   }
-  if(data.type==='unavailable'){$('#layout-body').innerHTML='<p class="editor-empty">'+escape(payload.message)+'</p>';return;}
+  if(data.type==='unavailable'){titleEdit=null;$('#layout-body').innerHTML='<p class="editor-empty">'+escape(payload.message)+'</p>';return;}
   if(data.type==='initialize'){
     if(initialized)return;
     bridgeScope=payload.hotelId+':'+payload.userId;currentPerson=payload.userId;people=payload.people||[];roles=payload.roles||[];notes=(payload.notes||[]).map(prepareNote);
@@ -936,12 +1012,14 @@ window.addEventListener('message',event=>{
   }
   if(data.type==='select'&&payload.id){const id=legacyAliases[payload.id]||payload.id;if(notes.some(n=>n.id===id))void selectNote(id);return;}
   if(data.type==='flush'){
+    finishTitleEdit();
     if(recipientSession?.closing&&recipientSession.onClose)closeRecipients({immediate:true,restoreFocus:false});
     document.dispatchEvent(new Event('cmpri-notes-finish-input'));syncEditor();sendHost('flushed',{requestId:payload.requestId});
   }
 });
-document.addEventListener('focusout',()=>{
+document.addEventListener('focusout',event=>{
   if(!initialized)return;
+  if(titleEdit&&inTitleEditor(event.target)&&!inTitleEditor(event.relatedTarget))finishTitleEdit();
   const generation=accountGeneration,id=activeNote;
   // Native blur can run microtasks while activeElement is still the body.
   // Wait until the next task so focus and the pending dock click can settle.

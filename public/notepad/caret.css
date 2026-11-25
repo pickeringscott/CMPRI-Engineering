@@ -1,4 +1,4 @@
-/* Both urgent markers stay lit for one complete caret cycle. */
+/* Both urgent markers stay lit for three caret steps, then dark for three. */
 .layout-1 .note-urgent{animation:none;opacity:var(--notepad-urgent-opacity,1)}
 html[data-notepad-caret="native"] :is(input,textarea,[contenteditable]){caret-animation:manual}
 html[data-notepad-caret="native"][data-notepad-blink-on="false"] :is(input,textarea,[contenteditable]){caret-color:transparent!important}

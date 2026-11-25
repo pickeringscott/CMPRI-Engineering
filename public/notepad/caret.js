@@ -6,20 +6,21 @@
 const root=document.documentElement;
 const nativeCaret=Boolean(window.CSS?.supports?.('caret-animation','manual'));
 const motion=window.matchMedia?.('(prefers-reduced-motion: reduce)');
-const caretPeriod=1000,halfPeriod=caretPeriod/2,urgentPeriod=caretPeriod*2,epoch=performance.now();
+const blinkStep=500,urgentPhaseSteps=3,epoch=performance.now();
 let blinkTimer=0,frame=0,disposed=false,composing=false,observed=null;
 root.dataset.notepadCaret=nativeCaret?'native':'overlay';
 
 function clock(){
   clearTimeout(blinkTimer);
   const elapsed=performance.now()-epoch;
-  const phase=elapsed%caretPeriod;
-  const visible=motion?.matches||phase<halfPeriod;
+  const step=Math.floor(elapsed/blinkStep);
+  const visible=motion?.matches||step%2===0;
+  const urgentVisible=motion?.matches||step%(urgentPhaseSteps*2)<urgentPhaseSteps;
   root.style.setProperty('--notepad-blink-opacity',visible?'1':'0');
-  root.style.setProperty('--notepad-urgent-opacity',motion?.matches||elapsed%urgentPeriod<caretPeriod?'1':'0');
+  root.style.setProperty('--notepad-urgent-opacity',urgentVisible?'1':'0');
   root.dataset.notepadBlinkOn=visible?'true':'false';
   if(!disposed&&!motion?.matches&&!document.hidden){
-    blinkTimer=setTimeout(clock,Math.max(1,(phase<halfPeriod?halfPeriod:caretPeriod)-phase));
+    blinkTimer=setTimeout(clock,Math.max(1,blinkStep-elapsed%blinkStep));
   }
 }
 

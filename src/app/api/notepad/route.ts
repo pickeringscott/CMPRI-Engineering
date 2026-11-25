@@ -45,6 +45,7 @@ export async function PUT(request:NextRequest) {
     let document:NotepadDocument|null=null;
     if(input.document!==null){
       try { document=validateNotepadDocument(input.document,previous?notepadDocument(previous):null,actor,new Date().toISOString()); } catch(error) { return response({error:error instanceof Error?error.message:'Invalid note.'},400); }
+      if(previous&&previous.authorId!==actor&&(document.title!==previous.title||document.titleFontFamily!==(previous.titleFontFamily||'Comic Sans MS')))return response({error:'Only the creator can edit the note title or its font.'},403);
       if(previous&&previous.authorId!==actor&&!sameAudience(document.audience,previous.audience))return response({error:'Only the creator can change sharing.'},403);
       for(const id of document.audience.people)if(!previous?.audience.people.includes(id)&&!state.people.some(p=>p.id===id&&p.active&&p.taggable&&p.recipientSelectable!==false))return response({error:'A selected recipient is no longer available.'},400);
       const added=document.attachments.filter(file=>file.kind==='file'&&!previous?.attachments.some(old=>old.id===file.id));

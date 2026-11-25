@@ -7,6 +7,7 @@ import { historyExamples, historyPeople } from './fixtures/notepad-history-examp
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const html = read('../public/notepad/editor.html');
 const css = read('../public/notepad/notepad.css');
+const hostCss = read('../public/notepad/host.css');
 const approved = read('../docs/previews/Notepad.html');
 const modules = ['ink', 'formatting', 'attachments', 'history', 'app'].map(name => read(`../public/notepad/${name}.js`));
 const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -105,6 +106,12 @@ function controlledAnimations(s) {
   return animations;
 }
 
+function titleKey(s, key) {
+  const event = new s.window.KeyboardEvent('keydown', {key, bubbles: true, cancelable: true});
+  s.find('#note-title').dispatchEvent(event);
+  return event;
+}
+
 test('the approved Familiar Sidebar boots from authenticated data with the exact toolbar and no preview accounts', () => {
   const s = setup({}, false);
   try {
@@ -133,15 +140,24 @@ test('the approved Familiar Sidebar boots from authenticated data with the exact
   } finally {s.cleanup();}
 });
 
-test('editing and formatting the title updates the sidebar and emitted document without changing the body font', () => {
+test('Enter saves a title draft after choosing its font without changing the body font', () => {
   const s = setup();
   try {
     const title = s.focus('#note-title');
     assert.equal(title.tagName, 'TEXTAREA');
     assert.equal(title.getAttribute('wrap'), 'soft');
     s.input('#note-title', 'Pump repair'); title.setSelectionRange(2, 6); s.event(title, 'select');
+    assert.equal(s.saves().length, 0);
     const font = s.find('[data-format-select=font]');
     s.event(font, 'pointerdown'); font.focus(); font.value = 'Georgia'; s.event(font, 'change');
+    assert.equal(s.saves().length, 0, 'Changing the font stays in the title draft');
+    assert.match(title.style.fontFamily, /^"?Georgia"?,/);
+    assert.match(s.find('.note-item strong').style.fontFamily, /^"?Arial"?,/);
+    assert.equal(s.document.activeElement, title, 'Title focus is restored after choosing its font');
+    assert.equal(title.selectionStart, 2); assert.equal(title.selectionEnd, 6);
+    const writing = s.find('.note-content'); writing.tabIndex = 0;
+    assert.equal(titleKey(s, 'Enter').defaultPrevented, true);
+    assert.equal(s.document.activeElement, writing);
     const saved = s.latestSave();
     assert.equal(saved.document.title, 'Pump repair');
     assert.equal(saved.document.titleFontFamily, 'Georgia');
@@ -149,8 +165,6 @@ test('editing and formatting the title updates the sidebar and emitted document 
     assert.match(title.style.fontFamily, /^"?Georgia"?,/);
     assert.match(s.find('.note-item strong').style.fontFamily, /^"?Georgia"?,/);
     assert.equal(s.find('.note-item strong').textContent.replace('!', ''), 'Pump repair');
-    assert.equal(s.document.activeElement, title, 'Title focus is restored after choosing its font');
-    assert.equal(title.selectionStart, 2); assert.equal(title.selectionEnd, 6);
     assert.ok(title.style.fontFamily.includes('Comic Sans MS'));
   } finally {s.cleanup();}
 });
@@ -169,20 +183,90 @@ test('the title grows and shrinks after editing or narrowing without losing its 
     s.window.dispatchEvent(new s.window.Event('resize'));
     assert.equal(title.style.height, '170px');
     assert.equal(title.value, text);
-    assert.equal(s.latestSave().document.title, text);
+    assert.equal(s.saves().length, 0);
     assert.equal(title.selectionStart, 7); assert.equal(title.selectionEnd, 18);
     contentHeight = 30;
     s.window.dispatchEvent(new s.window.Event('resize'));
     assert.equal(title.style.height, '30px');
+    s.focus('.search-box input');
+    assert.equal(s.latestSave().document.title, text);
   } finally {s.cleanup();}
 });
 
-test('urgent images replace the text marker while approved metadata and borderless actions stay intact', () => {
+test('Escape discards the whole title draft before any title autosave and returns focus to writing', () => {
+  const s = setup();
+  try {
+    const original=s.bootstrap.notes[0].title, title=s.focus('#note-title');
+    s.input('#note-title', 'First draft');
+    s.input('#note-title', 'Later draft');
+    const font=s.find('[data-format-select=font]');
+    s.event(font,'pointerdown');font.focus();font.value='Georgia';s.event(font,'change');
+    assert.equal(s.saves().length,0);
+    const priority=s.find('#note-priority');
+    priority.value='High';s.event(priority,'change');
+    assert.equal(s.latestSave().document.title,original,'An unrelated save never flushes title text');
+    assert.equal(s.latestSave().document.titleFontFamily,'Arial');
+    const body=s.find('.note-content');body.tabIndex=0;
+    assert.equal(titleKey(s,'Escape').defaultPrevented,true);
+    assert.equal(title.value,original);
+    assert.match(title.style.fontFamily,/^"?Arial"?,/);
+    assert.equal(s.find('.note-item strong').textContent,original);
+    assert.equal(s.document.activeElement,body);
+    assert.ok(body.contains(s.window.getSelection().anchorNode));
+    s.focus('#note-title');s.input('#note-title','A second draft');
+    font.focus();
+    font.dispatchEvent(new s.window.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
+    assert.equal(title.value,original);
+    assert.equal(s.document.activeElement,body);
+    s.send('flush',{requestId:uuid(400)});
+    assert.ok(s.saves().every(({document})=>document.title===original&&document.titleFontFamily==='Arial'));
+  } finally {s.cleanup();}
+});
+
+test('collaborators cannot edit the title and still autosave body changes', () => {
+  const saved=makeNote({authorId:colleague.id,audience:{all:true,roles:[],people:[]}});
+  const s=setup({notes:[saved]});
+  try {
+    const title=s.focus('#note-title');
+    assert.equal(title.readOnly,true);
+    assert.match(title.title,/creator/);
+    const font=s.find('[data-format-select=font]');
+    assert.equal(font.disabled,true);
+    font.value='Georgia';s.event(font,'change');
+    assert.match(title.style.fontFamily,/^"?Arial"?,/);
+    s.input('#note-title','Synthetic title change');
+    assert.equal(title.value,saved.title);
+    assert.equal(s.saves().length,0);
+    title.value='Unsanctioned DOM value';
+    const body=s.focus('.note-content');
+    assert.equal(font.disabled,false);
+    body.firstElementChild.textContent='Collaborator can still write';
+    s.event(body,'input');
+    assert.equal(s.latestSave().document.title,saved.title);
+    assert.match(s.latestSave().document.content,/Collaborator can still write/);
+  } finally {s.cleanup();}
+});
+
+test('switching notes commits the creator’s title once to the original note', async () => {
+  const original=makeNote(), next=makeNote({id:uuid(11),title:'Other note'});
+  const s=setup({notes:[original,next],order:[original.id,next.id]});
+  try {
+    s.focus('#note-title');
+    s.input('#note-title','Edit before switching');
+    s.send('select',{id:next.id});
+    await tick();
+    assert.equal(s.find('#note-title').value,next.title);
+    assert.deepEqual(s.saves().map(entry=>[entry.id,entry.document.title]),[[original.id,'Edit before switching']]);
+  } finally {s.cleanup();}
+});
+
+test('urgent images, left-aligned priority and inline attribution share the note header', () => {
   const s = setup();
   try {
     const editor = s.find('.general-notes-editor'), details = s.find('.note-details');
     assert.ok(editor.firstElementChild.classList.contains('title-row'));
-    assert.equal(details.parentElement, editor.firstElementChild);
+    assert.equal(details.parentElement, s.find('.note-title-fields'));
+    assert.equal(details.previousElementSibling, s.find('.note-heading'));
     assert.deepEqual(Array.from(details.children, node => node.tagName), ['LABEL', 'SELECT']);
     assert.equal(editor.firstElementChild.nextElementSibling, s.find('.notepad-formatting'));
     assert.equal(s.find('.title-identity').firstElementChild, s.find('.title-actions'));
@@ -212,15 +296,12 @@ test('urgent images replace the text marker while approved metadata and borderle
       assert.equal(marker.querySelector('img').getAttribute('src'), '/notepad/urgent-button.jpg');
     }
     assert.equal(s.latestSave().document.priority, 'Urgent');
-    const selectors = ['.layout-1 .priority-row.note-details', '.layout-1 .priority-row.note-details > *', '.layout-1 .priority-row.note-details #note-priority', '.layout-1 .title-actions button'];
-    for (const selector of selectors) {
-      const rule = css.split('\n').find(line => line.startsWith(selector + ' {'));
-      assert.ok(rule, selector); assert.ok(approved.includes(rule), `Approved rule changed: ${selector}`);
-    }
-    assert.match(css, /\.priority-row\.note-details \{[^}]*grid-template-columns: repeat\(4, max-content\)[^}]*gap: 0 5px[^}]*font: 10px\/1\.4/);
+    assert.match(hostCss, /\.priority-row\.note-details\{[^}]*justify-content:flex-start[^}]*font-size:12pt/);
     assert.match(css, /\.priority-row\.note-details > \* \{[^}]*font: inherit/);
-    assert.match(css, /\.priority-row\.note-details #note-priority \{[^}]*border: 0[^}]*color: var\(--accent\)[^}]*font: inherit/);
+    assert.match(hostCss, /\.priority-row\.note-details #note-priority\{[^}]*border:0/);
     assert.match(css, /\.title-actions button \{[^}]*border: 0/);
+    assert.match(hostCss, /\.title-actions\{align-items:flex-end/);
+    assert.match(hostCss, /\.title-actions \.scope-button\{[^}]*box-shadow:none;cursor:pointer/);
     priority.value = 'Normal'; s.event(priority, 'change');
     assert.equal(s.find('.note-heading .note-urgent').hidden, true);
     assert.equal(s.find('.note-item .note-urgent').hidden, true);
@@ -301,6 +382,7 @@ test('displayed location tags omit the trigger character while other tagged text
     assert.equal(s.find('.mention[data-mention-kind=location] strong').textContent,'Lobby');
     assert.equal(s.find('.mention[data-mention-kind=person]').textContent,'@Morgan');
     s.input('#note-title','Edited location note');
+    titleKey(s,'Enter');
     assert.match(s.latestSave().document.content,/<strong>Lobby<\/strong>/);
     assert.match(s.latestSave().document.content,/@Morgan/);
   }finally{s.cleanup();}
@@ -358,7 +440,7 @@ test('a new draft is reusable until a title or body edit, even when that edit is
       s.click('[data-action=new]');
       assert.equal(s.document.querySelector('.recipient-dialog'),null);
       assert.equal(s.find('.note-row[data-current=true]').dataset.row,draftId);
-      if(field==='title'){s.input('#note-title','Temporary title');s.input('#note-title','');}
+      if(field==='title'){s.input('#note-title','Temporary title');s.input('#note-title','');titleKey(s,'Enter');}
       else{const body=s.find('.note-content');body.innerHTML='<p>Temporary body</p>';s.event(body,'input');body.innerHTML='';s.event(body,'input');}
       assert.equal(s.latestSave(draftId).document.untouchedDraft,false);
       s.click('[data-action=new]');assert.ok(s.find('.recipient-dialog'));
@@ -438,6 +520,42 @@ test('sharing telescopes from and back to the control that opened it', async () 
   }finally{s.cleanup();}
 });
 
+test('recipient backdrop cancels changes and the Create Note button shares the Just Me row', () => {
+  const s=setup();
+  try {
+    for(const action of ['new','share']){
+      const origin=s.find('[data-action='+action+']');
+      origin.click();
+      const dialog=s.find('.recipient-dialog'),privateChoice=s.find('[data-recipient=private]').closest('label'),submit=s.find('#recipient-form button[type=submit]');
+      assert.equal(privateChoice.textContent,'Just Me');
+      assert.equal(dialog.querySelectorAll('[data-action=cancel-recipients]').length,1);
+      assert.equal(dialog.querySelector('[data-action=cancel-recipients]').textContent,'×');
+      if(action==='new'){
+        assert.equal(submit.textContent,'Create Note');
+        assert.equal(submit.parentElement,privateChoice.parentElement);
+      }else{
+        assert.equal(submit.textContent,'Save recipients');
+        assert.equal(submit.closest('.recipient-footer'),submit.parentElement);
+      }
+      dialog.getBoundingClientRect=()=>({left:20,right:420,top:30,bottom:330});
+      const saveCount=s.saves().length;
+      s.click('[data-recipient=person][value="'+colleague.id+'"]');
+      assert.equal(s.find('[data-recipient=private]').checked,false);
+      const pointerAt=(event,x)=>dialog.dispatchEvent(new s.window.MouseEvent(event,{bubbles:true,clientX:x,clientY:32}));
+      pointerAt('pointerdown',22);pointerAt('click',22);
+      assert.equal(dialog.isConnected,true,'Clicking the dialog padding does not dismiss it');
+      pointerAt('pointerdown',22);pointerAt('click',12);
+      assert.equal(dialog.isConnected,true,'Dragging off the dialog does not dismiss it');
+      pointerAt('pointerdown',12);pointerAt('click',12);
+      assert.equal(dialog.isConnected,false);
+      assert.equal(s.document.activeElement,origin);
+      assert.equal(s.saves().length,saveCount);
+      assert.equal(s.document.querySelectorAll('.note-row').length,1);
+      assert.equal(s.find('.audience-meta').textContent,'Just me');
+    }
+  }finally{s.cleanup();}
+});
+
 test('Create Note waits for the dialog to collapse, creates once, and expands the new note from its center', async () => {
   const s=setup(),animations=controlledAnimations(s);
   try{
@@ -507,7 +625,7 @@ test('a close flush commits an accepted recipient submit before acknowledgement 
 test('the first trash click after a save acknowledgement survives focusout and deletes only the confirmed note', async () => {
   const s=setup({notes:[makeNote(),makeNote({id:uuid(11),title:'Keep this note'})],order:[uuid(10),uuid(11)]});
   try{
-    s.focus('#note-title');s.input('#note-title','Note to delete');
+    s.focus('#note-title');s.input('#note-title','Note to delete');titleKey(s,'Enter');s.focus('#note-title');
     const sent=s.latestSave(),canonical={...s.bootstrap.notes[0],...sent.document,revision:2};
     s.send('saved',{id:canonical.id,sequence:sent.sequence,revision:2,note:canonical});
     const trash=s.find('[data-action=delete]');
@@ -683,7 +801,10 @@ for (const field of ['title', 'body']) test(`save acknowledgement and remote upd
   const s = setup();
   try {
     const target = s.focus(field === 'title' ? '#note-title' : '.note-content');
-    if (field === 'title') s.input('#note-title', 'Local edited title');
+    if (field === 'title') {
+      const priority=s.find('#note-priority');priority.value='High';s.event(priority,'change');
+      s.input('#note-title','Local edited title');
+    }
     else {target.firstElementChild.textContent = 'Local edited body'; s.event(target, 'input');}
     const sent = s.latestSave(), canonical = {...s.bootstrap.notes[0], ...sent.document, revision: 2};
     s.send('saved', {id: canonical.id, sequence: sent.sequence, revision: 2, note: canonical});
@@ -693,6 +814,12 @@ for (const field of ['title', 'body']) test(`save acknowledgement and remote upd
     s.send('remote', {notes: [incoming]});
     assert.equal(s.find(field === 'title' ? '#note-title' : '.note-content'), target);
     assert.equal(field === 'title' ? target.value : target.textContent, field === 'title' ? 'Local edited title' : 'Local edited body');
+    if(field==='title'){
+      s.find('.note-content').tabIndex=0;
+      titleKey(s,'Escape');
+      assert.equal(target.value,s.bootstrap.notes[0].title);
+      assert.equal(s.saves().length,1,'The canceled edit stays outside the save queue');
+    }
     s.focus('.search-box input'); await settleFocus(s);
     assert.equal(s.find('#note-title').value, 'Remote latest title');
     assert.equal(s.find('.note-content').textContent, 'Remote latest body');
@@ -706,6 +833,7 @@ test('the first attachment click after a title-font save keeps its dock controll
     const font = s.find('[data-format-select=font]');
     s.event(font, 'pointerdown'); font.focus(); font.value = 'Georgia'; s.event(font, 'change');
     assert.equal(s.document.activeElement, title);
+    titleKey(s,'Enter');s.focus('#note-title');
     const sent = s.latestSave(), canonical = {...s.bootstrap.notes[0], ...sent.document, revision: 2};
     s.send('saved', {id: canonical.id, sequence: sent.sequence, revision: 2, note: canonical});
     const trigger = s.find('[data-notepad-attachments-trigger]'), fileInput = s.find('input[type=file]');
@@ -744,6 +872,8 @@ test('editing a note with a deferred remote update sends the revision actually d
     s.send('remote', {notes: [{...s.bootstrap.notes[0], title: 'Remote title not displayed yet', revision: 3}]});
     assert.equal(s.find('#note-title').value, 'Maintenance planning');
     s.input('#note-title', 'Local edit of the original title');
+    assert.equal(s.saves().length, 0);
+    titleKey(s,'Enter');
     const saved = s.latestSave();
     assert.equal(saved.baseRevision, 1, 'A deferred update must not silently authorize overwriting the unseen server version');
     assert.equal(saved.document.title, 'Local edit of the original title');

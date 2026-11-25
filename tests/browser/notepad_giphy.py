@@ -135,7 +135,10 @@ async def main():
             boxes = [await picker.locator("[data-attachment-gif]").nth(index).bounding_box() for index in range(7)]
             assert all(boxes), (width, boxes)
             assert len({round(box["y"], 1) for box in boxes[:6]}) == 1, (width, boxes)
-            assert boxes[6]["y"] > boxes[0]["y"] and boxes[6]["x"] == boxes[0]["x"], (width, boxes)
+            for left, right in zip(boxes[:5], boxes[1:6]):
+                assert abs(left["x"] + left["width"] - right["x"]) <= 0.02, (width, boxes)
+            assert abs(boxes[6]["y"] - boxes[0]["y"] - boxes[0]["height"]) <= 0.02, (width, boxes)
+            assert boxes[6]["x"] == boxes[0]["x"], (width, boxes)
             widths.append(boxes[0]["width"])
             if width in (1024, 420):
                 await first.locator("img").evaluate("image => image.decode()")
