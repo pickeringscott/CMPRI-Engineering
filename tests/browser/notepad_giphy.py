@@ -44,6 +44,7 @@ async def main():
     notes = [note(NOTE, "Pump checklist"), note(OTHER, "Valve checklist")]
     saves, provider_queries, failures = [], [], []
     uploads = {}
+    allow_uploads = asyncio.Event()
     original_text = b"Fixture attachment contents"
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH"))
@@ -109,6 +110,7 @@ async def main():
             item = route.request.post_data_json
             file_id = item["id"]
             if route.request.method == "POST":
+                await allow_uploads.wait()
                 suffix = "?download=fixture.txt" if item["type"] == "text/plain" else ""
                 item["url"] = f"https://notepad-fixture.example/{file_id}{suffix}"
                 uploads[file_id] = item
@@ -337,10 +339,29 @@ async def main():
             {"name": "clip.webm", "mimeType": "video/webm", "buffer": VIDEO},
             {"name": "fixture.txt", "mimeType": "text/plain", "buffer": original_text},
         ])
+        pending = editor.locator(".note-content p").first.locator("[data-upload-pending]")
+        await expect(pending).to_have_text(["Uploading photo.gif…", "Uploading clip.webm…", "Uploading fixture.txt…"])
+        writing = editor.get_by_role("textbox", name="Notepad writing area")
+        await expect(writing).to_be_focused()
+        await writing.locator("p").nth(1).evaluate("""paragraph => {
+            const range = document.createRange();
+            range.selectNodeContents(paragraph);
+            range.collapse(false);
+            getSelection().removeAllRanges();
+            getSelection().addRange(range);
+        }""")
+        await page.keyboard.insert_text(" Still typing.")
+        await expect(writing.locator("p").nth(1)).to_contain_text("Still typing.")
+        assert all("data-upload-pending" not in save["document"]["content"] for save in saves)
+        allow_uploads.set()
         photo = editor.get_by_role("button", name="Open photo.gif", exact=True)
         file_button = editor.get_by_role("link", name="Open fixture.txt", exact=True)
         await expect(photo).to_be_visible()
         await expect(file_button).to_be_visible()
+        await expect(pending).to_have_count(0)
+        await expect(writing).to_be_focused()
+        await page.keyboard.insert_text(" Upload finished.")
+        await expect(writing.locator("p").nth(1)).to_contain_text("Still typing. Upload finished.")
         assert await editor.locator(".note-content p").first.evaluate("""p => {
             const files = [...p.querySelectorAll('[data-open-inline-attachment]')];
             return p.firstChild.textContent === 'Rev' && files[0].title === 'photo.gif'

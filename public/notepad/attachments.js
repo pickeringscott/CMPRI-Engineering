@@ -39,7 +39,7 @@
   }
 
   function attach(options) {
-    const { container, pickerRoot, getNote, getNoteById, onChange, badge, request, onError, isNoteAvailable, getInlinePlacement } = options || {};
+    const { container, pickerRoot, getNote, getNoteById, onChange, onUploadState, badge, request, onError, isNoteAvailable, getInlinePlacement } = options || {};
     const filesTrigger = container?.querySelector('[data-notepad-attachments-trigger]');
     const gifTrigger = container?.querySelector('[data-notepad-gif-trigger]');
     const cameraTrigger = container?.querySelector('[data-notepad-camera-trigger]');
@@ -344,15 +344,18 @@
       opener.setAttribute('aria-busy', 'true');
       filesTrigger.disabled = true;
       cameraTrigger.disabled = true;
+      const pending = files.map(file => ({ file, id: uid() }));
+      const pendingFiles = pending.map(({ file, id }) => ({ id, name: file.name }));
+      onUploadState?.({ note: target, kind: 'upload-pending', pendingFiles, placement, opener });
       let lastError = '';
-      for (const file of files) {
+      for (const { file, id } of pending) {
         try {
           if (!available(target)) throw Error('The original note is no longer available. The file was not attached.');
           status('Uploading ' + file.name + '…');
-          const uploaded = await send('upload', { file, id: uid(), noteId: target.id });
+          const uploaded = await send('upload', { file, id, noteId: target.id });
           const destination = resolveOrigin(target);
           if (!destination) throw Error('The upload finished, but the original note is no longer available. The file was not attached.');
-          if (!uploaded || !uploaded.id || uploaded.kind !== 'file') throw Error('The uploaded file could not be verified.');
+          if (uploaded?.id !== id || uploaded.kind !== 'file') throw Error('The uploaded file could not be verified.');
           const addition = { id: uploaded.id, kind: 'file', name: uploaded.name || file.name, type: uploaded.type || file.type || 'application/octet-stream', size: uploaded.size || file.size, ...(safeMediaURL(uploaded.url) ? { url: uploaded.url } : {}) };
           if (!Array.isArray(destination.attachments)) destination.attachments = [];
           if (destination.attachments.length >= MAX_ATTACHMENTS) throw Error('This note now has 20 attachments. Remove one, then choose the file again.');
@@ -362,6 +365,7 @@
           lastError = error?.message || 'The file could not be uploaded. Choose it again to retry.';
           status(lastError, true);
         } finally {
+          onUploadState?.({ note: target, kind: 'upload-finished', id });
           uploads--;
           const left = (pendingCounts.get(target.id) || 1) - 1;
           if (left > 0) pendingCounts.set(target.id, left); else pendingCounts.delete(target.id);

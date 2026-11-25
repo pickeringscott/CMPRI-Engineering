@@ -209,6 +209,7 @@ function inTitleEditor(element) {
   return element===titleEdit?.input||!!element?.closest?.('.notepad-formatting,.notepad-color-popover');
 }
 const inlineAttachmentSelector='[data-notepad-attachment-id]';
+const pendingInlineUploads=new Map();
 const attachmentUUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const writingDecoration='.item-reply-actions,.item-thread,.task-completion,.task-stamp';
 function attachmentMarker(id) {
@@ -217,6 +218,11 @@ function attachmentMarker(id) {
   return marker;
 }
 function canonicalAttachmentMarkers(root) {
+  $$('[data-upload-pending]',root).forEach(marker=>marker.remove());
+  for(const block of $$('[data-upload-block]',root)){
+    block.removeAttribute('data-upload-block');
+    if(!block.hasChildNodes())block.remove();
+  }
   for(const marker of $$(inlineAttachmentSelector,root)){
     const id=marker.dataset.notepadAttachmentId;
     if(marker.tagName==='SPAN'&&attachmentUUID.test(id))marker.replaceWith(attachmentMarker(id));
@@ -271,6 +277,27 @@ function findAttachmentPosition(root,placement) {
   }
   return lastAttachmentPosition(root,item?block:undefined);
 }
+function insertAttachmentMarker(root,placement,marker){
+  const range=findAttachmentPosition(root,placement);
+  if(range.startContainer===root){
+    const paragraph=document.createElement('p');paragraph.dataset.itemId=uid('item');
+    if(marker.hasAttribute('data-upload-pending'))paragraph.setAttribute('data-upload-block','');
+    range.insertNode(paragraph);paragraph.append(marker);
+  }else range.insertNode(marker);
+  placement.afterId=marker.dataset.notepadAttachmentId;
+}
+function paintPendingUploads(root,batch){
+  const placement={...batch.placement};
+  let last;
+  for(const file of batch.files){
+    const existing=$$(inlineAttachmentSelector,root).find(marker=>marker.dataset.notepadAttachmentId===file.id);
+    if(existing){placement.afterId=file.id;last=existing;continue;}
+    const marker=attachmentMarker(file.id);marker.setAttribute('data-upload-pending','');
+    marker.setAttribute('role','status');marker.textContent='Uploading '+file.name+'…';
+    insertAttachmentMarker(root,placement,marker);last=marker;
+  }
+  return last;
+}
 function insertInlineAttachment(change) {
   const {note:target,placement,additions}=change;
   if(!placement)return false;
@@ -278,13 +305,12 @@ function insertInlineAttachment(change) {
   const root=editor||document.createElement('div');
   if(!editor){root.innerHTML=target.content;displayTagLabels(root);}
   for(const attachment of additions){
-    const range=findAttachmentPosition(root,placement),marker=attachmentMarker(attachment.id);
-    // Keep even a completely empty note's attachment inside a writing block.
-    if(range.startContainer===root){
-      const paragraph=document.createElement('p');paragraph.dataset.itemId=uid('item');
-      range.insertNode(paragraph);paragraph.append(marker);
-    }else range.insertNode(marker);
-    placement.afterId=attachment.id;
+    const pending=$$('[data-upload-pending]',root).find(marker=>marker.dataset.notepadAttachmentId===attachment.id);
+    if(pending){
+      pending.removeAttribute('data-upload-pending');pending.removeAttribute('role');
+      pending.parentElement?.removeAttribute('data-upload-block');pending.replaceChildren();
+      placement.afterId=attachment.id;
+    }else insertAttachmentMarker(root,placement,attachmentMarker(attachment.id));
   }
   if(!editor){restoreTagPrefixes(root);target.content=root.innerHTML;}
   return Boolean(editor);
@@ -349,6 +375,7 @@ function refreshAttachmentViews() {
   const root=$('.note-content'),target=note(),dock=$('.editor-attachments');if(!root||!target||!dock)return;
   const inlineIds=new Set(),gifs=[],attachments=new Map(target.attachments.map(file=>[file.id,file]));
   for(const marker of $$(inlineAttachmentSelector,root)){
+    if(marker.hasAttribute('data-upload-pending'))continue;
     const file=attachments.get(marker.dataset.notepadAttachmentId);
     if(!file||inlineIds.has(file.id)){marker.replaceChildren();continue;}
     inlineIds.add(file.id);marker.contentEditable='false';
@@ -365,6 +392,34 @@ function refreshAttachmentViews() {
   });
 }
 function noteAttachmentsChanged(change) {
+  const editor=change.note.id===activeNote?$('.note-content'):null;
+  if(change.kind==='upload-pending'){
+    if(!change.placement)return;
+    const batch={noteId:change.note.id,placement:change.placement,files:change.pendingFiles};
+    pendingInlineUploads.set(batch.files[0].id,batch);
+    if(editor){
+      const last=paintPendingUploads(editor,batch);
+      if(last&&[document.body,change.opener].includes(document.activeElement)){
+        (last.parentElement.closest('[contenteditable="true"]')||editor).focus({preventScroll:true});
+        const range=document.createRange();range.setStartAfter(last);range.collapse(true);
+        const selection=getSelection();selection.removeAllRanges();selection.addRange(range);rememberSelection();
+      }
+    }
+    return;
+  }
+  if(change.kind==='upload-finished'){
+    const entry=[...pendingInlineUploads].find(([,batch])=>batch.files.some(file=>file.id===change.id));
+    if(!entry)return;
+    const [key,batch]=entry;
+    batch.files=batch.files.filter(file=>file.id!==change.id);
+    if(!batch.files.length)pendingInlineUploads.delete(key);
+    const pending=editor&&$$('[data-upload-pending]',editor).find(marker=>marker.dataset.notepadAttachmentId===change.id);
+    if(pending){
+      const block=pending.parentElement;pending.remove();
+      if(block.hasAttribute('data-upload-block')&&!block.hasChildNodes())block.remove();
+    }
+    return;
+  }
   markEdited(change.note);
   if(insertInlineAttachment(change))syncEditor();
   else {save();if(change.noteId===activeNote)refreshAttachmentViews();}
@@ -440,8 +495,10 @@ function render() {
       paperResizeObserver.observe($('.general-notes-scroll'));
     }
     const generation=accountGeneration;
-    attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),pickerRoot:$('.general-notes-body'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),getInlinePlacement:captureAttachmentPosition,onChange:change=>{if(generation===accountGeneration)noteAttachmentsChanged(change);}});
+    const onAttachmentChange=change=>{if(generation===accountGeneration)noteAttachmentsChanged(change);};
+    attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),pickerRoot:$('.general-notes-body'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),getInlinePlacement:captureAttachmentPosition,onChange:onAttachmentChange,onUploadState:onAttachmentChange});
     refreshAttachmentViews();
+    for(const batch of pendingInlineUploads.values())if(batch.noteId===n.id)paintPendingUploads($('.note-content'),batch);
     $$('.note-check').forEach(updateTaskAccessibleLabel);
   }
   applyPaneWidth();save();
@@ -1302,7 +1359,7 @@ window.addEventListener('message',event=>{
     notes=[];people=[];roles=[];mentionChoices=[];historyController=null;currentPerson='';activeNote='';query='';mode='text';orders={};VIEW_STORE='';lastOrder='';legacyAliases={};bridgeScope='';timeFormat='12h';
     mobileSidebarCollapsed=false;mobileFormattingExpanded=false;
     selectionRange=null;draggedNote=null;pointerDrag=null;resizeGesture=null;blankLineGesture=null;recipientDraft=null;isComposing=false;suppressNoteClick=false;
-    Object.keys(replyTargets).forEach(key=>delete replyTargets[key]);dirtyNotes.clear();sentDocuments.clear();sequences.clear();deferredNotes.clear();baseRevisions.clear();baseLegacyVersions.clear();confirmedDeletions.clear();
+    Object.keys(replyTargets).forEach(key=>delete replyTargets[key]);pendingInlineUploads.clear();dirtyNotes.clear();sentDocuments.clear();sequences.clear();deferredNotes.clear();baseRevisions.clear();baseLegacyVersions.clear();confirmedDeletions.clear();
     clearTimeout(toastTimer);$('#preview-toast').textContent='';$('#preview-toast').classList.remove('visible');$('#reorder-status').textContent='';
     for(const pending of requests.values())pending.reject(Error('Your CMPRI session changed.'));requests.clear();
     $('#layout-body').innerHTML='<p class="editor-empty">Sign in to open Notepad.</p>';return;
