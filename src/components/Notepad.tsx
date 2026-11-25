@@ -224,11 +224,11 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
         return request('/api/notepad/history?' + params, {}, scope);
       }
       if (action === 'tag-directory') {
-        const data = await request('/api/notes/targets', {}, scope);
+        const data = await request('/api/notes/targets?notepad=1', {}, scope);
         return data.mentions.filter((target: { kind: string }) => target.kind === 'location' || target.kind === 'front_desk_name');
       }
       if (action === 'tag-work-orders') {
-        const params = new URLSearchParams();
+        const params = new URLSearchParams({ notepad: '1' });
         if (typeof payload.query === 'string' && payload.query.trim()) {
           const exact = payload.exact === true && /^WO#(\d{1,30})$/i.exec(payload.query);
           if (exact) params.append('target', 'number:' + exact[1]);

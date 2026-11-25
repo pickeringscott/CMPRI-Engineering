@@ -61,3 +61,10 @@ test('user, property, permission signature, route filters and transient response
   assert.equal(dataCachePolicy('/api/staff-notes').durable,false);
   assert.deepEqual(mutationTopics('/api/profile/header-layout'),[]);
 });
+
+test('Notepad tag suggestions and exact work-order lookups bypass the shared device cache',()=>{
+  assert.equal(dataCachePolicy('/api/notes/targets',new URLSearchParams('notepad=1')),null);
+  assert.equal(dataCachePolicy('/api/work-orders/references',new URLSearchParams('notepad=1&q=leak')),null);
+  assert.equal(dataCachePolicy('/api/work-orders/references',new URLSearchParams('notepad=1&target=id:00000000000040008000000000000001')),null);
+  assert.equal(dataCachePolicy('/api/work-orders/references',new URLSearchParams('target=number:431')).durable,true);
+});
