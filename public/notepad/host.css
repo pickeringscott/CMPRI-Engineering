@@ -170,7 +170,14 @@ body{margin:0}
 
 .window-wrap:not(.is-mobile) .layout-1 .note-metadata{display:grid;grid-template-columns:minmax(0,1fr) auto}
 .window-wrap:not(.is-mobile) .layout-1 .note-attribution{display:flex;align-items:baseline;justify-content:flex-end;gap:4px}
-.window-wrap:not(.is-mobile) .layout-1 .notepad-formatting :is(.fmt-font,.fmt-size){text-align:center;text-align-last:center}
+.window-wrap:not(.is-mobile) .layout-1 .notepad-formatting :is(.fmt-font,.fmt-size){
+  position:relative;justify-content:center;padding-inline:14px;text-align:center;text-align-last:center;
+}
+@supports selector(::picker-icon){
+  .window-wrap:not(.is-mobile) .layout-1 .notepad-formatting :is(.fmt-font,.fmt-size)::picker-icon{
+    position:absolute;inset-inline-end:5px;
+  }
+}
 .window-wrap:not(.is-mobile) .layout-1 .general-notes-dock > [data-notepad-camera-trigger]{display:none}
 .window-wrap:not(.is-mobile) .layout-1 .general-notes-body{position:static;isolation:auto;overflow:visible}
 .window-wrap:not(.is-mobile) .layout-1 .general-notes-tools{z-index:5;pointer-events:none}

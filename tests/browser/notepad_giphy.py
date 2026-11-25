@@ -159,6 +159,8 @@ async def main():
         await expect(editor.locator(".note-creator")).to_have_text("Alex")
         await expect(editor.get_by_label("Font", exact=True)).to_have_css("text-align-last", "center")
         await expect(editor.get_by_label("Font Size", exact=True)).to_have_css("text-align-last", "center")
+        for label in ("Font", "Font Size"):
+            await expect(editor.get_by_label(label, exact=True)).to_have_css("justify-content", "center")
         assert not provider_queries, provider_queries
         await page.emulate_media(reduced_motion="no-preference")
         await trigger.evaluate("""button => {

@@ -104,7 +104,12 @@ async def main():
             gaps = [right["x"] - left["x"] - left["width"] for left, right in zip(boxes, boxes[1:])]
             assert centers[0] >= title_box["y"] + title_box["height"]
             assert max(centers) - min(centers) <= 1
-            assert min(gaps) > 0 and max(gaps) - min(gaps) <= 1
+            assert min(gaps) > 0
+            if await creator.evaluate("element => Boolean(element.closest('.is-mobile'))"):
+                assert max(gaps) - min(gaps) <= 1
+            else:
+                assert abs(boxes[-1]["x"] + boxes[-1]["width"] - trash_box["x"] - trash_box["width"]) <= 2
+                assert gaps[1] > max(gaps[0], gaps[2], gaps[3])
             assert await priority.evaluate("control => getComputedStyle(control).alignItems") == "center"
             assert abs(share_box["y"] + share_box["height"] - trash_box["y"] - trash_box["height"]) <= 1
             font_size = "element => getComputedStyle(element).fontSize"
