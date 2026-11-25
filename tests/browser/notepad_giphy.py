@@ -11,6 +11,11 @@ OTHER = "00000000-0000-4000-8000-000000000082"
 SIZES = [(1440, 900), (1024, 720), (768, 620), (420, 630)]
 
 
+def dimensions(index, full=False):
+    width, height = [(160, 80), (80, 160), (160, 120)][index % 3]
+    return (width * 2, height * 2) if full else (width, height)
+
+
 def note(note_id, title):
     return {
         "id": note_id, "authorId": UID, "authorName": "Alex Morgan", "title": title,
@@ -61,18 +66,24 @@ async def main():
             items = []
             for index in range(offset, min(offset + 48, total)):
                 gif_id = f"{query or 'trending'}-{index}"
-                media = {"url": f"https://media.giphy.com/{gif_id}.gif", "width": "160", "height": "120"}
+                def media(full=False):
+                    width, height = dimensions(index, full)
+                    suffix = "-full" if full else ""
+                    return {"url": f"https://media.giphy.com/{gif_id}{suffix}.gif", "width": str(width), "height": str(height)}
                 items.append({"id": gif_id, "title": f"Fixture {gif_id}",
-                              "images": {"fixed_width": media, "original": media}})
+                              "images": {"fixed_width": media(), "original": media(True)}})
             await route.fulfill(json={"data": items, "pagination": {"total_count": total}})
 
         async def image(route):
-            index = int(urlparse(route.request.url).path.rsplit("-", 1)[-1].split(".")[0])
+            stem = urlparse(route.request.url).path.removesuffix(".gif")
+            full = stem.endswith("-full")
+            index = int(stem.removesuffix("-full").rsplit("-", 1)[-1])
+            width, height = dimensions(index, full)
             svg = (
-                f'<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120">'
-                f'<rect width="160" height="120" fill="hsl({index * 37 % 360}, 50%, 35%)"/>'
-                f'<circle cx="80" cy="60" r="32" fill="white" opacity=".22"/>'
-                f'<text x="80" y="68" text-anchor="middle" font-size="23" fill="white">{index + 1}</text></svg>'
+                f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
+                f'<rect width="{width}" height="{height}" fill="hsl({index * 37 % 360}, 50%, 35%)"/>'
+                f'<circle cx="{width / 2}" cy="{height / 2}" r="{min(width, height) * .24}" fill="white" opacity=".22"/>'
+                f'<text x="{width / 2}" y="{height / 2 + 8}" text-anchor="middle" font-size="23" fill="white">{index + 1}</text></svg>'
             )
             await route.fulfill(content_type="image/svg+xml", body=svg)
 
@@ -92,10 +103,11 @@ async def main():
         sidebar = editor.get_by_role("complementary", name="Saved notes")
         first = editor.get_by_role("button", name="Select Fixture trending-0", exact=True)
         close = editor.get_by_role("button", name="Close GIF picker")
+        trigger = toolbar.locator("[data-notepad-gif-trigger]")
+        preview = picker.locator("[data-attachment-gif-preview]")
 
         async def open_picker():
-            await toolbar.get_by_role("button", name="Add attachment").click()
-            await editor.get_by_role("menuitem", name="Choose a GIF").click()
+            await trigger.click()
             await expect(picker).to_be_visible()
 
         await expect(toolbar).to_be_visible(timeout=60_000)
@@ -106,7 +118,9 @@ async def main():
         assert await first.evaluate("""element => {
             const style = getComputedStyle(element);
             return style.borderTopWidth === '0px' && style.borderRadius === '0px'
-                && style.backgroundColor === 'rgba(0, 0, 0, 0)';
+                && style.outlineStyle === 'none' && style.boxShadow === 'none'
+                && style.backgroundColor === 'rgba(0, 0, 0, 0)'
+                && getComputedStyle(element.querySelector('img')).objectFit === 'cover';
         }""")
         assert provider_queries == [("", 0)], provider_queries
         widths = []
@@ -143,6 +157,27 @@ async def main():
             if width in (1024, 420):
                 await first.locator("img").evaluate("image => image.decode()")
                 await page.screenshot(path=OUT / f"notepad-giphy-{width}.png", animations="disabled")
+                await first.hover()
+                await asyncio.sleep(.40)
+                await expect(preview).to_have_count(0)
+                await page.mouse.move(boxes[0]["x"] + boxes[0]["width"] / 2 + 3, boxes[0]["y"] + boxes[0]["height"] / 2)
+                await asyncio.sleep(.40)
+                await expect(preview).to_have_count(0)
+                await expect(preview).to_be_visible()
+                enlarged = await preview.bounding_box()
+                assert enlarged["width"] > boxes[0]["width"] and enlarged["height"] > boxes[0]["height"], (width, enlarged, boxes[0])
+                assert abs(enlarged["width"] / enlarged["height"] - 2) <= .001, (width, enlarged)
+                assert enlarged["x"] >= grid_box["x"] and enlarged["y"] >= grid_box["y"]
+                assert enlarged["x"] + enlarged["width"] <= grid_box["x"] + grid_box["width"] + .02
+                assert enlarged["y"] + enlarged["height"] <= grid_box["y"] + grid_box["height"] + .02
+                assert await preview.locator("img").evaluate("""async image => {
+                    await image.decode();
+                    return [getComputedStyle(image).objectFit, image.naturalWidth, image.naturalHeight];
+                }""") == ["contain", *dimensions(0, True)]
+                assert boxes == [await picker.locator("[data-attachment-gif]").nth(index).bounding_box() for index in range(7)]
+                await page.screenshot(path=OUT / f"notepad-giphy-hover-{width}.png", animations="disabled")
+                await close.hover()
+                await expect(preview).to_have_count(0)
         assert widths[0] > widths[-1] and widths == sorted(widths, reverse=True), widths
 
         async def style(element):
@@ -169,7 +204,9 @@ async def main():
         await search.fill("pump")
         await expect(editor.get_by_role("button", name="Select Fixture pump-0", exact=True)).to_be_visible()
         assert provider_queries == [("", 0), ("", 48), ("pump", 0)], provider_queries
-        await editor.get_by_role("button", name="Select Fixture pump-0", exact=True).click()
+        await editor.get_by_role("button", name="Select Fixture pump-0", exact=True).hover()
+        await expect(preview).to_have_attribute("data-attachment-gif-preview", "pump-0")
+        await preview.click()
         await expect(picker).to_have_count(0)
         await expect(editor.get_by_role("button", name="Open Fixture pump-0")).to_be_visible()
         for _ in range(40):
@@ -180,13 +217,13 @@ async def main():
         await open_picker()
         await search.press("Escape")
         await expect(picker).to_have_count(0)
-        await expect(editor.get_by_role("menuitem", name="Choose a GIF")).to_be_focused()
-        await editor.get_by_role("menuitem", name="Choose a GIF").click()
+        await expect(trigger).to_be_focused()
+        await open_picker()
         await sidebar.get_by_text("Valve checklist", exact=True).click()
         await expect(picker).to_have_count(0)
         await expect(editor.locator("#note-title")).to_have_value("Valve checklist")
         assert not failures, failures
-        print(f"Six plain columns scroll behind the dock at {SIZES}. Tile widths: {widths}. No footer or hover effects. Paging, search, selection, save, Escape and note switching passed.")
+        print(f"Six flush columns scroll behind the dock at {SIZES}. Tile widths: {widths}. Stationary hover, full-image recovery, paging, search, selection, save, Escape and note switching passed.")
         await browser.close()
 
 

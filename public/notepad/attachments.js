@@ -4,7 +4,7 @@
   let nextInstance = 0;
   const escapeHTML = value => String(value == null ? '' : value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const paperclip = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 11-8.7 8.7a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8L15.2 5.6"/></svg>';
-  const combinedMedia = '<svg class="attachment-media-symbol" viewBox="0 0 72 48" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="22" width="25" height="23" rx="2"/><path d="M7 22v23m15-23v23M2 28h5m-5 8h5m-5 6h5m15-14h5m-5 8h5m-5 6h5"/><path d="m11 28 7 5-7 5z" fill="currentColor" stroke="none"/><rect x="16" y="2" width="30" height="20" rx="2"/><circle cx="24" cy="8" r="2"/><path d="m18 19 9-7 6 5 5-8 6 10"/><path d="M56 21v17m0-14 12-3v13"/><ellipse cx="52" cy="39" rx="4" ry="3"/><ellipse cx="64" cy="35" rx="4" ry="3"/><path d="m45 26-10 10a4 4 0 0 0 5.7 5.7l9-9a5.8 5.8 0 0 0-8.2-8.2l-9.7 9.7a2.1 2.1 0 0 0 3 3l8.5-8.5"/></svg>';
+  const cameraIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h4l2-3h6l2 3h4v13H3z"/><circle cx="12" cy="13" r="3.5"/></svg>';
   const MAX_ATTACHMENTS = 20;
   const MAX_FILE_BYTES = 100 * 1024 * 1024;
   const pendingCounts = new Map();
@@ -15,6 +15,10 @@
       return !url.username && !url.password && ['https:', 'blob:'].includes(url.protocol) ? url.href : '';
     } catch (_) { return ''; }
   }
+  function isImage(type) { return /^image\/(jpeg|png|gif|webp|avif)$/.test(type); }
+  function photoPreview(attachment) {
+    return attachment?.kind === 'file' && isImage(attachment.type) ? safeMediaURL(attachment.url) : '';
+  }
   function validGif(value) {
     if (!value || !/^[a-zA-Z0-9_-]{1,200}$/.test(value.id || '')) return false;
     return [value.preview, value.original].every(image => {
@@ -24,20 +28,24 @@
   }
 
   function html() {
-    return '<button type="button" class="notepad-attachments-trigger" data-notepad-attachments-trigger aria-label="Add attachment" title="Attachments" aria-haspopup="menu" aria-expanded="false">' + paperclip + '</button>';
+    return '<button type="button" class="notepad-media-trigger" data-notepad-gif-trigger aria-label="Choose a GIF" title="GIF" aria-haspopup="dialog">GIF</button>' +
+      '<button type="button" class="notepad-media-trigger" data-notepad-camera-trigger aria-label="Take a photo" title="Camera" aria-haspopup="dialog">' + cameraIcon + '</button>' +
+      '<button type="button" class="notepad-media-trigger" data-notepad-attachments-trigger aria-label="Add attachment" title="Attach files">' + paperclip + '</button>';
   }
 
   function attach(options) {
     const { container, pickerRoot, getNote, getNoteById, onChange, badge, request, onError, isNoteAvailable } = options || {};
-    const trigger = container && (container.matches?.('[data-notepad-attachments-trigger]') ? container : container.querySelector?.('[data-notepad-attachments-trigger]'));
-    if (!trigger || typeof getNote !== 'function') return { destroy() {}, close() { return Promise.resolve(); }, openAttachment() { return Promise.resolve(); }, uploading() { return false; }, isInteracting() { return false; } };
+    const filesTrigger = container?.querySelector('[data-notepad-attachments-trigger]');
+    const gifTrigger = container?.querySelector('[data-notepad-gif-trigger]');
+    const cameraTrigger = container?.querySelector('[data-notepad-camera-trigger]');
+    if (!filesTrigger || !gifTrigger || !cameraTrigger || typeof getNote !== 'function') return { destroy() {}, close() { return Promise.resolve(); }, openAttachment() { return Promise.resolve(); }, uploading() { return false; }, isInteracting() { return false; } };
 
     const instance = ++nextInstance;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const animations = new Map();
     let destroyed = false;
-    let menu = null;
     let gif = null;
+    let camera = null;
     let pendingFiles = null;
     let viewer = null;
     let viewerVersion = 0;
@@ -85,7 +93,14 @@
     fileInput.hidden = true;
     fileInput.setAttribute('aria-label', 'Choose attachments');
     fileInput.dataset.notepadAttachmentInput = String(instance);
-    document.body.append(fileInput);
+    const cameraInput = document.createElement('input');
+    cameraInput.type = 'file';
+    cameraInput.accept = 'image/*';
+    cameraInput.setAttribute('capture', 'environment');
+    cameraInput.setAttribute('aria-label', 'Capture a photo with the device camera');
+    cameraInput.hidden = true;
+    cameraInput.dataset.notepadCameraInput = String(instance);
+    document.body.append(fileInput, cameraInput);
 
     function currentNote() {
       try { return getNote() || null; } catch (_) { return null; }
@@ -105,13 +120,6 @@
     }
     function changed(payload) {
       onChange?.(payload);
-      // A save callback may replace the whole editor and its trigger.
-      queueMicrotask(() => {
-        if (!sameNote(payload.note)) return;
-        const active = document.activeElement;
-        const next = trigger.isConnected ? trigger : document.querySelector('[data-notepad-attachments-trigger]');
-        if (next && (!active || active === document.body || active === trigger)) next.focus({ preventScroll: true });
-      });
     }
     function stopAnimation(node) {
       const animation = animations.get(node);
@@ -144,70 +152,58 @@
         }
       });
     }
-    function positionMenu() {
-      if (!menu || !trigger.isConnected) return;
-      const anchor = trigger.getBoundingClientRect();
-      const width = 126;
-      const height = 30;
-      const viewportWidth = document.documentElement.clientWidth;
-      const viewportHeight = window.innerHeight;
-      const left = Math.max(3, Math.min(viewportWidth - width - 3, anchor.left + anchor.width / 2 - width / 2));
-      const above = anchor.top - height - 3;
-      const top = above >= 3 ? above : Math.min(viewportHeight - height - 3, anchor.bottom + 3);
-      menu.node.style.left = left + 'px';
-      menu.node.style.top = Math.max(3, top) + 'px';
-      menu.node.style.transformOrigin = (anchor.left + anchor.width / 2 - left) + 'px ' + (anchor.top + anchor.height / 2 - Math.max(3, top)) + 'px';
+    function clearGifHover(session) {
+      if (!session.hover) return;
+      clearTimeout(session.hover.timer);
+      session.hover.preview?.remove();
+      session.hover = null;
     }
-    function openMenu() {
-      if (destroyed || menu) return;
-      const note = currentNote();
-      if (!note) return;
-      const node = document.createElement('div');
-      node.className = 'attachment-choices';
-      node.id = 'notepad-attachment-choices-' + instance;
-      node.setAttribute('role', 'menu');
-      node.setAttribute('aria-label', 'Add attachment');
-      node.innerHTML = '<button type="button" class="attachment-choice" data-attachment-choice="gif" role="menuitem" aria-haspopup="dialog" aria-label="Choose a GIF">GIF</button><button type="button" class="attachment-choice" data-attachment-choice="files" role="menuitem" aria-label="Choose photo, video, music or any file" title="Photo, video, music or files">' + combinedMedia + '</button>';
-      node.style.transform = 'scale(.035)';
-      node.style.opacity = '0';
-      menu = { node, note, closing: false, closePromise: null };
-      const session = menu;
-      document.body.append(node);
-      positionMenu();
-      trigger.setAttribute('aria-expanded', 'true');
-      trigger.setAttribute('aria-controls', node.id);
-      trigger.dispatchEvent(new CustomEvent('notepad:attachments-open', { bubbles: true }));
-      node.addEventListener('click', event => {
-        const choice = event.target.closest('[data-attachment-choice]');
-        if (!choice || session.closing || destroyed) return;
-        event.stopPropagation();
-        if (!sameNote(session.note)) { close({ restoreFocus: false, immediate: true }); return; }
-        if (choice.dataset.attachmentChoice === 'gif') openGif(choice, session);
-        else chooseFiles(session);
-      });
-      animate(node, true).then(() => {
-        if (!destroyed && menu === session && !session.closing && !gif) focus(node.querySelector('button'));
-      });
+    function showGifHover(session, hover) {
+      if (destroyed || gif !== session || session.closing || hover !== session.hover || !hover.tile.isConnected || !sameNote(session.note)) return;
+      const item = session.gifs.find(row => row.id === hover.tile.dataset.attachmentGif);
+      if (!item) return;
+      const grid = session.grid.getBoundingClientRect();
+      const picker = session.node.getBoundingClientRect();
+      const tile = hover.tile.getBoundingClientRect();
+      const maxWidth = Math.min(tile.width * 3, session.grid.clientWidth);
+      const maxHeight = Math.min(tile.height * 3, session.grid.clientHeight);
+      if (!maxWidth || !maxHeight) return;
+      const ratio = Number(item.original.width) / Number(item.original.height);
+      const aspect = Number.isFinite(ratio) && ratio > 0 ? ratio : tile.width / tile.height;
+      const width = Math.min(maxWidth, maxHeight * aspect);
+      const height = width / aspect;
+      const left = Math.max(grid.left, Math.min(grid.left + session.grid.clientWidth - width, hover.x - width / 2));
+      const top = Math.max(grid.top, Math.min(grid.top + session.grid.clientHeight - height, hover.y - height / 2));
+      const preview = document.createElement('button');
+      preview.type = 'button';
+      preview.className = 'staff-gif-preview';
+      preview.dataset.attachmentGifPreview = item.id;
+      preview.tabIndex = -1;
+      preview.setAttribute('aria-hidden', 'true');
+      Object.assign(preview.style, { left: (left - picker.left) + 'px', top: (top - picker.top) + 'px', width: width + 'px', height: height + 'px' });
+      const image = document.createElement('img');
+      image.alt = '';
+      image.addEventListener('error', () => { image.src = item.preview.url; }, { once: true });
+      image.src = item.original.url;
+      preview.append(image);
+      hover.preview = preview;
+      session.grid.append(preview);
     }
-    function collapseMenu({ restoreFocus = true, immediate = false } = {}) {
-      const session = menu;
-      if (!session) return Promise.resolve();
-      if (session.closing) return session.closePromise || Promise.resolve();
-      session.closing = true;
-      session.node.style.pointerEvents = 'none';
-      trigger.setAttribute('aria-expanded', 'false');
-      const finish = () => {
-        stopAnimation(session.node);
-        session.node.remove();
-        if (menu === session) menu = null;
-        trigger.removeAttribute('aria-controls');
-        if (restoreFocus && sameNote(session.note)) focus(trigger);
-      };
-      if (immediate) { finish(); return Promise.resolve(); }
-      session.closePromise = animate(session.node, false).then(finish);
-      return session.closePromise;
+    function trackGifHover(session, event) {
+      if (session.closing || event.pointerType === 'touch' || event.buttons) return;
+      const previous = session.hover;
+      if (previous?.preview?.contains(event.target)) return;
+      const tile = event.target.closest('[data-attachment-gif]');
+      const { clientX: x, clientY: y } = event;
+      if (previous && tile === previous.tile && x === previous.x && y === previous.y) return;
+      clearGifHover(session);
+      if (!tile) return;
+      const hover = { tile, x, y, timer: null, preview: null };
+      session.hover = hover;
+      hover.timer = setTimeout(() => showGifHover(session, hover), 750);
     }
     function renderGifResults(session) {
+      clearGifHover(session);
       session.node.querySelector('.staff-gif-results').innerHTML = session.gifs.length
         ? session.gifs.map(item => '<button type="button" data-attachment-gif="' + escapeHTML(item.id) + '" aria-label="Select ' + escapeHTML(item.title) + '"><img src="' + escapeHTML(item.preview.url) + '" alt="" loading="lazy"></button>').join('')
         : '';
@@ -247,30 +243,34 @@
       // Debounce only a user edit. No polling or background provider requests.
       session.timer = setTimeout(() => { session.timer = null; void loadGifs(session); }, session.query ? 300 : 0);
     }
-    function openGif(anchor, menuSession) {
-      if (gif || destroyed || !pickerRoot?.isConnected || menu !== menuSession || !sameNote(menuSession.note)) return;
-      stopAnimation(menuSession.node);
-      menuSession.node.style.transform = 'scale(1)';
-      menuSession.node.style.opacity = '1';
+    function openGif(anchor, note) {
+      if (gif || destroyed || !pickerRoot?.isConnected || !note || !sameNote(note)) return;
       const node = document.createElement('dialog');
       node.className = 'staff-giphy-picker attachment-giphy-dialog note-giphy-picker';
       node.setAttribute('aria-label', 'GIPHY picker');
       const badgeURL = typeof badge === 'string' && (/^data:image\//i.test(badge) || badge === '/Poweredby_100px_Badge.gif') ? badge : '';
       const credit = '<a class="staff-giphy-credit" href="https://giphy.com/" target="_blank" rel="noopener noreferrer" aria-label="Powered by GIPHY">' + (badgeURL ? '<img src="' + escapeHTML(badgeURL) + '" alt="" width="24" height="34">' : '<span>GIPHY</span>') + '</a>';
       node.innerHTML = '<div class="staff-gif-search"><input aria-label="Search GIPHY" type="search" placeholder="Search GIPHY" maxlength="50" autocomplete="off">' + credit + '<button type="button" data-attachment-close-gif aria-label="Close GIF picker">×</button></div><p class="giphy-status" role="status"></p><div class="staff-gif-grid"><div class="staff-gif-results"></div></div>';
-      gif = { node, anchor, note: menuSession.note, closing: false, closePromise: null, selecting: false, query: '', gifs: [], offset: 0, total: 0, loading: false, version: 0, timer: null };
+      const grid = node.querySelector('.staff-gif-grid');
+      gif = { node, grid, anchor, note, closing: false, closePromise: null, selecting: false, query: '', gifs: [], offset: 0, total: 0, loading: false, version: 0, timer: null, hover: null };
       const session = gif;
-      menuSession.node.hidden = true;
       pickerRoot.append(node);
       node.addEventListener('click', event => {
         const closeButton = event.target.closest('[data-attachment-close-gif]');
-        const result = event.target.closest('[data-attachment-gif]');
+        const result = event.target.closest('[data-attachment-gif], [data-attachment-gif-preview]');
         if (closeButton) { event.stopPropagation(); closeGif(); }
-        else if (result) { event.stopPropagation(); selectGif(session, result.dataset.attachmentGif); }
+        else if (result) { event.stopPropagation(); selectGif(session, result.dataset.attachmentGif ?? result.dataset.attachmentGifPreview); }
       });
       node.querySelector('input').addEventListener('input', event => searchGifs(session, event.target.value));
-      node.querySelector('.staff-gif-grid').addEventListener('scroll', event => {
-        const grid = event.currentTarget;
+      grid.addEventListener('pointerover', event => trackGifHover(session, event));
+      grid.addEventListener('pointermove', event => trackGifHover(session, event));
+      grid.addEventListener('pointerout', event => {
+        const hover = session.hover;
+        if (hover && !(hover.preview || hover.tile).contains(event.relatedTarget)) clearGifHover(session);
+      });
+      grid.addEventListener('pointerdown', () => { if (!session.hover?.preview) clearGifHover(session); });
+      grid.addEventListener('scroll', () => {
+        clearGifHover(session);
         if (!session.loading && session.offset < session.total && grid.scrollHeight - grid.scrollTop - grid.clientHeight < 100) void loadGifs(session, true);
       });
       node.open = true;
@@ -283,20 +283,22 @@
     function closeGif({ restoreFocus = true, immediate = false } = {}) {
       const session = gif;
       if (!session) return Promise.resolve();
-      if (session.closing) return session.closePromise || Promise.resolve();
+      const finish = () => {
+        if (gif !== session) return;
+        stopAnimation(session.node);
+        session.node.remove();
+        gif = null;
+        if (restoreFocus && sameNote(session.note)) focus(session.anchor);
+      };
+      if (session.closing) {
+        if (immediate) { finish(); return Promise.resolve(); }
+        return session.closePromise || Promise.resolve();
+      }
       session.closing = true;
       session.version++;
       clearTimeout(session.timer);
+      clearGifHover(session);
       session.node.style.pointerEvents = 'none';
-      const finish = () => {
-        stopAnimation(session.node);
-        session.node.remove();
-        if (gif === session) gif = null;
-        if (restoreFocus && menu && !menu.closing && sameNote(session.note)) {
-          menu.node.hidden = false;
-          focus(session.anchor);
-        }
-      };
       if (immediate) { finish(); return Promise.resolve(); }
       session.closePromise = animate(session.node, false).then(finish);
       return session.closePromise;
@@ -308,7 +310,6 @@
       if (attachmentCount(session.note) >= MAX_ATTACHMENTS) { session.node.querySelector('.giphy-status').textContent = 'Attach up to 20 files or GIFs per note.'; return; }
       session.selecting = true;
       await closeGif({ restoreFocus: false });
-      await collapseMenu({ restoreFocus: false });
       if (destroyed || !sameNote(session.note)) return;
       const target = resolveOrigin(session.note);
       if (!target) return;
@@ -316,30 +317,52 @@
       if (!Array.isArray(target.attachments)) target.attachments = [];
       target.attachments.push(...additions);
       changed({ noteId: target.id, note: target, kind: 'gif', additions });
-      if (!destroyed && sameNote(target)) focus(trigger);
+      if (!destroyed && sameNote(target)) focus(session.anchor);
     }
-    function chooseFiles(session) {
-      if (destroyed || pendingFiles) return;
+    function chooseFiles(note, input, opener) {
+      if (destroyed || pendingFiles || uploads || !sameNote(note)) return;
       // Capture the note before the asynchronous native chooser opens.
-      pendingFiles = { note: session.note, noteId: session.note.id };
-      fileInput.value = '';
-      collapseMenu({ restoreFocus: false });
-      fileInput.click();
+      pendingFiles = { note, input, opener };
+      input.value = '';
+      input.click();
     }
-    async function filesChanged() {
+    function finishChoosing(input) {
       const pending = pendingFiles;
+      if (pending?.input !== input) return null;
       pendingFiles = null;
-      const files = Array.from(fileInput.files || []);
-      fileInput.value = '';
-      if (!pending || destroyed || !files.length) { if (!destroyed) focus(trigger); return; }
-      const target = resolveOrigin(pending.note);
+      return pending;
+    }
+    function focusAfterUpload(note, opener) {
+      if (sameNote(note) && (!document.activeElement || document.activeElement === document.body || document.activeElement === opener)) focus(opener);
+    }
+    function filesChanged(event) {
+      const input = event.currentTarget;
+      const pending = finishChoosing(input);
+      const files = Array.from(input.files || []);
+      input.value = '';
+      if (!pending || destroyed) return;
+      if (!files.length) { focusAfterUpload(pending.note, pending.opener); return; }
+      if (input === cameraInput && files.some(file => !file.type.startsWith('image/'))) {
+        status('Choose a photo from the device camera.', true);
+        focusAfterUpload(pending.note, pending.opener);
+        return;
+      }
+      void attachFiles(files, pending.note, pending.opener);
+    }
+    function filesCanceled(event) {
+      const pending = finishChoosing(event.currentTarget);
+      if (pending) focusAfterUpload(pending.note, pending.opener);
+    }
+    async function attachFiles(files, note, opener) {
+      const target = resolveOrigin(note);
       if (!target) { status('The original note is no longer available. The file was not attached.', true); return; }
       if (attachmentCount(target) + files.length > MAX_ATTACHMENTS) { status('Attach up to 20 files or GIFs per note.', true); return; }
       if (files.some(file => file.size < 1 || file.size > MAX_FILE_BYTES)) { status('Files must be between 1 byte and 100 MB each.', true); return; }
       pendingCounts.set(target.id, (pendingCounts.get(target.id) || 0) + files.length);
       uploads += files.length;
-      trigger.disabled = true;
-      trigger.setAttribute('aria-busy', 'true');
+      opener.setAttribute('aria-busy', 'true');
+      filesTrigger.disabled = true;
+      cameraTrigger.disabled = true;
       let lastError = '';
       for (const file of files) {
         try {
@@ -353,7 +376,7 @@
           if (!Array.isArray(destination.attachments)) destination.attachments = [];
           if (destination.attachments.length >= MAX_ATTACHMENTS) throw Error('This note now has 20 attachments. Remove one, then choose the file again.');
           destination.attachments.push(addition);
-          changed({ noteId: pending.noteId, note: destination, kind: 'files', additions: [addition] });
+          changed({ noteId: target.id, note: destination, kind: 'files', additions: [addition] });
         } catch (error) {
           lastError = error?.message || 'The file could not be uploaded. Choose it again to retry.';
           status(lastError, true);
@@ -363,45 +386,135 @@
           if (left > 0) pendingCounts.set(target.id, left); else pendingCounts.delete(target.id);
         }
       }
-      if (!destroyed) { trigger.disabled = false; trigger.removeAttribute('aria-busy'); status(lastError); }
-      if (!destroyed && sameNote(target)) focus(trigger);
+      if (!destroyed) {
+        filesTrigger.disabled = false;
+        cameraTrigger.disabled = false;
+        opener.removeAttribute('aria-busy');
+        status(lastError);
+        focusAfterUpload(target, opener);
+      }
     }
-    function filesCanceled() { const pending = pendingFiles; pendingFiles = null; if (!destroyed && (!pending || sameNote(pending.note))) focus(trigger); }
-    function closeViewer() {
+    function stopStream(stream) { stream?.getTracks().forEach(track => track.stop()); }
+    function closeCamera(restoreFocus = true) {
+      const session = camera;
+      if (!session) return;
+      camera = null;
+      stopStream(session.stream);
+      session.video.srcObject = null;
+      if (session.node.open) session.node.close();
+      session.node.remove();
+      if (restoreFocus && sameNote(session.note)) focus(cameraTrigger);
+    }
+    async function takePhoto(session) {
+      if (camera !== session || !sameNote(session.note) || session.capture.disabled) return;
+      const { video, capture, label } = session;
+      if (!video.videoWidth || !video.videoHeight) return;
+      capture.disabled = true;
+      label.textContent = 'Capturing photo…';
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const context = canvas.getContext('2d');
+        if (!context) throw Error();
+        context.drawImage(video, 0, 0);
+        const photo = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+        if (camera !== session || !sameNote(session.note)) return;
+        if (!photo) throw Error();
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        closeCamera(false);
+        await attachFiles([new File([photo], 'Camera photo ' + stamp + '.jpg', { type: 'image/jpeg' })], session.note, cameraTrigger);
+      } catch {
+        if (camera !== session) return;
+        capture.disabled = false;
+        label.textContent = 'The photo could not be captured. Try again.';
+      }
+    }
+    async function openCamera(note) {
+      if (destroyed || camera || !sameNote(note) || pendingFiles || uploads) return;
+      if (window.matchMedia('(pointer: coarse)').matches) { chooseFiles(note, cameraInput, cameraTrigger); return; }
+      const node = document.createElement('dialog');
+      node.className = 'notepad-media-dialog notepad-camera';
+      node.setAttribute('aria-label', 'Camera');
+      node.innerHTML = '<header><span>Camera</span><button type="button" data-camera-close aria-label="Close camera">×</button></header><video autoplay muted playsinline aria-label="Camera preview"></video><p role="status">Starting camera…</p><footer><button type="button" data-device-camera>Use device camera</button><button type="button" data-camera-capture disabled>Take photo</button></footer>';
+      const video = node.querySelector('video');
+      video.muted = true;
+      const session = { note, node, video, capture: node.querySelector('[data-camera-capture]'), label: node.querySelector('[role="status"]'), stream: null };
+      camera = session;
+      const dismiss = node.querySelector('[data-camera-close]');
+      const useDevice = node.querySelector('[data-device-camera]');
+      dismiss.addEventListener('click', () => closeCamera());
+      node.addEventListener('cancel', event => { event.preventDefault(); closeCamera(); });
+      useDevice.addEventListener('click', () => {
+        closeCamera();
+        chooseFiles(note, cameraInput, cameraTrigger);
+      });
+      session.capture.addEventListener('click', () => void takePhoto(session));
+      document.body.append(node);
+      try { node.showModal(); } catch { closeCamera(false); chooseFiles(note, cameraInput, cameraTrigger); return; }
+      focus(dismiss);
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+        if (camera !== session || !sameNote(note)) { stopStream(stream); return; }
+        session.stream = stream;
+        video.srcObject = stream;
+        await video.play();
+        if (camera !== session || !sameNote(note)) return;
+        session.capture.disabled = false;
+        session.label.textContent = 'Camera ready.';
+        focus(session.capture);
+      } catch {
+        if (camera !== session) return;
+        stopStream(session.stream);
+        session.stream = null;
+        video.srcObject = null;
+        session.label.textContent = 'Camera unavailable. Allow camera access in your browser or use the device camera picker.';
+      }
+    }
+    function closeViewer(restoreFocus = true) {
       viewerVersion++;
       if (!viewer) return;
-      const dialog = viewer;
+      const { dialog, opener, tab, note } = viewer;
       viewer = null;
+      tab?.close();
       dialog.querySelectorAll('video,audio').forEach(media => { media.pause(); media.removeAttribute('src'); media.load(); });
       if (dialog.open) dialog.close();
       dialog.remove();
+      if (restoreFocus && sameNote(note)) focus(opener);
     }
-    async function openAttachment(attachment) {
+    async function openAttachment(attachment, opener) {
       if (destroyed || !attachment) return;
       const target = currentNote();
       if (!target) return;
-      closeViewer();
+      closeViewer(false);
+      let tab = null;
+      if (attachment.kind === 'file' && attachment.type === 'application/pdf') {
+        // Reserve the PDF tab while the browser still has the user's click.
+        try {
+          tab = window.open('', '_blank');
+          if (tab) tab.opener = null;
+        } catch { tab = null; }
+      }
       const version = ++viewerVersion;
       const dialog = document.createElement('dialog');
-      dialog.className = 'staff-giphy-picker attachment-giphy-dialog';
+      dialog.className = 'notepad-media-dialog notepad-attachment-viewer';
       dialog.setAttribute('aria-label', attachment.name || 'Attachment');
-      const header = document.createElement('div');
-      header.className = 'staff-gif-search';
+      const header = document.createElement('header');
       const name = document.createElement('span');
       name.textContent = attachment.name || 'Attachment';
-      name.style.cssText = 'flex:1;min-width:0;overflow-wrap:anywhere;font-size:13px';
       const dismiss = document.createElement('button');
       dismiss.type = 'button'; dismiss.setAttribute('aria-label', 'Close attachment'); dismiss.textContent = '×';
       header.append(name, dismiss);
       const body = document.createElement('div');
-      body.style.cssText = 'display:flex;flex:1;min-height:0;align-items:center;justify-content:center;overflow:auto;padding:3px';
+      body.className = 'notepad-attachment-body';
       body.textContent = 'Loading attachment…';
       dialog.append(header, body);
-      viewer = dialog;
+      const session = { dialog, opener, tab, note: target };
+      viewer = session;
       document.body.append(dialog);
-      dismiss.addEventListener('click', closeViewer);
+      dismiss.addEventListener('click', () => closeViewer());
       dialog.addEventListener('cancel', event => { event.preventDefault(); closeViewer(); });
-      try { dialog.showModal(); } catch (_) { closeViewer(); return; }
+      try { dialog.showModal(); } catch { closeViewer(); return; }
       focus(dismiss);
       try {
         let url = '', type = attachment.type || 'application/octet-stream';
@@ -418,74 +531,87 @@
           const refreshed = await send('attachment', { noteId: target.id, id: attachment.id });
           url = safeMediaURL(refreshed?.url); type = refreshed?.type || type;
         }
-        if (destroyed || viewer !== dialog || version !== viewerVersion || !sameNote(target)) return;
+        if (destroyed || viewer !== session || version !== viewerVersion || !sameNote(target)) return;
         if (!url) throw Error('Attachment unavailable. Reopen the note to refresh it.');
+        if (type === 'application/pdf' && tab && !tab.closed) {
+          try {
+            tab.location.replace(url);
+            session.tab = null;
+            closeViewer(false);
+            return;
+          } catch { tab.close(); session.tab = null; }
+        }
+        session.tab?.close();
+        session.tab = null;
         body.replaceChildren();
-        const imageType = /^image\/(jpeg|png|gif|webp|avif)$/.test(type);
+        const imageType = isImage(type);
         const videoType = /^video\/(mp4|webm|quicktime)$/.test(type);
         const audioType = /^audio\/[-\w.+]+$/.test(type);
         if (imageType || videoType || audioType) {
           const media = document.createElement(imageType ? 'img' : videoType ? 'video' : 'audio');
-          media.style.cssText = 'max-width:100%;max-height:100%;object-fit:contain';
           if (imageType) media.alt = attachment.name || 'Attachment';
           else { media.controls = true; media.preload = 'none'; if (videoType) media.playsInline = true; }
           // No audio/video element or src exists before this explicit open action.
           media.src = url;
-          media.addEventListener('error', () => { if (viewer === dialog) body.textContent = 'This attachment could not be loaded. Close and open it to retry.'; });
+          media.addEventListener('error', () => {
+            if (viewer === session) body.replaceChildren(originalLink(attachment, url, 'Open original'));
+          });
           body.append(media);
         } else {
-          const link = document.createElement('a');
-          link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; link.textContent = 'Open ' + (attachment.name || 'file');
-          link.style.cssText = 'color:var(--cmpri-modal-text);overflow-wrap:anywhere';
+          const link = originalLink(attachment, url, 'Open original');
           body.append(link);
+          // The signed link delivers non-previewable files through the browser's downloader.
+          if (type !== 'application/pdf') link.click();
         }
       } catch (error) {
-        if (!destroyed && viewer === dialog && version === viewerVersion) body.textContent = error?.message || 'The attachment could not be opened.';
+        if (!destroyed && viewer === session && version === viewerVersion) {
+          session.tab?.close();
+          session.tab = null;
+          body.textContent = error?.message || 'The attachment could not be opened.';
+        }
       }
     }
-    async function close({ restoreFocus = true, immediate = false } = {}) {
-      closeViewer();
-      await closeGif({ restoreFocus: false, immediate });
-      await collapseMenu({ restoreFocus, immediate });
+    function originalLink(attachment, url, label) {
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = label + ': ' + (attachment.name || 'file');
+      return link;
     }
-    function onTriggerClick(event) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (menu || gif) close();
-      else openMenu();
+    function close({ restoreFocus = true, immediate = false } = {}) {
+      closeViewer(restoreFocus);
+      closeCamera(restoreFocus);
+      return closeGif({ restoreFocus, immediate });
+    }
+    function onFilesClick() {
+      void closeGif({ restoreFocus: false, immediate: true });
+      chooseFiles(currentNote(), fileInput, filesTrigger);
+    }
+    function onCameraClick() {
+      void closeGif({ restoreFocus: false, immediate: true });
+      void openCamera(currentNote());
+    }
+    function onGifClick() {
+      if (gif) void closeGif();
+      else openGif(gifTrigger, currentNote());
     }
     function onPointerDown(event) {
-      if (destroyed || (!menu && !gif)) return;
-      const session = gif || menu;
-      if (!sameNote(session.note)) { close({ restoreFocus: false, immediate: true }); return; }
-      if (gif) {
-        if (!gif.node.contains(event.target) && !menu?.node.contains(event.target) && !trigger.contains(event.target)) close({ restoreFocus: false });
-        return;
-      }
-      if (!menu.node.contains(event.target) && !trigger.contains(event.target)) close({ restoreFocus: false });
+      if (!gif || gif.node.contains(event.target) || gifTrigger.contains(event.target)) return;
+      void closeGif({ restoreFocus: false, immediate: !sameNote(gif.note) });
     }
     function onKeyDown(event) {
-      if (destroyed || (!menu && !gif)) return;
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        if (gif) closeGif(); else close();
-        return;
-      }
-      if (gif || !menu || menu.closing || !menu.node.contains(document.activeElement)) return;
-      const buttons = Array.from(menu.node.querySelectorAll('button'));
-      const index = buttons.indexOf(document.activeElement);
-      if (['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
-        event.preventDefault();
-        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
-        focus(buttons[next]);
-      } else if (event.key === 'Tab') close({ restoreFocus: false });
+      if (!(gif || camera || viewer) || event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      void close();
     }
-    const observedRoot = trigger.closest('.layout-body') || container.parentElement || container;
+    function onPageHide() { void close({ restoreFocus: false, immediate: true }); }
+    const observedRoot = filesTrigger.closest('.layout-body') || container.parentElement || container;
     const observer = new MutationObserver(() => {
       if (destroyed) return;
-      if (!trigger.isConnected) { destroy(); return; }
-      const session = gif || menu;
+      if (!filesTrigger.isConnected) { destroy(); return; }
+      const session = gif || camera || viewer;
       if (session && !sameNote(session.note)) close({ restoreFocus: false, immediate: true });
     });
     observer.observe(observedRoot, { childList: true, subtree: true });
@@ -495,33 +621,35 @@
       destroyed = true;
       pendingFiles = null;
       observer.disconnect();
-      trigger.removeEventListener('click', onTriggerClick);
+      filesTrigger.removeEventListener('click', onFilesClick);
+      gifTrigger.removeEventListener('click', onGifClick);
+      cameraTrigger.removeEventListener('click', onCameraClick);
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown, true);
-      window.removeEventListener('resize', positionMenu);
-      document.removeEventListener('scroll', positionMenu, true);
-      fileInput.removeEventListener('change', filesChanged);
-      fileInput.removeEventListener('cancel', filesCanceled);
       for (const animation of animations.values()) animation.cancel();
       animations.clear();
-      if (gif) { gif.version++; clearTimeout(gif.timer); gif.node.remove(); gif = null; }
-      if (menu) { menu.node.remove(); menu = null; }
-      trigger.setAttribute('aria-expanded', 'false');
-      trigger.removeAttribute('aria-controls');
-      fileInput.remove();
-      closeViewer();
+      window.removeEventListener('pagehide', onPageHide);
+      for (const input of [fileInput, cameraInput]) {
+        input.removeEventListener('change', filesChanged);
+        input.removeEventListener('cancel', filesCanceled);
+        input.remove();
+      }
+      onPageHide();
       statusNode.remove();
     }
 
-    trigger.addEventListener('click', onTriggerClick);
-    fileInput.addEventListener('change', filesChanged);
-    fileInput.addEventListener('cancel', filesCanceled);
+    filesTrigger.addEventListener('click', onFilesClick);
+    gifTrigger.addEventListener('click', onGifClick);
+    cameraTrigger.addEventListener('click', onCameraClick);
+    for (const input of [fileInput, cameraInput]) {
+      input.addEventListener('change', filesChanged);
+      input.addEventListener('cancel', filesCanceled);
+    }
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('keydown', onKeyDown, true);
-    window.addEventListener('resize', positionMenu);
-    document.addEventListener('scroll', positionMenu, true);
-    return { destroy, close, openAttachment, uploading: () => uploads > 0, isInteracting: () => !destroyed && !!(menu || gif || pendingFiles || viewer) };
+    window.addEventListener('pagehide', onPageHide);
+    return { destroy, close, openAttachment, uploading: () => uploads > 0, isInteracting: () => !destroyed && !!(gif || camera || pendingFiles || viewer) };
   }
 
-  window.NotepadAttachments = { html, attach };
+  window.NotepadAttachments = { html, attach, photoPreview };
 })();

@@ -16,7 +16,8 @@ export type NotepadRole = typeof NOTEPAD_ROLES[number]['id'];
 export type NotepadAudience = { all: boolean; roles: string[]; people: string[] };
 export type NotepadPerson = { id: string; name: string; short: string; initials: string; role: string; displayRole?: string; roles: string[]; active: boolean; taggable: boolean; recipientSelectable: boolean };
 export type NotepadAttachment = { id: string; kind: 'file' | 'gif'; name: string; type?: string; size?: number; gifId?: string; url?: string };
-export type NotepadReply = { id: string; authorId: string; authorName?: string; at: string; text: string; replies: NotepadReply[] };
+export type NotepadReplyMention = { id: string; kind: 'person' | 'role' | 'department'; start: number; end: number };
+export type NotepadReply = { id: string; authorId: string; authorName?: string; at: string; text: string; mentions?: NotepadReplyMention[]; replies: NotepadReply[] };
 export type NotepadDocument = {
   title: string; audience: NotepadAudience; content: string; priority: 'Low' | 'Normal' | 'High' | 'Urgent';
   fontSize: number; fontFamily: string; titleFontFamily: string; ink: InkStroke[];
@@ -37,6 +38,10 @@ export const NOTEPAD_TEST_EMAILS = new Set(['assmgr@test.com', 'chief@test.com',
 export const NOTEPAD_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function notepadCanRead(note: Pick<NotepadNote, 'authorId' | 'audience'>, person: Pick<NotepadPerson, 'id' | 'roles' | 'active'>) {
   return person.active && (note.authorId === person.id || note.audience.all || note.audience.people.includes(person.id) || person.roles.some(role => note.audience.roles.includes(role)));
+}
+export function notepadAudienceWithPeople(audience: NotepadAudience, ids: readonly string[]): NotepadAudience {
+  if (audience.all || !ids.length) return audience;
+  return { ...audience, people:[...new Set([...audience.people,...ids])].sort() };
 }
 /** Drop server metadata and signed URLs before saving. */
 export function notepadDocument(note: NotepadDocument): NotepadDocument {

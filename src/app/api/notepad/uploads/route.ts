@@ -1,8 +1,8 @@
 import { NextRequest,NextResponse } from 'next/server';
 import { requireUser } from '@/lib/server/auth';
-import { STAFF_FILE_BUCKET,staffFileInput,staffInlineMedia } from '@/lib/staff-note-media';
+import { STAFF_FILE_BUCKET,staffFileInput } from '@/lib/staff-note-media';
 import { NOTEPAD_UUID } from '@/lib/notepad';
-import { resolveNotepadAttachment } from '@/lib/server/notepad-store';
+import { notepadAttachmentURL,resolveNotepadAttachment } from '@/lib/server/notepad-store';
 const headers={'Cache-Control':'private, no-store'};
 const response=(body:unknown,status=200)=>NextResponse.json(body,{status,headers});
 async function principal(request:NextRequest){const auth=await requireUser(request),property=request.headers.get('x-cmpri-property');return auth&&(!property||property===auth.principal.hotelId)?auth:null}
@@ -28,5 +28,5 @@ export async function PUT(request:NextRequest){
  if(object.error||Number(object.data?.size)!==Number(row.size_bytes)||object.data?.contentType!==row.media_type)return response({error:'Stored file size or type could not be verified.'},409);
  const saved=await auth.admin.from('cmpri_notepad_uploads').update({ready:true}).eq('id',row.id).eq('hotel_id',auth.principal.hotelId).eq('author_user_id',auth.principal.identity.id).select('id').maybeSingle();if(saved.error||!saved.data)return response({error:'Upload verification was not confirmed.'},409);
  const signed=await auth.admin.storage.from(STAFF_FILE_BUCKET).createSignedUrl(row.storage_path,3600);if(signed.error||!signed.data)return response({error:'The file is uploaded but its preview could not be opened.'},503);
- return response({id:row.id,ready:true,url:staffInlineMedia(row.media_type)?signed.data.signedUrl:signed.data.signedUrl+'&download='+encodeURIComponent(row.name)});
+ return response({id:row.id,ready:true,url:notepadAttachmentURL(signed.data.signedUrl,row.media_type,row.name)});
 }

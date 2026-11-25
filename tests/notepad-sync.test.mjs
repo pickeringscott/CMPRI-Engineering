@@ -41,6 +41,37 @@ test('outbox protects immediately, a boundary flush drains newer edits behind an
   assert.deepEqual(f.writes.map(write => write.expectedRevision), [null, 1]);
   assert.equal(s.hasPending, false); s.stop();
 });
+test('a confirmed tag grant rebases a newer queued edit while preserving its content', async () => {
+  let release;
+  const firstWrite = new Promise(resolve => { release=resolve; }), writes=[];
+  const storage = {getItem:()=>null,setItem(){},removeItem(){}};
+  const sync = new NotepadSync(scope,storage,{
+    async write(pending) {
+      writes.push(structuredClone(pending));
+      if(writes.length === 1){
+        await firstWrite;
+        return {note:{...note('Tag',2),audience:{all:false,roles:[],people:['account']}},revision:2,taggedPeople:['account']};
+      }
+      return {note:{...note('Further work',3),audience:pending.document.audience},revision:3};
+    },
+    async order(){},
+  },60_000);
+  const acknowledgements=[];
+  sync.onSaved=(...args)=>acknowledgements.push(args);
+  try {
+    sync.queue('a',document('Tag'),1,1);
+    const flight=sync.flush('a');
+    sync.queue('a',document('Further work'),2,1);
+    release();
+    await flight;
+    assert.equal(writes.length,2);
+    assert.equal(writes[1].document.content,'<p>Further work</p>');
+    assert.deepEqual(writes[1].document.audience.people,['account']);
+    assert.equal(writes[1].expectedRevision,2);
+    assert.deepEqual(acknowledgements[0][4],['account']);
+    assert.equal(sync.hasPending,false);
+  }finally{sync.stop();}
+});
 test('background revision discovery never rebases the still-visible older document', async () => {
   const f = fixture(); f.records.set('a', note('Original', 1)); const s = f.make(); s.restore(f.data());
   f.records.set('a', note('Other person', 2)); s.remote(f.data());

@@ -21,10 +21,42 @@ const modalSignals=readFileSync('supabase/migrations/20261106133511_modal_resour
 await db.exec('alter table profiles add column full_name text');
 await db.query('update profiles set full_name=$1 where id=$2',['Avery Reed',owner]);
 await db.query('update profiles set full_name=$1 where id=$2',['Morgan Ellis',tech]);
-for(const suffix of ['_notepad_shared_documents.sql','_notepad_edit_history.sql']){
+for(const suffix of ['_notepad_shared_documents.sql','_notepad_edit_history.sql','_notepad_history_share_revision.sql','_notepad_tag_sharing.sql']){
  const name=readdirSync('supabase/migrations').find(n=>n.endsWith(suffix));await db.exec(readFileSync('supabase/migrations/'+name,'utf8'));
 }
 return db}
+
+test('a collaborator save grants only the verified active tagged recipient and records one revision',async()=>{
+ const db=await fixture();try{
+  const outside=change(197);
+  await db.query("insert into profiles(id,active,role,secondary_roles) values($1,true,'General Manager','{}')",[outside]);
+  await db.query('insert into hotel_members values($1,$2,true)',[other,outside]);
+  await db.exec('set role service_role');
+  await save(db,owner,null,change(190));
+  const tagged={...doc,content:'<p><span class="mention" contenteditable="false" data-mention-kind="person" data-mention-id="'+manager+'">@Riley Chen</span></p>',
+    audience:{...doc.audience,people:[manager]}};
+  const tagWrite=(mutation,document,people)=>db.query(
+    'select * from cmpri_save_notepad($1::uuid,$2::uuid,$3::uuid,1,$4::uuid,$5::jsonb,null,null,$6::uuid[])',
+    [hotel,tech,id,change(mutation),JSON.stringify(document),people]).then(result=>result.rows[0]);
+  await assert.rejects(save(db,tech,1,change(191),tagged),/creator/);
+  await assert.rejects(tagWrite(192,{...tagged,audience:{...tagged.audience,roles:[]}},[manager]),/creator/);
+  await assert.rejects(tagWrite(193,{...tagged,audience:{...tagged.audience,people:[outside]}},[outside]),/recipient is unavailable/);
+  await assert.rejects(tagWrite(194,{...tagged,audience:{...tagged.audience,people:[manager,owner].sort()}},[manager]),/creator/);
+  const saved=await tagWrite(195,tagged,[manager]);
+  assert.equal(saved.revision,2);
+  assert.deepEqual(saved.document.audience.people,[manager]);
+  assert.equal((await tagWrite(195,tagged,[manager])).revision,2);
+  await assert.rejects(tagWrite(195,tagged,[]),/Mutation identity reused/);
+  const history=(await db.query('select actor_id,revision from cmpri_notepad_history where note_id=$1 order by revision',[id])).rows;
+  assert.deepEqual(history,[{actor_id:owner,revision:1},{actor_id:tech,revision:2}]);
+  const recipientHistory=(await db.query('select * from cmpri_read_notepad_history($1,$2,$3,null)',[hotel,manager,id])).rows;
+  assert.deepEqual(recipientHistory.map(row=>row.revision),[2]);
+  assert.deepEqual(recipientHistory[0].before_fields,{});
+  assert.equal(recipientHistory[0].after_fields.content,tagged.content);
+  await db.exec('set role authenticated');
+  await assert.rejects(tagWrite(196,tagged,[manager]),/permission denied/);
+ }finally{await db.close();}
+});
 async function save(db,actor,expected,mutation,document=doc,source=null,noteId=id,property=hotel,legacyVersion=undefined){if(legacyVersion===undefined)legacyVersion=source==='general'?'general:1':source==='staff'?(await db.query('select cmpri_private.notepad_staff_version($1,$2) as version',[property,noteId])).rows[0].version:null;return(await db.query('select * from cmpri_save_notepad($1::uuid,$2::uuid,$3::uuid,$4::bigint,$5::uuid,$6::jsonb,$7::text,$8::text)',[property,actor,noteId,expected,mutation,document===null?null:JSON.stringify(document),source,legacyVersion])).rows[0]}
 test('shared SQL writes enforce roles, creator sharing/deletion, optimistic revisions and idempotent retries',async()=>{const db=await fixture();try{await db.exec('set role service_role');const first=await save(db,owner,null,change(10));assert.equal(first.revision,1);const update=await save(db,tech,1,change(11),{...doc,title:'By tech'});assert.equal(update.revision,2);assert.equal((await save(db,tech,1,change(11),{...doc,title:'By tech'})).revision,2);await assert.rejects(save(db,owner,1,change(12)),/changed elsewhere/);await assert.rejects(save(db,tech,2,change(13),null),/creator/);await assert.rejects(save(db,tech,2,change(14),{...doc,audience:{all:true,roles:[],people:[]}}),/creator/);await assert.rejects(save(db,manager,2,change(15)),/unavailable/);const deleted=await save(db,owner,2,change(16),null);assert.ok(deleted.deleted_at);assert.equal((await save(db,owner,2,change(16),null)).revision,3);await assert.rejects(save(db,owner,null,change(17)),/unavailable|changed elsewhere/)}finally{await db.close()}});
 test('private/all/individual audiences and active property membership are authoritative; Data API is closed',async()=>{const db=await fixture();try{await db.exec('set role service_role');const personal={...doc,audience:{all:false,roles:[],people:[]}};await save(db,owner,null,change(20),personal);await assert.rejects(save(db,tech,1,change(21),personal),/unavailable/);const all={...doc,audience:{all:true,roles:[],people:[]}};await save(db,owner,1,change(22),all);await save(db,manager,2,change(23),{...all,title:'Shared'});await assert.rejects(save(db,tech,null,change(24),all,null,change(99),other),/Inactive/);await db.exec(`reset role;update hotel_members set active=false where user_id='${tech}';set role service_role`);await assert.rejects(save(db,tech,3,change(25),all),/Inactive/);await db.exec('set role authenticated');await assert.rejects(db.exec('select * from cmpri_notepad_notes'),/permission denied/);await assert.rejects(save(db,owner,3,change(26),all),/permission denied/)}finally{await db.close()}});
@@ -70,7 +102,13 @@ test('Edit History records authoritative actors and changed fields atomically an
   const shared={...doc,content:'<p>Shared version</p>'};
   await db.exec('set role service_role');
   await save(db,owner,null,change(101),privateNote);
+  assert.deepEqual((await history(owner)).map(v=>v.revision),[1]);
+  assert.deepEqual(await history(tech),[]);
   await save(db,owner,1,change(102),shared);
+  const shareHistory=await history(tech);
+  assert.deepEqual(shareHistory.map(v=>v.revision),[2]);
+  assert.deepEqual(shareHistory[0].before_fields,{});
+  assert.equal(shareHistory[0].after_fields.content,shared.content);
   const collaboration={...shared,content:'<p>Collaborator version</p>',itemThreads:{item:[{id:change(130),authorId:tech,at:'2026-11-24T01:00:00Z',text:'Checked this.',replies:[]}]}};
   await save(db,tech,2,change(103),collaboration);
   await save(db,tech,2,change(103),collaboration);
@@ -85,13 +123,21 @@ test('Edit History records authoritative actors and changed fields atomically an
   assert.equal(versions[0].after_fields.content,collaboration.content);
   assert.equal(versions[0].after_fields.itemThreads.item[0].text,'Checked this.');
   assert.equal(versions[0].after_fields.title,undefined);
-  assert.deepEqual((await history(tech)).map(v=>v.revision),[3]);
+  assert.deepEqual((await history(tech)).map(v=>v.revision),[3,2]);
+  assert.deepEqual((await history(tech,3)).map(v=>v.revision),[2]);
   assert.deepEqual((await history(owner,3)).map(v=>v.revision),[2,1]);
   assert.deepEqual(await history(manager),[]);
   assert.deepEqual(await history(owner,null,other),[]);
   await save(db,owner,3,change(106),privateNote);
   assert.deepEqual(await history(tech),[]);
-  await save(db,owner,4,change(107),null);
+  assert.deepEqual((await history(owner)).map(v=>v.revision),[4,3,2,1]);
+  const individual={all:false,roles:[],people:[tech]};
+  await save(db,owner,4,change(107),{...privateNote,audience:individual});
+  const individualHistory=await history(tech);
+  assert.deepEqual(individualHistory.map(v=>v.revision),[5,3,2]);
+  assert.deepEqual(individualHistory[0].before_fields,{});
+  assert.deepEqual(individualHistory[0].after_fields,{audience:individual});
+  await save(db,owner,5,change(108),null);
   assert.deepEqual(await history(owner),[]);
   assert.equal((await db.query('select count(*)::int as count from cmpri_notepad_history')).rows[0].count,0);
   await db.exec('set role authenticated');

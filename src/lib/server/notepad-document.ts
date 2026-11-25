@@ -1,5 +1,5 @@
 import { DOMParser } from '@xmldom/xmldom';
-import type { NotepadDocument, NotepadReply, NotepadAttachment } from '../notepad';
+import type { NotepadDocument, NotepadPerson, NotepadReply, NotepadReplyMention, NotepadAttachment } from '../notepad';
 import { NOTEPAD_ROLES, NOTEPAD_UUID } from '../notepad';
 import type { InkStroke } from '../general-notes';
 
@@ -119,6 +119,55 @@ function attachments(value: unknown): NotepadAttachment[] {
     return { id:item.id, kind:'file', name:item.name, type:item.type, size:item.size };
   });
 }
+function replyMentions(value: unknown, text: string): NotepadReplyMention[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 500) throw Error('Invalid reply tags.');
+  let previousEnd = 0;
+  return value.map(mark => {
+    if (!record(mark) || !safeId(mark.id)
+      || (mark.kind !== 'person' && mark.kind !== 'role' && mark.kind !== 'department')
+      || (mark.kind === 'person' && !NOTEPAD_UUID.test(mark.id))
+      || typeof mark.start !== 'number' || !Number.isSafeInteger(mark.start) || mark.start < previousEnd
+      || typeof mark.end !== 'number' || !Number.isSafeInteger(mark.end) || mark.end <= mark.start + 1 || mark.end > text.length
+      || !/^@[^@\r\n]+$/.test(text.slice(mark.start,mark.end))) throw Error('Invalid reply tags.');
+    previousEnd = mark.end;
+    return { id:mark.id, kind:mark.kind, start:mark.start, end:mark.end };
+  });
+}
+
+/** Count actual selectable person tags, independently of text that just looks like a tag. */
+export function notepadPersonTagCounts(document: NotepadDocument, directory?: readonly NotepadPerson[]) {
+  const names = directory && new Map(directory.filter(person => person.active && person.taggable && person.recipientSelectable !== false)
+    .map(person => [person.id, '@' + person.name]));
+  const counts = new Map<string,number>();
+  const count = (id: string, label: string) => {
+    if (names ? names.get(id) === label : NOTEPAD_UUID.test(id) && /^@[^@\r\n]+$/.test(label)) {
+      counts.set(id,(counts.get(id) || 0) + 1);
+    }
+  };
+  const body = document.content.includes('data-mention-kind') ? elements(parse(document.content)) : [];
+  for (const el of body) {
+    if (el.tagName.toLowerCase() !== 'span' || el.getAttribute('contenteditable') !== 'false'
+      || el.getAttribute('data-mention-kind') !== 'person' || !el.getAttribute('class')?.split(/\s+/).includes('mention')) continue;
+    count(el.getAttribute('data-mention-id') || '',el.textContent || '');
+  }
+  function visit(replies: NotepadReply[]) {
+    for (const reply of replies) {
+      for (const mark of reply.mentions || []) {
+        if (mark.kind === 'person') count(mark.id,reply.text.slice(mark.start,mark.end));
+      }
+      visit(reply.replies || []);
+    }
+  }
+  Object.values(document.itemThreads || {}).forEach(visit);
+  return counts;
+}
+function sameReplyMentions(a: NotepadReplyMention[] = [], b: NotepadReplyMention[] = []) {
+  return a.length === b.length && a.every(({id,kind,start,end},index) => {
+    const next = b[index];
+    return id === next.id && kind === next.kind && start === next.start && end === next.end;
+  });
+}
 function draftSnapshot(document: NotepadDocument) {
   return JSON.stringify([
     document.title, {all:document.audience.all,roles:[...document.audience.roles].sort(),people:[...document.audience.people].sort()},
@@ -144,8 +193,12 @@ export function validateNotepadDocument(value: unknown, previous: NotepadDocumen
     return input.map(r => {
       if (!record(r) || !safeId(r.id) || seen.has(r.id) || ++count > 5000 || typeof r.text !== 'string' || r.text.length > 4000 || !r.text.trim()) throw Error('Invalid reply.');
       seen.add(r.id); const old = oldReplies.get(r.id);
-      if (old && old.text !== r.text && old.authorId !== actor) throw Error('Only the reply author may edit its text.');
-      return { id:r.id, authorId:old?.authorId || actor, ...(old?.authorName ? {authorName:old.authorName} : {}), at:old?.at || now, text:r.text, replies:replies(r.replies || [],depth+1) };
+      const mentions = replyMentions(r.mentions,r.text);
+      if (old && old.authorId !== actor && (old.text !== r.text || !sameReplyMentions(old.mentions,mentions))) {
+        throw Error('Only the reply author may edit its text or tags.');
+      }
+      return { id:r.id, authorId:old?.authorId || actor, ...(old?.authorName ? {authorName:old.authorName} : {}),
+        at:old?.at || now, text:r.text, ...(mentions ? {mentions} : {}), replies:replies(r.replies || [],depth+1) };
     });
   };
   const itemThreads: Record<string, NotepadReply[]> = Object.create(null);

@@ -296,7 +296,8 @@ test('urgent images, left-aligned priority and inline attribution share the note
       assert.equal(marker.querySelector('img').getAttribute('src'), '/notepad/urgent-button.jpg');
     }
     assert.equal(s.latestSave().document.priority, 'Urgent');
-    assert.match(hostCss, /\.priority-row\.note-details\{[^}]*justify-content:flex-start[^}]*font-size:12pt/);
+    assert.match(hostCss, /\.priority-row\.note-details\{[^}]*justify-content:flex-start[^}]*font-size:var\(--note-metadata-size\)/);
+    assert.match(hostCss, /\.note-attribution\{[^}]*font:var\(--note-metadata-size\)/);
     assert.match(css, /\.priority-row\.note-details > \* \{[^}]*font: inherit/);
     assert.match(hostCss, /\.priority-row\.note-details #note-priority\{[^}]*border:0/);
     assert.match(css, /\.title-actions button \{[^}]*border: 0/);
@@ -360,6 +361,49 @@ test('all five synthetic notes show actor-attributed additions, edits, deletions
       assert.equal(s.saves().length,0);
     }finally{s.cleanup();}
   }
+});
+
+test('Edit History opens for a private note owner and for each kind of authorized recipient', async () => {
+  const audiences = [
+    [user, {all: false, roles: [], people: []}],
+    [colleague, {all: false, roles: [], people: [colleague.id]}],
+    [colleague, {all: false, roles: ['technician'], people: []}],
+    [colleague, {all: true, roles: [], people: []}],
+  ];
+  for (const [viewer, audience] of audiences) {
+    const note = makeNote({audience});
+    const s = setup({userId: viewer.id, notes: [note], order: [note.id]});
+    try {
+      s.click('.note-history-link');
+      const request = s.outgoing.at(-1).data;
+      assert.equal(request.action, 'history');
+      assert.equal(request.payload.id, note.id);
+      s.send('result', {requestId: request.requestId, result: {entries: [], next: null}});
+      await tick();
+      assert.equal(s.find('.note-history').hidden, false);
+      assert.match(s.find('.history-status').textContent, /No edits have been recorded/);
+    } finally {s.cleanup();}
+  }
+});
+
+test('Revoking a recipient closes their history panel and preserves their unsaved draft', async () => {
+  const note = makeNote({audience: {all: false, roles: [], people: [colleague.id]}});
+  const s = setup({userId: colleague.id, notes: [note], order: [note.id]});
+  try {
+    const body = s.focus('.note-content');
+    body.firstElementChild.textContent = 'Unsaved synthetic edit';
+    s.event(body, 'input');
+    s.click('.note-history-link');
+    const request = s.outgoing.at(-1).data;
+    assert.equal(request.action, 'history');
+    assert.equal(s.find('.note-history').hidden, false);
+    s.send('remote', {notes: []});
+    s.send('result', {requestId: request.requestId, result: {entries: [], next: null}});
+    await tick();
+    assert.equal(s.find('.note-history').hidden, true);
+    assert.match(s.find('.note-content').textContent, /Unsaved synthetic edit/);
+    assert.match(s.latestSave().document.content, /Unsaved synthetic edit/);
+  } finally {s.cleanup();}
 });
 
 test('sidebar shows recipient first names before the creation time and responds to time preference changes',()=>{
@@ -765,12 +809,13 @@ test('mentions and individual recipients exclude deactivated and six test accoun
 test('the dock invokes the native file picker, verifies upload through the host, and persists no signed URL', async () => {
   const s = setup();
   try {
-    assert.equal(s.find('[data-action=redo]').nextElementSibling, s.find('[data-notepad-attachments-trigger]'));
-    const fileInput = s.find('input[type=file]'); let picked = 0;
+    const dockButtons = [...s.find('.general-notes-dock').querySelectorAll('button')];
+    assert.deepEqual(dockButtons.slice(2), ['[data-mode=eraser]','[data-action=undo]','[data-action=redo]','[data-notepad-gif-trigger]','[data-notepad-camera-trigger]','[data-notepad-attachments-trigger]'].map(selector => s.find(selector)));
+    const fileInput = s.find('[data-notepad-attachment-input]'); let picked = 0;
     fileInput.click = () => {picked++;};
     s.click('[data-notepad-attachments-trigger]');
-    assert.equal(s.document.querySelectorAll('.attachment-choice').length, 2);
-    s.click('[data-attachment-choice=files]'); assert.equal(picked, 1);
+    assert.equal(s.document.querySelector('.attachment-choices'), null);
+    assert.equal(picked, 1);
     const file = new s.window.File(['actual image bytes'], 'pump.png', {type: 'image/png'});
     Object.defineProperty(fileInput, 'files', {value: [file], configurable: true}); s.event(fileInput, 'change');
     const request = s.outgoing.find(({data}) => data.type === 'request' && data.action === 'upload');
@@ -778,7 +823,12 @@ test('the dock invokes the native file picker, verifies upload through the host,
     assert.equal(s.document.querySelector('.attachment-chip'), null);
     s.send('result', {requestId: request.data.requestId, result: {id: request.data.payload.id, kind: 'file', name: 'pump.png', type: 'image/png', size: file.size, url: 'https://storage.example/signed-private-file'}});
     await tick();
-    assert.equal(s.find('.attachment-open').textContent, 'pump.png');
+    assert.equal(s.find('.attachment-open').getAttribute('aria-label'), 'Open pump.png');
+    assert.equal(s.find('.attachment-open img').getAttribute('src'), 'https://storage.example/signed-private-file');
+    s.click('.attachment-open img');
+    const open = s.outgoing.find(({data}) => data.type === 'request' && data.action === 'attachment');
+    assert.equal(open.data.payload.noteId, uuid(10));
+    assert.equal(open.data.payload.id, request.data.payload.id);
     const attachment = s.latestSave().document.attachments[0];
     assert.equal(attachment.id, request.data.payload.id); assert.equal(attachment.name, 'pump.png');
     assert.equal(attachment.url, undefined); assert.equal(attachment.preview, undefined);
@@ -788,11 +838,11 @@ test('the dock invokes the native file picker, verifies upload through the host,
 test('a remote refresh cannot detach the native file picker while the user is choosing an attachment', () => {
   const s = setup();
   try {
-    const fileInput = s.find('input[type=file]'); fileInput.click = () => {};
-    s.click('[data-notepad-attachments-trigger]'); s.click('[data-attachment-choice=files]');
+    const fileInput = s.find('[data-notepad-attachment-input]'); fileInput.click = () => {};
+    s.click('[data-notepad-attachments-trigger]');
     s.send('remote', {notes: [{...s.bootstrap.notes[0], title: 'Updated elsewhere', revision: 2}]});
     assert.equal(fileInput.isConnected, true);
-    assert.equal(s.find('input[type=file]'), fileInput);
+    assert.equal(s.find('[data-notepad-attachment-input]'), fileInput);
     assert.equal(s.find('#note-title').value, 'Maintenance planning');
   } finally {s.cleanup();}
 });
@@ -836,7 +886,8 @@ test('the first attachment click after a title-font save keeps its dock controll
     titleKey(s,'Enter');s.focus('#note-title');
     const sent = s.latestSave(), canonical = {...s.bootstrap.notes[0], ...sent.document, revision: 2};
     s.send('saved', {id: canonical.id, sequence: sent.sequence, revision: 2, note: canonical});
-    const trigger = s.find('[data-notepad-attachments-trigger]'), fileInput = s.find('input[type=file]');
+    const trigger = s.find('[data-notepad-attachments-trigger]'), fileInput = s.find('[data-notepad-attachment-input]');
+    let picked = 0; fileInput.click = () => {picked++;};
     s.event(trigger, 'pointerdown'); title.blur();
     assert.equal(s.document.activeElement, s.document.body);
     // Native blur may drain microtasks before the dock receives focus. A refresh
@@ -844,12 +895,11 @@ test('the first attachment click after a title-font save keeps its dock controll
     await Promise.resolve();
     assert.equal(trigger.isConnected, true);
     assert.equal(s.find('[data-notepad-attachments-trigger]'), trigger);
-    assert.equal(s.find('input[type=file]'), fileInput, 'The original attachment controller remains attached');
+    assert.equal(s.find('[data-notepad-attachment-input]'), fileInput, 'The original attachment controller remains attached');
     trigger.focus();
     trigger.click();
     await settleFocus(s);
-    assert.equal(s.document.querySelectorAll('.attachment-choice').length, 2);
-    assert.equal(trigger.getAttribute('aria-expanded'), 'true');
+    assert.equal(picked, 1);
   } finally {s.cleanup();}
 });
 
@@ -933,6 +983,49 @@ test('account clear removes open mention and popover content before another acco
     s.click('[data-action=new]');
     assert.deepEqual(Array.from(s.document.querySelectorAll('[data-recipient=person]'), el => el.value), [uuid(302)]);
   } finally {s.cleanup();}
+});
+
+test('a confirmed body tag shows the newly shared recipient and reply controls before the next save', () => {
+  const s=setup();
+  try{
+    s.typeMention('@Morgan');
+    assert.equal(s.find('.audience-meta').textContent,'Just me');
+    s.click('.mention-option');
+    const saved=s.latestSave();
+    assert.match(saved.document.content,/data-mention-kind="person"/);
+    assert.deepEqual(saved.document.audience.people,[]);
+    const note={...s.bootstrap.notes[0],...saved.document,revision:2,audience:{all:false,roles:[],people:[colleague.id]}};
+    s.send('saved',{id:note.id,sequence:saved.sequence,revision:2,note,taggedPeople:[colleague.id]});
+    assert.equal(s.find('.audience-meta').textContent,'Morgan');
+    assert.ok(s.find('.item-reply-button'));
+    s.click('[data-action=share]');
+    assert.equal(s.find('[data-recipient=person][value="'+colleague.id+'"]').checked,true);
+  }finally{s.cleanup();}
+});
+
+test('a nested reply preserves selected tag ranges through typing and leaves literal @text untagged', () => {
+  const person={...colleague,id:uuid(408),name:'Taylor Quinn',short:'Taylor'};
+  const parent={id:'parent',authorId:colleague.id,at:'2026-11-23T20:31:00.000Z',text:'Please check the unit',replies:[]};
+  const initial=makeNote({authorId:colleague.id,audience:{all:false,roles:['engineer'],people:[]},itemThreads:{[uuid(20)]:[parent]}});
+  const s=setup({notes:[initial],people:[user,colleague,person]});
+  try{
+    s.click('.item-reply-button');
+    s.click('.reply-nested');
+    const input=s.find('.reply-input');
+    input.value='   @Taylor';
+    input.setSelectionRange(input.value.length,input.value.length);s.event(input,'input');
+    s.click('.mention-option');
+    input.value+='and plain @Taylor Quinn';
+    input.setSelectionRange(input.value.length,input.value.length);s.event(input,'input');
+    input.value='  For '+input.value;
+    input.setSelectionRange(6,6);s.event(input,'input');
+    s.event(s.find('.item-reply-form'),'submit');
+    const reply=s.latestSave().document.itemThreads[uuid(20)][0].replies[0];
+    assert.equal(reply.text,'For    @Taylor Quinn and plain @Taylor Quinn');
+    assert.deepEqual(reply.mentions,[{id:person.id,kind:'person',start:7,end:20}]);
+    assert.equal(s.find('.reply-children .mention').textContent,'@Taylor Quinn');
+    assert.equal(s.document.querySelectorAll('.reply-children .mention').length,1);
+  }finally{s.cleanup();}
 });
 
 test('sidebar reorder persists without exposing drag placeholders', () => {

@@ -105,10 +105,12 @@ async def main():
             assert 0 < attribution_box["y"] - (trash_box["y"] + trash_box["height"]) <= 5
             assert history_box["x"] >= stamp_box["x"] + stamp_box["width"]
             assert abs(history_box["y"] - stamp_box["y"]) <= 1
+            font_size = "element => getComputedStyle(element).fontSize"
+            attribution_size = await creator.locator(".note-creator").evaluate(font_size)
+            for control in (priority_label, priority):
+                assert await control.evaluate(font_size) == attribution_size
 
         await header_geometry()
-        for control in [priority, priority_label]:
-            assert await control.evaluate("element => getComputedStyle(element).fontSize") == "16px"
         assert await priority.evaluate("element => getComputedStyle(element).borderTopWidth") == "0px"
         share_style = "button => {const s=getComputedStyle(button);return [s.color,s.boxShadow,s.cursor];}"
         before_hover, shadow, cursor = await share_button.evaluate(share_style)

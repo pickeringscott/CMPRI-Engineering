@@ -4,7 +4,7 @@ import { loadTs } from './helpers/load-ts.mjs';
 import * as model from '../src/lib/notepad.ts';
 import * as documentTools from '../src/lib/server/notepad-document.ts';
 import * as media from '../src/lib/staff-note-media.ts';
-import { notepadDirectory,resolveNotepadAttachment,signNotepadAttachments } from '../src/lib/server/notepad-store.ts';
+import { notepadAttachmentURL,notepadDirectory,resolveNotepadAttachment,signNotepadAttachments } from '../src/lib/server/notepad-store.ts';
 import * as preferencesTools from '../src/lib/profile-preferences.ts';
 
 const hotel='00000000-0000-4000-8000-000000000001',actor='00000000-0000-4000-8000-000000000002';
@@ -66,6 +66,72 @@ test('shared collaborators edit content but cannot change the audience, delete, 
  assert.equal((await f.route.PUT(request({...body,document:{...body.document,audience:{all:false}}}))).status,400);
  const conflict=await f.route.PUT(request({...body,expectedRevision:2}));assert.equal(conflict.status,409);assert.equal(conflict.body.code,'NOTEPAD_CONFLICT');
  f.state.notes=[];assert.equal((await f.route.PUT(request({...body,expectedRevision:null}))).status,403);
+});
+test('new structured person tags add eligible recipients for creators and collaborators without changing manual access',async()=>{
+ const f=fixture(),tagged='00000000-0000-4000-8000-000000000020',inactive='00000000-0000-4000-8000-000000000021';
+ const hidden='00000000-0000-4000-8000-000000000022',outside='00000000-0000-4000-8000-000000000023';
+ const person=(id,name,flags={})=>({id,name,active:true,taggable:true,recipientSelectable:true,...flags});
+ f.state.people.push(person(tagged,'Taylor Quinn'),person(inactive,'Inactive User',{active:false}),person(hidden,'Hidden User',{recipientSelectable:false}),person(owner,'Note Owner'));
+ const chip=(id,name,kind='person')=>'<span class="mention" contenteditable="false" data-mention-kind="'+kind+'" data-mention-id="'+id+'">@'+name+'</span>';
+ const prior={...document(),id,authorId:owner,revision:3,createdAt:at,updatedAt:at};
+ f.state.notes=[prior];f.state.rows=[{id,revision:3,author_user_id:owner,change_id:owner}];
+ const base={...f.body(),expectedRevision:3};
+ const plain=await f.route.PUT(request({...base,document:{...document(),content:'<p>@Taylor Quinn</p>'}}));
+ assert.equal(plain.status,200);assert.deepEqual(plain.body.note.audience.people,[]);
+ const content='<ul><li>Overview<ol><li>'+chip(tagged,'Taylor Quinn')+chip(inactive,'Inactive User')+chip(outside,'Another Property')+'</li></ol></li></ul>'
+   +'<div class="note-check" data-item-id="task"><input type="checkbox"><span class="task-label" contenteditable="true">'+chip(tagged,'Taylor Quinn')+chip(hidden,'Hidden User')+chip(owner,'Note Owner')+chip(tagged,'Incorrect Name')+'</span></div>';
+ const body={...base,document:{...document(),content}};
+ const saved=await f.route.PUT(request(body));
+ assert.equal(saved.status,200);
+ assert.deepEqual(JSON.parse(JSON.stringify(saved.body.taggedPeople)),[tagged]);
+ assert.deepEqual(saved.body.note.audience.people,[tagged]);
+ assert.deepEqual(saved.body.note.audience.roles,prior.audience.roles);
+ const savedRPC=f.calls.filter(([key])=>key==='cmpri_save_notepad').at(-1)[1];
+ assert.deepEqual(JSON.parse(JSON.stringify(savedRPC.p_tagged_people)),[tagged]);
+ assert.equal(savedRPC.p_actor,actor);
+ assert.equal((await f.route.PUT(request({...base,document:{...body.document,audience:{all:true,people:[],roles:[]}}}))).status,403);
+ assert.equal((await f.route.PUT(request({...base,document:{...body.document,audience:{...prior.audience,people:[tagged]}}}))).status,403);
+
+ f.state.notes=[{...saved.body.note,revision:4}];
+ f.state.rows=[{id,revision:4,author_user_id:owner,change_id:change}];
+ const replay=await f.route.PUT(request(body));
+ assert.equal(replay.status,200);
+ assert.deepEqual(replay.body.note.audience.people,[tagged]);
+ assert.deepEqual(JSON.parse(JSON.stringify(replay.body.taggedPeople)),[tagged]);
+
+ const revoked={...prior,content,revision:5};
+ f.state.notes=[revoked];f.state.rows=[{id,revision:5,author_user_id:owner,change_id:owner}];
+ const unchanged=await f.route.PUT(request({...body,expectedRevision:5,document:{...body.document,content:content+'<p>Edited earlier note</p>'}}));
+ assert.equal(unchanged.status,200);assert.deepEqual(unchanged.body.note.audience.people,[]);
+ const retagged=await f.route.PUT(request({...body,expectedRevision:5,document:{...body.document,content:content+'<p>'+chip(tagged,'Taylor Quinn')+'</p>'}}));
+ assert.equal(retagged.status,200);assert.deepEqual(retagged.body.note.audience.people,[tagged]);
+
+ f.state.notes=[{...prior,authorId:actor,audience:{all:false,roles:[],people:[]}}];
+ f.state.rows=[{id,revision:3,author_user_id:actor,change_id:owner}];
+ const privateEdit=await f.route.PUT(request({...base,document:{...document(),audience:{all:false,roles:[],people:[]},content:'<p>'+chip(tagged,'Taylor Quinn')+'</p>'}}));
+ assert.equal(privateEdit.status,200); assert.deepEqual(privateEdit.body.note.audience.people,[tagged]);
+});
+test('only explicitly recorded reply tags can grant access, including in nested replies',async()=>{
+ const f=fixture(),tagged='00000000-0000-4000-8000-000000000024';
+ f.state.people.push({id:tagged,name:'Taylor Quinn',active:true,taggable:true,recipientSelectable:true});
+ const parent={id:'parent',authorId:owner,at,text:'Parent message',replies:[]};
+ const prior={...document(),id,authorId:owner,revision:3,createdAt:at,updatedAt:at,itemThreads:{item:[parent]}};
+ f.state.notes=[prior];f.state.rows=[{id,revision:3,author_user_id:owner,change_id:owner}];
+ const text='For @Taylor Quinn and plain @Taylor Quinn.';
+ const reply={id:'nested',authorId:owner,at,text,replies:[]};
+ const send=mentions=>f.route.PUT(request({...f.body(),expectedRevision:3,document:{...document(),itemThreads:{item:[{...parent,replies:[{...reply,mentions}]}]}}}));
+ const unselected=await send([]);assert.equal(unselected.status,200);assert.deepEqual(unselected.body.note.audience.people,[]);
+ const mark={id:tagged,kind:'person',start:4,end:17};
+ const selected=await send([mark]);assert.equal(selected.status,200);assert.deepEqual(selected.body.note.audience.people,[tagged]);
+ assert.equal(selected.body.note.itemThreads.item[0].replies[0].authorId,actor);
+ assert.equal((await send([{...mark,end:999}])).status,400);
+ const oldReply={...reply,id:'other',mentions:[]};
+ f.state.notes=[{...prior,itemThreads:{item:[oldReply]}}];
+ const edited={...document(),itemThreads:{item:[{...oldReply,mentions:[mark]}]}};
+ assert.throws(()=>documentTools.validateNotepadDocument(edited,f.state.notes[0],actor,at),/reply author/);
+ const saves=f.calls.filter(([key])=>key==='cmpri_save_notepad').length;
+ const forged=await f.route.PUT(request({...f.body(),expectedRevision:3,document:edited}));
+ assert.equal(forged.status,400);assert.equal(f.calls.filter(([key])=>key==='cmpri_save_notepad').length,saves);
 });
 test('only the authenticated creator can change titles for both current and legacy notes',async()=>{
  const f=fixture();
@@ -138,14 +204,19 @@ test('individual sharing hides Scott Pickering’s admin identity and keeps Scot
  assert.equal(model.notepadCanRead({authorId:actor,audience:{all:true,roles:[],people:[]}},byId.get('scott-admin')),true);
 });
 test('file upload signing derives the storage path from trusted ownership and verifies stored size/type',async()=>{
- let signed=true,row=null,storedSize=10,noteAccess=true;const calls=[];
- const admin={from(){const filters={};const q={select(){return q},eq(k,v){filters[k]=v;return q},maybeSingle:async()=>({data:row&&filters.hotel_id===hotel&&filters.author_user_id===actor&&filters.id===fileId?row:null,error:null}),insert:async v=>{row=v;calls.push(['insert',v]);return{error:null}},update:v=>{calls.push(['update',v]);return q}};return q},storage:{from(bucket){assert.equal(bucket,media.STAFF_FILE_BUCKET);return{createSignedUploadUrl:async(path,options)=>{calls.push(['sign',path,options]);return{data:{token:'opaque'},error:null}},info:async path=>{calls.push(['info',path]);return{data:{size:storedSize,contentType:'image/jpeg'},error:null}},createSignedUrl:async path=>{assert.equal(path,`${hotel}/${actor}/notepad/${fileId}`);return{data:{signedUrl:'https://storage.invalid/signed?token=opaque'},error:null}}}}}};
- const route=loadTs('src/app/api/notepad/uploads/route.ts',{'next/server':{NextResponse:{json}},'@/lib/server/auth':{requireUser:async()=>signed?{principal:{hotelId:hotel,identity:{id:actor}},admin}:null},'@/lib/notepad':model,'@/lib/staff-note-media':media,'@/lib/server/notepad-store':{resolveNotepadAttachment:async(_admin,property,user,note,upload)=>{assert.equal(property,hotel);assert.equal(user,actor);assert.equal(note,id);assert.equal(upload,fileId);return noteAccess?{id:fileId}:null}}});
+ let signed=true,row=null,storedSize=10,storedType='image/jpeg',noteAccess=true;const calls=[];
+ const admin={from(){const filters={};const q={select(){return q},eq(k,v){filters[k]=v;return q},maybeSingle:async()=>({data:row&&filters.hotel_id===hotel&&filters.author_user_id===actor&&filters.id===fileId?row:null,error:null}),insert:async v=>{row=v;calls.push(['insert',v]);return{error:null}},update:v=>{calls.push(['update',v]);return q}};return q},storage:{from(bucket){assert.equal(bucket,media.STAFF_FILE_BUCKET);return{createSignedUploadUrl:async(path,options)=>{calls.push(['sign',path,options]);return{data:{token:'opaque'},error:null}},info:async path=>{calls.push(['info',path]);return{data:{size:storedSize,contentType:storedType},error:null}},createSignedUrl:async path=>{assert.equal(path,`${hotel}/${actor}/notepad/${fileId}`);return{data:{signedUrl:'https://storage.invalid/signed?token=opaque'},error:null}}}}}};
+ const route=loadTs('src/app/api/notepad/uploads/route.ts',{'next/server':{NextResponse:{json}},'@/lib/server/auth':{requireUser:async()=>signed?{principal:{hotelId:hotel,identity:{id:actor}},admin}:null},'@/lib/notepad':model,'@/lib/staff-note-media':media,'@/lib/server/notepad-store':{notepadAttachmentURL,resolveNotepadAttachment:async(_admin,property,user,note,upload)=>{assert.equal(property,hotel);assert.equal(user,actor);assert.equal(note,id);assert.equal(upload,fileId);return noteAccess?{id:fileId}:null}}});
  const body={id:fileId,name:'photo.jpg',type:'image/jpeg',size:10};const prepared=await route.POST(request(body));assert.equal(prepared.status,200);assert.equal(prepared.body.path,`${hotel}/${actor}/notepad/${fileId}`);assert.equal(calls.find(([key])=>key==='sign')[2].upsert,false);
  assert.equal((await route.POST(request({...body,path:'other/person/file'}))).status,400);assert.equal((await route.PUT(request({id:fileId,path:'other/person/file'}))).status,400);
  assert.equal((await route.POST(request({...body,size:20}))).status,409);assert.equal((await route.POST(request(body))).status,200);
  storedSize=9;assert.equal((await route.PUT(request({id:fileId}))).status,409);storedSize=10;const verified=await route.PUT(request({id:fileId}));assert.equal(verified.status,200);assert.equal(verified.body.ready,true);assert.match(verified.body.url,/signed\?token=/);
  row.note_id=id;noteAccess=false;assert.equal((await route.PUT(request({id:fileId}))).status,403);noteAccess=true;assert.equal((await route.PUT(request({id:fileId}))).status,200);
+ for(const [type,name,suffix] of [['application/pdf','Pump manual.pdf',''],['text/html','Original file.html','&download=Original%20file.html']]){
+  row=null;storedType=type;assert.equal((await route.POST(request({...body,name,type}))).status,200);
+  const original=await route.PUT(request({id:fileId}));assert.equal(original.status,200);
+  assert.equal(original.body.url,'https://storage.invalid/signed?token=opaque'+suffix);
+ }
  signed=false;assert.equal((await route.POST(request(body))).status,401);assert.equal((await route.PUT(request({id:fileId}))).status,401);
 });
 test('shared recipients read collaborators’ files; revocation and legacy UUID collisions never sign a different note’s file',async()=>{

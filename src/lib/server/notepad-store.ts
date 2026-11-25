@@ -64,6 +64,10 @@ export async function loadNotepad(admin:SupabaseClient,hotelId:string,userId:str
   if(media)await signNotepadAttachments(admin,hotelId,notes,legacy.aliases);
   return {hotelId,userId,people,roles:NOTEPAD_ROLES.map(r=>({...r})),notes,order:(order.data?.note_ids||[]) as string[],legacyAliases:legacy.aliases,rows:overrides.data||[]};
 }
+export function notepadAttachmentURL(url:string,type:string,name:string) {
+  return type==='application/pdf'||staffInlineMedia(type)?url:url+'&download='+encodeURIComponent(name);
+}
+
 export async function signNotepadAttachments(admin:SupabaseClient,hotelId:string,notes:NotepadNote[],aliases:Record<string,string>) {
   const ids=[...new Set(notes.flatMap(n=>n.attachments.filter(a=>a.kind==='file').map(a=>a.id)))];if(!ids.length)return;
   const files:Array<{id:string;note_id:string|null;storage_path:string;name:string;media_type:string;legacy:boolean}>=[];
@@ -73,7 +77,7 @@ export async function signNotepadAttachments(admin:SupabaseClient,hotelId:string
   ]);if(own.error||legacy.error)throw Error('Attachments could not be loaded.');files.push(...(own.data||[]).map(row=>({...row,legacy:false})),...(legacy.data||[]).map(row=>({...row,legacy:true})));}
   const approved=files.filter(file=>notes.some(note=>note.attachments.some(a=>a.id===file.id)&&file.note_id&&(file.legacy?aliases[file.note_id]===note.id:file.note_id===note.id)));
   for(let at=0;at<approved.length;at+=200){const batch=approved.slice(at,at+200),signed=await admin.storage.from(STAFF_FILE_BUCKET).createSignedUrls(batch.map(file=>file.storage_path),3600);if(signed.error)throw Error('Attachments could not be opened.');
-    for(const file of batch){const url=signed.data?.find(s=>s.path===file.storage_path)?.signedUrl;if(url)for(const note of notes){if(file.note_id&&(file.legacy?aliases[file.note_id]:file.note_id)!==note.id)continue;const a=note.attachments.find(a=>a.kind==='file'&&a.id===file.id);if(a)a.url=staffInlineMedia(file.media_type)?url:url+'&download='+encodeURIComponent(file.name)}}
+    for(const file of batch){const url=signed.data?.find(s=>s.path===file.storage_path)?.signedUrl;if(url)for(const note of notes){if(file.note_id&&(file.legacy?aliases[file.note_id]:file.note_id)!==note.id)continue;const a=note.attachments.find(a=>a.kind==='file'&&a.id===file.id);if(a)a.url=notepadAttachmentURL(url,file.media_type,file.name)}}
   }
 }
 

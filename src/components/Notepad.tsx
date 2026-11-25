@@ -115,7 +115,7 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
               order: async order => { await request('/api/notepad', { method: 'PATCH', body: JSON.stringify({ order }) }, data); },
             });
             coordinator.onState = next => { if (alive && version === epoch) { setState(next); post('status', next); finishRequestedClose(); } };
-            coordinator.onSaved = (id, sequence, note, revision) => { if (alive && version === epoch) post('saved', { id, sequence, note, revision }); };
+            coordinator.onSaved = (id, sequence, note, revision, taggedPeople) => { if (alive && version === epoch) post('saved', { id, sequence, note, revision, taggedPeople }); };
             sync.current = coordinator;
             bootstrap = coordinator.restore(data);
             try {
@@ -305,7 +305,7 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
   }
   return <div ref={host} className="cmpri-notepad-host" data-compact={compact || undefined}>
     {notice && <div className="cmpri-notepad-loading" role="status">{notice}<button type="button" onClick={() => void reload.current()}>Retry</button></div>}
-    {source && <iframe ref={frame} src={source} title="Notepad" className="cmpri-notepad-frame" allow="local-fonts" onLoad={() => send.current('hello')} />}
+    {source && <iframe ref={frame} src={source} title="Notepad" className="cmpri-notepad-frame" allow="local-fonts; camera 'self'" onLoad={() => send.current('hello')} />}
     {state.error && <div className="cmpri-notepad-sync-error" role="alert"><span>{state.message}</span><button type="button" onClick={() => void sync.current?.flushAll().then(() => reload.current())}>Retry</button><button type="button" onClick={downloadDrafts}>Download draft</button>{state.conflictIds.length > 0 && <button type="button" onClick={() => void reloadConflicts()}>Reload saved notes</button>}</div>}
   </div>;
 }

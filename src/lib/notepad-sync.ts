@@ -1,4 +1,4 @@
-import { notepadDocument, type NotepadBootstrap, type NotepadDocument, type NotepadNote } from './notepad';
+import { notepadAudienceWithPeople, notepadDocument, type NotepadBootstrap, type NotepadDocument, type NotepadNote } from './notepad';
 
 export type NotepadPending = { id: string; document: NotepadDocument | null; expectedRevision: number | null; expectedLegacyVersion?: string | null; changeId: string; sequence: number };
 export class NotepadSyncError extends Error {
@@ -7,7 +7,7 @@ export class NotepadSyncError extends Error {
 }
 type StoragePort = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 type Transport = {
-  write: (pending: NotepadPending, keepalive?: boolean) => Promise<{ note: NotepadNote | null; revision: number }>;
+  write: (pending: NotepadPending, keepalive?: boolean) => Promise<{ note: NotepadNote | null; revision: number; taggedPeople?: string[] }>;
   order: (ids: string[]) => Promise<void>;
 };
 export type NotepadSyncState = { message: string; pending: number; conflictIds: string[]; error: boolean };
@@ -19,7 +19,7 @@ export class NotepadSync {
   private legacyVersions = new Map<string, string>();
   readonly conflicts = new Set<string>();
   onState: (state: NotepadSyncState) => void = () => {};
-  onSaved: (id: string, sequence: number, note: NotepadNote | null, revision: number) => void = () => {};
+  onSaved: (id: string, sequence: number, note: NotepadNote | null, revision: number, taggedPeople: string[]) => void = () => {};
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private flights = new Map<string, Promise<void>>();
   private pendingOrder: string[] | null = null;
@@ -133,8 +133,14 @@ export class NotepadSync {
           this.revisions.set(id, result.revision);
           const latest = this.pending.get(id);
           if (latest === pending) this.pending.delete(id);
-          else if (latest) { latest.expectedRevision = result.revision; latest.expectedLegacyVersion = null; }
-          this.onSaved(id, pending.sequence, result.note, result.revision);
+          else if (latest) {
+            latest.expectedRevision = result.revision;
+            latest.expectedLegacyVersion = null;
+            if (latest.document && result.taggedPeople?.length) {
+              latest.document = { ...latest.document, audience:notepadAudienceWithPeople(latest.document.audience,result.taggedPeople) };
+            }
+          }
+          this.onSaved(id, pending.sequence, result.note, result.revision, result.taggedPeople || []);
           this.message = this.hasPending ? 'Saving…' : 'Saved'; this.failed = this.conflicts.size > 0;
           this.protect();
         } catch (error) {

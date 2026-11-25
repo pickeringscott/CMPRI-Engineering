@@ -439,63 +439,41 @@
 .layout-1 .note-content .note-check>.task-label{display:inline-block;vertical-align:baseline;min-width:1ch;max-width:calc(100% - var(--np-marker-size,1em) - 8px);white-space:pre-wrap;overflow-wrap:anywhere}
 @media(max-width:600px){.notepad-formatting{padding:3px 5px;gap:3px 1px}.notepad-formatting .fmt-group{padding-right:3px;margin-right:1px}.notepad-formatting .fmt-font{width:112px}}
 
-/* The paperclip occupies the dock slot immediately after Redo. */
-.notepad-attachments-trigger,
-.layout-1 .general-notes-dock > .notepad-attachments-trigger {
-  color: var(--cmpri-modal-text, rgb(246, 235, 255));
-  opacity: .72;
-  background: transparent !important;
-  border: 0 !important;
-  outline: none !important;
-  box-shadow: none !important;
+.layout-1 .general-notes-dock > .notepad-media-trigger { opacity: .8; }
+.layout-1 .general-notes-dock > .notepad-media-trigger:is(:hover, :focus-visible, [aria-expanded="true"]) { opacity: 1; }
+.layout-1 .general-notes-dock > .notepad-media-trigger:disabled { opacity: .45; }
+.layout-1 .general-notes-dock > [data-notepad-gif-trigger] { font: 600 10px/1 Arial, Helvetica, sans-serif; }
+@media (max-width: 360px) {
+  .layout-1 .general-notes-dock > button { flex-basis: 26px; min-width: 26px; width: 26px; padding: 4px; }
 }
-.notepad-attachments-trigger:hover,
-.notepad-attachments-trigger:focus-visible,
-.notepad-attachments-trigger[aria-expanded="true"] { opacity: 1; }
-.notepad-attachments-trigger svg { width: 18px; height: 18px; }
 
-.attachment-choices {
-  position: fixed;
-  z-index: 10010;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-  width: 126px;
-  height: 30px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  outline: none;
-  border-radius: 4px;
+.layout-1 .editor-attachments:has(.is-photo) { align-items: flex-start; max-height: min(98px, 26vh); }
+.layout-1 .attachment-chip.is-photo .attachment-open img { display: block; width: 72px; height: 54px; object-fit: cover; border-radius: 2px; }
+.layout-1 .attachment-chip.is-photo .attachment-open { min-width: 72px; }
+.layout-1 .attachment-chip.is-photo > [data-remove-attachment] { align-self: flex-start; }
+
+.notepad-media-dialog {
+  width: min(660px, calc(100% - 20px));
+  max-height: calc(100% - 20px);
+  padding: 8px;
+  border: 1px solid var(--cmpri-outline);
+  border-radius: 8px;
   background: var(--cmpri-modal-surface, #221d25);
   color: var(--cmpri-modal-text, rgb(246, 235, 255));
-  box-shadow: none;
-  will-change: transform, opacity;
 }
-.attachment-choices > .attachment-choice {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-width: 0;
-  height: 30px;
-  min-height: 30px;
-  margin: 0;
-  padding: 0;
-  border: 0 !important;
-  outline: none !important;
-  border-radius: 3px;
-  background: transparent;
-  color: inherit;
-  opacity: .72;
-  box-shadow: none !important;
-  font: 600 12px/1 Arial, Helvetica, sans-serif;
-}
-.attachment-choices > .attachment-choice:hover,
-.attachment-choices > .attachment-choice:focus-visible,
-.attachment-choices > .attachment-choice:active { opacity: 1; }
-.attachment-choice .attachment-media-symbol { display: block; width: 35px; height: 25px; }
-.attachment-choices[hidden] { display: none; }
+.notepad-media-dialog[open] { display: flex; flex-direction: column; gap: 8px; }
+.notepad-media-dialog::backdrop { background: #0009; }
+.notepad-media-dialog > :is(header, footer) { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.notepad-media-dialog > header { justify-content: space-between; }
+.notepad-media-dialog > header span { min-width: 0; overflow-wrap: anywhere; }
+.notepad-media-dialog > footer { justify-content: flex-end; flex-wrap: wrap; }
+.notepad-media-dialog button { padding: 4px 8px; border: 1px solid var(--cmpri-outline); border-radius: 4px; background: transparent; color: inherit; }
+.notepad-media-dialog button:disabled { opacity: .5; }
+.notepad-camera > video { min-height: 0; max-height: 60vh; aspect-ratio: 4 / 3; background: var(--cmpri-modal-base, #18131b); object-fit: contain; }
+.notepad-camera > p { margin: 0; font-size: 13px; }
+.notepad-attachment-body { display: grid; min-height: 0; justify-items: center; overflow: auto; padding: 4px; }
+.notepad-attachment-body > :is(img, video, audio) { max-width: 100%; max-height: 75vh; object-fit: contain; }
+.notepad-attachment-body a { color: inherit; overflow-wrap: anywhere; }
 
 .layout-1 .general-notes-workspace {
   position: relative;
@@ -602,8 +580,19 @@
   background: transparent;
   box-shadow: none !important;
 }
-.attachment-giphy-dialog .staff-gif-results img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.attachment-giphy-dialog .staff-gif-results img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .attachment-giphy-dialog .staff-gif-results button:focus-visible { opacity: .8; }
+.attachment-giphy-dialog .staff-gif-preview {
+  position: absolute;
+  z-index: 1;
+  display: block;
+  padding: 0;
+  border: 0 !important;
+  outline: none !important;
+  background: var(--cmpri-modal-surface, #221d25);
+  box-shadow: none !important;
+}
+.attachment-giphy-dialog .staff-gif-preview img { display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .attachment-giphy-dialog .gif-placeholder { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 9px; height: 110px; background: linear-gradient(140deg, var(--gif-bg, #51386a), #1d1924); color: #f5e7ff; }
 .attachment-giphy-dialog .gif-placeholder strong { font-size: 18px; letter-spacing: -.4px; }
 .attachment-giphy-dialog .gif-placeholder small { font-size: 9px; letter-spacing: 2px; opacity: .65; }
@@ -619,7 +608,7 @@
 .attachment-giphy-dialog .gif-empty { padding: 20px; color: #c4accf; font-size: 14px; line-height: 1.6; }
 
 @media (prefers-reduced-motion: reduce) {
-  .attachment-choices, .attachment-giphy-dialog { will-change: auto; animation: none !important; transition: none !important; }
+  .attachment-giphy-dialog { will-change: auto; animation: none !important; transition: none !important; }
 }
 
 /* Latest Notepad polish. Static borders stay fixed; active states use fill only. */
@@ -649,11 +638,11 @@
 .layout-1 .note-details #note-priority option { background: var(--cmpri-modal-surface); color: var(--accent); }
 .layout-1 .general-notes-save { justify-content: flex-end; }
 .notepad-modal :is(button, input, textarea, select, [contenteditable], [tabindex]),
-:is(.preview-popover, .recipient-dialog, .mention-popover, .staff-giphy-picker, .formatting-popover, .attachment-choices, .attachment-giphy-dialog) :is(button, input, textarea, select, [contenteditable], [tabindex]) {
+:is(.preview-popover, .recipient-dialog, .mention-popover, .staff-giphy-picker, .formatting-popover, .attachment-giphy-dialog) :is(button, input, textarea, select, [contenteditable], [tabindex]) {
   outline: none !important;
 }
 .notepad-modal :is(button, input, textarea, select, [contenteditable], [tabindex]):is(:focus, :focus-visible, :active),
-:is(.preview-popover, .recipient-dialog, .mention-popover, .staff-giphy-picker, .formatting-popover, .attachment-choices, .attachment-giphy-dialog) :is(button, input, textarea, select, [contenteditable], [tabindex]):is(:focus, :focus-visible, :active) {
+:is(.preview-popover, .recipient-dialog, .mention-popover, .staff-giphy-picker, .formatting-popover, .attachment-giphy-dialog) :is(button, input, textarea, select, [contenteditable], [tabindex]):is(:focus, :focus-visible, :active) {
   outline: none !important;
   box-shadow: none !important;
 }

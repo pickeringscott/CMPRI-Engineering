@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUser } from '@/lib/server/auth';
-import { NOTEPAD_UUID, notepadDocument, type NotepadDocument } from '@/lib/notepad';
-import { validateNotepadDocument } from '@/lib/server/notepad-document';
+import { NOTEPAD_UUID, notepadAudienceWithPeople, notepadDocument, type NotepadDocument } from '@/lib/notepad';
+import { notepadPersonTagCounts, validateNotepadDocument } from '@/lib/server/notepad-document';
 import { loadNotepad, projectNotepadRow, signNotepadAttachments, type NotepadRow } from '@/lib/server/notepad-store';
 import { resolveProfileTimeFormat } from '@/lib/profile-preferences';
 
@@ -43,11 +43,30 @@ export async function PUT(request:NextRequest) {
     if(previous&&previous.authorId!==actor&&input.document===null)return response({error:'Only the creator can delete this note.'},403);
     if(input.document===null&&!previous)return response({error:'This note is unavailable.'},404);
     let document:NotepadDocument|null=null;
+    let taggedPeople:string[]=[];
     if(input.document!==null){
-      try { document=validateNotepadDocument(input.document,previous?notepadDocument(previous):null,actor,new Date().toISOString()); } catch(error) { return response({error:error instanceof Error?error.message:'Invalid note.'},400); }
+      const earlier=previous?notepadDocument(previous):null;
+      const replay=!!previous&&stored?.change_id===input.changeId;
+      try { document=validateNotepadDocument(input.document,earlier,actor,new Date().toISOString()); } catch(error) { return response({error:error instanceof Error?error.message:'Invalid note.'},400); }
       if(previous&&previous.authorId!==actor&&(document.title!==previous.title||document.titleFontFamily!==(previous.titleFontFamily||'Comic Sans MS')))return response({error:'Only the creator can edit the note title or its font.'},403);
-      if(previous&&previous.authorId!==actor&&!sameAudience(document.audience,previous.audience))return response({error:'Only the creator can change sharing.'},403);
+      if(previous&&previous.authorId!==actor&&!replay&&!sameAudience(document.audience,previous.audience))return response({error:'Only the creator can change sharing.'},403);
       for(const id of document.audience.people)if(!previous?.audience.people.includes(id)&&!state.people.some(p=>p.id===id&&p.active&&p.taggable&&p.recipientSelectable!==false))return response({error:'A selected recipient is no longer available.'},400);
+      if(!document.audience.all){
+        const explicit=new Set(document.audience.people), owner=previous?.authorId||actor;
+        if(replay&&previous){
+          // Restore the canonical result for an acknowledgement lost after the
+          // commit. SQL still requires the entire result to equal that mutation.
+          const tags=notepadPersonTagCounts(document);
+          taggedPeople=previous.audience.people.filter(id=>!explicit.has(id)&&id!==owner&&tags.has(id));
+        }else{
+          const tags=notepadPersonTagCounts(document,state.people);
+          const olderTags=earlier?notepadPersonTagCounts(earlier,state.people):new Map<string,number>();
+          taggedPeople=[...tags].filter(([id,total])=>id!==owner&&!explicit.has(id)&&total>(olderTags.get(id)||0)).map(([id])=>id);
+        }
+        if(document.audience.people.length+taggedPeople.length>500)return response({error:'The note can be shared with at most 500 individual recipients.'},400);
+        document.audience=notepadAudienceWithPeople(document.audience,taggedPeople);
+      }
+      if(replay&&previous&&previous.authorId!==actor&&!sameAudience(document.audience,previous.audience))return response({error:'Only the creator can change sharing.'},403);
       const added=document.attachments.filter(file=>file.kind==='file'&&!previous?.attachments.some(old=>old.id===file.id));
       if(added.length>20)return response({error:'Attach at most 20 new files at a time.'},400);
       if(added.length){const files=await auth.admin.from('cmpri_notepad_uploads').select('id,author_user_id,note_id,name,media_type,size_bytes,ready').eq('hotel_id',hotel).in('id',added.map(a=>a.id));
@@ -55,11 +74,11 @@ export async function PUT(request:NextRequest) {
         for(const attachment of added){const file=files.data?.find(f=>f.id===attachment.id);if(!file||!file.ready||file.author_user_id!==actor||(file.note_id&&file.note_id!==input.id)||file.name!==attachment.name||file.media_type!==attachment.type||Number(file.size_bytes)!==attachment.size)return response({error:'An attachment is unavailable or belongs to another note.'},403)}
       }
     }
-    const {data,error}=await auth.admin.rpc('cmpri_save_notepad',{p_hotel:hotel,p_actor:actor,p_id:input.id,p_expected:input.expectedRevision,p_change:input.changeId,p_document:document,p_source:previous?.revision===0?previous.legacySource:null,p_legacy_version:input.expectedLegacyVersion||null});
+    const {data,error}=await auth.admin.rpc('cmpri_save_notepad',{p_hotel:hotel,p_actor:actor,p_id:input.id,p_expected:input.expectedRevision,p_change:input.changeId,p_document:document,p_source:previous?.revision===0?previous.legacySource:null,p_legacy_version:input.expectedLegacyVersion||null,...(taggedPeople.length?{p_tagged_people:taggedPeople}:{})});
     if(error){const status=error.code==='40001'?409:error.code==='42501'?403:error.code==='22023'?400:error.code==='54000'?422:503;return response({error:status===409?'This note changed elsewhere. Your draft is retained.':status===403?'This note is no longer shared with you.':'The note could not be saved. Your draft is retained.',...(status===409?{code:'NOTEPAD_CONFLICT'}:{})},status)}
     const row=(Array.isArray(data)?data[0]:data) as NotepadRow;if(!row)return response({error:'The save was not confirmed. Your draft is retained.'},503);
     const note=projectNotepadRow(row);if(note)await signNotepadAttachments(auth.admin,hotel,[note],state.legacyAliases);
-    return response({id:row.id,note,revision:Number(row.revision)});
+    return response({id:row.id,note,revision:Number(row.revision),...(taggedPeople.length?{taggedPeople}:{})});
   } catch { return response({error:'Notepad could not be saved. Your draft is retained.'},503); }
 }
 export async function PATCH(request:NextRequest) {
