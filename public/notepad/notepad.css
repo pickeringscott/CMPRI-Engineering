@@ -419,6 +419,17 @@
 .notepad-formatting .fmt-letter-icon{font:11px/9px Georgia,serif!important;text-align:left}
 .notepad-formatting .fmt-status{display:none;font-size:10px;color:var(--cmpri-modal-muted,#aaa);line-height:1.3}
 .notepad-formatting .fmt-status:not(:empty){display:block;flex-basis:100%;padding:3px 4px}
+.notepad-formatting .fmt-mobile-toggle{display:none}
+.notepad-formatting .fmt-controls{display:contents}
+.is-mobile .layout-1 .notepad-formatting{justify-content:flex-end}
+.is-mobile .layout-1 .notepad-formatting .fmt-mobile-toggle{display:flex;align-items:center;gap:3px;width:auto;padding:3px 5px}
+.notepad-formatting .fmt-mobile-toggle>svg{width:14px;height:14px}
+.notepad-formatting .fmt-mobile-toggle[aria-expanded="true"]>svg{transform:rotate(180deg)}
+.is-mobile .layout-1 .notepad-formatting .fmt-controls{display:flex;flex-wrap:wrap;align-items:center;gap:1px;flex:0 0 100%;min-width:0}
+.is-mobile .layout-1 .notepad-formatting .fmt-mobile-toggle[aria-expanded="false"]+.fmt-controls{display:none}
+.is-mobile .layout-1 .notepad-formatting .fmt-group:first-of-type{max-width:100%;flex-wrap:wrap}
+.is-mobile .layout-1 .notepad-formatting .fmt-controls .fmt-font{min-width:0}
+.is-mobile .layout-1 .general-notes-dock{flex-wrap:wrap}
 .note-content{font-family:"Comic Sans MS",cursive}
 .note-content .np-format-list{padding-inline-start:24px;margin-block:3px;list-style-position:outside}
 .note-content .np-format-list .np-format-list{margin-inline-start:0}
@@ -495,7 +506,7 @@
   overflow: clip;
 }
 
-/* Keep the picker in the original centered modal with natural GIF proportions. */
+/* The picker is over the writing area but remains outside the saved content. */
 .attachment-giphy-dialog.staff-giphy-picker {
   margin: auto;
   width: calc(100vw - 16px);
@@ -514,6 +525,16 @@
 }
 .attachment-giphy-dialog[open] { display: flex; flex-direction: column; gap: 6px; }
 .attachment-giphy-dialog::backdrop { background: #0009; }
+.attachment-giphy-dialog.note-giphy-picker {
+  position: absolute;
+  z-index: 4;
+  inset: 7px 7px auto auto;
+  width: calc(100% - 14px);
+  max-width: none;
+  height: min(440px, calc(100% - 14px));
+  max-height: calc(100% - 14px);
+  margin: 0;
+}
 .attachment-giphy-dialog .staff-gif-search { display: flex; flex: 0 0 auto; gap: 8px; }
 .attachment-giphy-dialog .staff-gif-search input {
   width: 100%;
@@ -557,6 +578,9 @@
   box-shadow: none !important;
 }
 .attachment-giphy-dialog .staff-gif-results img { display: block; width: 100%; height: auto; }
+.note-giphy-picker .staff-gif-grid { container-type: size; }
+.note-giphy-picker .staff-gif-results button { background: transparent; }
+.note-giphy-picker .staff-gif-results img { max-height: 100cqh; object-fit: contain; }
 .attachment-giphy-dialog .staff-gif-results button:focus-visible { opacity: .8; }
 .attachment-giphy-dialog .gif-placeholder { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 9px; height: 110px; background: linear-gradient(140deg, var(--gif-bg, #51386a), #1d1924); color: #f5e7ff; }
 .attachment-giphy-dialog .gif-placeholder strong { font-size: 18px; letter-spacing: -.4px; }
@@ -567,8 +591,34 @@
 .attachment-giphy-dialog .staff-giphy-credit > span { display: block; color: inherit; font-size: 10px; line-height: 14px; }
 .attachment-giphy-dialog .gif-empty { padding: 20px; color: #c4accf; font-size: 14px; line-height: 1.6; }
 
-@media (max-width: 650px) { .attachment-giphy-dialog .staff-gif-results { columns: 5; } }
-@media (max-width: 450px) { .attachment-giphy-dialog .staff-gif-results { columns: 3; } }
+@media (max-width: 650px) {
+  .attachment-giphy-dialog.note-giphy-picker {
+    --notepad-gif-columns: 5;
+    inset: auto 7px 7px auto;
+    width: min(var(--notepad-gif-dock-width, 100%), calc(100% - 14px));
+    height: auto;
+    container-type: inline-size;
+  }
+  .note-giphy-picker .staff-gif-grid {
+    --notepad-gif-row: calc((100cqi - (var(--notepad-gif-columns) - 1) * 4px) * .75 / var(--notepad-gif-columns));
+    max-height: calc(3 * var(--notepad-gif-row) + 8px);
+    container-type: normal;
+  }
+  .attachment-giphy-dialog.note-giphy-picker .staff-gif-results {
+    display: grid;
+    columns: auto;
+    grid-template-columns: repeat(var(--notepad-gif-columns), minmax(0, 1fr));
+    grid-auto-rows: var(--notepad-gif-row);
+    gap: 4px;
+  }
+  .attachment-giphy-dialog.note-giphy-picker .staff-gif-results button {
+    min-width: 0;
+    min-height: 0;
+    margin: 0;
+  }
+  .attachment-giphy-dialog.note-giphy-picker .staff-gif-results img { height: 100%; max-height: none; }
+}
+@media (max-width: 450px) { .attachment-giphy-dialog.note-giphy-picker { --notepad-gif-columns: 3; } }
 @media (prefers-reduced-motion: reduce) {
   .attachment-giphy-dialog { will-change: auto; animation: none !important; transition: none !important; }
 }
@@ -665,6 +715,30 @@
   pointer-events: none;
 }
 .pane-divider:is(:hover, :focus-visible, .is-resizing) { background: #cf90fe0d; }
+.pane-divider-grip,.sidebar-toggle{display:none}
+.is-mobile .layout-1{position:relative}
+.is-mobile .pane-divider-grip,.is-mobile .layout-1 .sidebar-toggle{
+  position:absolute;
+  z-index:2;
+  display:grid;
+  place-items:center;
+  width:30px;
+  height:30px;
+  padding:0;
+  border:1px solid var(--cmpri-outline);
+  border-radius:5px;
+  background:var(--cmpri-modal-surface);
+  color:var(--accent);
+}
+.is-mobile .pane-divider-grip{right:2px;bottom:34px;touch-action:none}
+.pane-divider-grip::before{content:'';width:9px;height:12px;background:repeating-linear-gradient(to right,currentColor 0 1px,transparent 1px 4px);pointer-events:none}
+.is-mobile .layout-1 .sidebar-toggle{left:max(2px,calc(var(--sidebar-width,110px) - 27px));bottom:2px;touch-action:manipulation}
+.is-mobile .layout-1 .sidebar-toggle:is(:hover,:focus-visible),.pane-divider:is(:hover,:focus-visible)>.pane-divider-grip{background:color-mix(in srgb,var(--accent) 18%,var(--cmpri-modal-surface))}
+.sidebar-toggle>svg{width:18px;height:18px;transform:rotate(-90deg);pointer-events:none}
+.sidebar-toggle[aria-expanded="true"]>svg{transform:rotate(90deg)}
+.is-mobile .layout-1[data-sidebar-collapsed]>.np-sidebar{padding:0;visibility:hidden}
+.is-mobile .layout-1[data-sidebar-collapsed]>.pane-divider{flex-basis:34px;width:34px}
+.is-mobile .layout-1[data-sidebar-collapsed]>.pane-divider::before{left:auto;right:0}
 .layout-1.is-resizing { cursor: col-resize; user-select: none; }
 .layout-1 .np-main { padding-left: 0; }
 

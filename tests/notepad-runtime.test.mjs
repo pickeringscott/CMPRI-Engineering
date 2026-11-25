@@ -126,7 +126,7 @@ test('the approved Familiar Sidebar boots from authenticated data with the exact
     assert.equal(s.document.querySelectorAll('.note-row').length, 1);
     assert.equal(s.document.querySelector('#preview-person'), null);
     for (const name of ['Scott Pickering', 'Isaiah', 'Deon', 'Juana', 'Doug', 'Workshop project']) assert.ok(!s.document.body.textContent.includes(name), name);
-    assert.deepEqual(Array.from(s.find('.notepad-formatting').querySelectorAll('button,select'), control => control.getAttribute('aria-label')), [
+    assert.deepEqual(Array.from(s.find('.fmt-controls').querySelectorAll('button,select'), control => control.getAttribute('aria-label')), [
       'Font', 'Font Size', 'Bold', 'Italic', 'Underline', 'Font Color', 'Align Left', 'Center', 'Align Right', 'Justify',
       'Checklist', 'Bullets', 'Numbers', 'Letters', 'Decrease Indent', 'Increase Indent',
     ]);
@@ -137,6 +137,55 @@ test('the approved Familiar Sidebar boots from authenticated data with the exact
     assert.equal(s.find('.search-box').firstElementChild.dataset.action, 'new');
     assert.equal(s.find('.note-ink').getAttribute('viewBox'), '0 0 800 1100', 'The real ink controller is attached');
     assert.equal(s.outgoing.some(({data}) => data.type === 'request'), false, 'No GIPHY or file requests occur on boot');
+  } finally {s.cleanup();}
+});
+
+test('mobile sidebar collapse restores its keyboard-resized width without changing the selected note', () => {
+  const s = setup();
+  try {
+    s.window.innerWidth = 390;
+    const layout = s.find('.layout-1');
+    Object.defineProperty(layout, 'clientWidth', {value: 390});
+    s.window.dispatchEvent(new s.window.Event('resize'));
+    const divider = s.find('.pane-divider');
+    const toggle = s.find('[data-toggle-sidebar]');
+    const sidebar = s.find('#notepad-sidebar');
+    const key = name => divider.dispatchEvent(new s.window.KeyboardEvent('keydown', {key: name, bubbles: true, cancelable: true}));
+    assert.equal(toggle.getAttribute('aria-controls'), sidebar.id);
+    key('End');
+    const wide = divider.getAttribute('aria-valuenow');
+    assert.equal(wide, '240');
+    toggle.click();
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(toggle.getAttribute('aria-label'), 'Expand sidebar');
+    assert.equal(sidebar.inert, true);
+    assert.equal(divider.getAttribute('aria-valuenow'), '0');
+    key('ArrowRight');
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(sidebar.inert, false);
+    assert.equal(divider.getAttribute('aria-valuenow'), wide);
+    assert.equal(s.find('#note-title').value, 'Maintenance planning');
+    assert.equal(s.saves().length, 0);
+  } finally {s.cleanup();}
+});
+
+test('mobile formatting disclosure preserves note content and returns keyboard focus on Escape', () => {
+  const s = setup();
+  try {
+    s.window.innerWidth = 390;
+    s.window.dispatchEvent(new s.window.Event('resize'));
+    const toggle = s.find('[data-toggle-formatting]');
+    const controls = s.find('.fmt-controls');
+    assert.equal(toggle.getAttribute('aria-controls'), controls.id);
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+    toggle.click();
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    s.focus('[data-format-select=font]');
+    s.document.activeElement.dispatchEvent(new s.window.KeyboardEvent('keydown', {key: 'Escape', bubbles: true, cancelable: true}));
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(s.document.activeElement, toggle);
+    assert.equal(s.find('.note-content').textContent, 'Review the parts list.');
+    assert.equal(s.saves().length, 0);
   } finally {s.cleanup();}
 });
 
@@ -260,17 +309,19 @@ test('switching notes commits the creator’s title once to the original note', 
   } finally {s.cleanup();}
 });
 
-test('urgent images, left-aligned priority and inline attribution share the note header', () => {
+test('urgent images remain in the title and priority and attribution share one metadata row', () => {
   const s = setup();
   try {
     const editor = s.find('.general-notes-editor'), details = s.find('.note-details');
     assert.ok(editor.firstElementChild.classList.contains('title-row'));
-    assert.equal(details.parentElement, s.find('.note-title-fields'));
-    assert.equal(details.previousElementSibling, s.find('.note-heading'));
+    const metadata = s.find('.note-metadata');
+    assert.equal(metadata.parentElement, editor.firstElementChild);
+    assert.equal(metadata.firstElementChild, details);
     assert.deepEqual(Array.from(details.children, node => node.tagName), ['LABEL', 'SELECT']);
     assert.equal(editor.firstElementChild.nextElementSibling, s.find('.notepad-formatting'));
-    assert.equal(s.find('.title-identity').firstElementChild, s.find('.title-actions'));
-    assert.equal(s.find('.title-actions').nextElementSibling, s.find('.note-attribution'));
+    assert.equal(s.find('.note-heading').nextElementSibling, s.find('.title-actions'));
+    assert.equal(s.find('.title-actions').nextElementSibling, metadata);
+    assert.equal(details.nextElementSibling, s.find('.note-attribution'));
     assert.equal(s.find('.note-attribution').firstElementChild, s.find('.note-creator'));
     assert.equal(s.find('.note-creator').textContent, user.name);
     assert.equal(s.find('.note-creator').nextElementSibling, s.find('.note-attribution time'));
@@ -296,8 +347,9 @@ test('urgent images, left-aligned priority and inline attribution share the note
       assert.equal(marker.querySelector('img').getAttribute('src'), '/notepad/urgent-button.jpg');
     }
     assert.equal(s.latestSave().document.priority, 'Urgent');
-    assert.match(hostCss, /\.priority-row\.note-details\{[^}]*justify-content:flex-start[^}]*font-size:var\(--note-metadata-size\)/);
-    assert.match(hostCss, /\.note-attribution\{[^}]*font:var\(--note-metadata-size\)/);
+    assert.match(hostCss, /\.note-metadata\{[^}]*grid-column:1\/-1[^}]*gap:var\(--note-metadata-gap\)[^}]*white-space:nowrap/);
+    assert.match(hostCss, /\.priority-row\.note-details\{[^}]*gap:var\(--note-metadata-gap\)[^}]*font:inherit/);
+    assert.match(hostCss, /\.note-attribution\{display:contents/);
     assert.match(css, /\.priority-row\.note-details > \* \{[^}]*font: inherit/);
     assert.match(hostCss, /\.priority-row\.note-details #note-priority\{[^}]*border:0/);
     assert.match(css, /\.title-actions button \{[^}]*border: 0/);

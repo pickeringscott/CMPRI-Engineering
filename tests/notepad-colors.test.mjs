@@ -24,7 +24,7 @@ function setup(content='<p data-item-id="line">Color this text</p>') {
 test('Font Color opens one horizontal dot-only palette outside the unchanged toolbar order',()=>{
   const s=setup();
   try{
-    const labels=Array.from(s.toolbar.querySelectorAll('button,select'),node=>node.getAttribute('aria-label'));
+    const labels=Array.from(s.toolbar.querySelectorAll('.fmt-controls :is(button,select)'),node=>node.getAttribute('aria-label'));
     assert.deepEqual(labels,['Font','Font Size','Bold','Italic','Underline','Font Color','Align Left','Center','Align Right','Justify','Checklist','Bullets','Numbers','Letters','Decrease Indent','Increase Indent']);
     assert.equal(s.document.querySelector('[data-format-select=color]'),null);
     s.click('[data-format-color-trigger]');
@@ -38,7 +38,7 @@ test('Font Color opens one horizontal dot-only palette outside the unchanged too
       assert.equal(button.textContent,'','Only the colored dot is visible');
       assert.equal(button.querySelectorAll('.fmt-color-dot').length,1);
     }
-    assert.equal(s.toolbar.querySelectorAll('button,select').length,16);
+    assert.equal(s.toolbar.querySelectorAll('.fmt-controls :is(button,select)').length,16);
     assert.equal(s.changes.length,0);
   }finally{s.close();}
 });

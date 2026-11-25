@@ -82,6 +82,7 @@ let inkColor='#ffffff',penWidth=4,textColor='#f6ebff',textSize=16;
 let inkController=null, popoverAnchor=null, selectionRange=null, toastTimer, mentionSession=null, draggedNote=null, pointerDrag=null, suppressNoteClick=false;
 let recipientDraft=null, recipientSession=null, deleteSession=null, deleteGesture=null, titleEdit=null, isComposing=false;
 let formattingController=null, attachmentController=null, historyController=null, titleResizeObserver=null, paperResizeObserver=null, resizeGesture=null, paneWidths={desktop:220,mobile:110}, noteTransition=0, activeNoteTransition=0;
+let mobileSidebarCollapsed=false, mobileFormattingExpanded=false;
 const replyTargets={};
 const storedTagSelector='.mention[data-mention-kind]';
 function firstTagText(chip) {
@@ -157,7 +158,7 @@ function save() {
   }
   const order=orders[currentPerson]||orderedNotes().map(n=>n.id),serialized=JSON.stringify(order);
   if(lastOrder!==serialized){lastOrder=serialized;sendHost('order',{order});}
-  if(VIEW_STORE)try{localStorage.setItem(VIEW_STORE,JSON.stringify({activeNote,paneWidths}));}catch{}
+  if(VIEW_STORE)try{localStorage.setItem(VIEW_STORE,JSON.stringify({activeNote,paneWidths,mobileSidebarCollapsed}));}catch{}
 }
 function toast(message) {const el=$('#preview-toast');el.textContent=message;el.classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('visible'),2200);}
 function syncEditor() {
@@ -225,28 +226,29 @@ function editor() {
   const n=note();if(!n)return '<div class="editor-empty"><strong>Your Notepad</strong><p>Use + in the search bar to create a note.</p></div>';
   const author=n.authorName?{name:n.authorName,short:n.authorName}:personById(n.authorId);
   return '<article class="general-notes-editor">'+
-    '<div class="title-row"><div class="note-title-fields">'+
+    '<div class="title-row">'+
       '<div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="'+(canEditTitle(n)?'Edit title · Choose its font in the toolbar':'Only the note’s creator can edit its title.')+'"'+(canEditTitle(n)?'':' readonly')+' placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div>'+
-      '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select></div>'+
-    '</div><div class="title-identity">'+
       '<div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="'+(n.authorId===currentPerson?'Delete note':'Only the note’s creator can delete it.')+'" aria-disabled="'+(n.authorId!==currentPerson)+'">'+icon('trash')+'</button></div>'+
-      '<div class="note-attribution"><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.name)+'</span>'+timestamp(n.createdAt)+'<button type="button" class="note-history-link" data-action="open-history" aria-controls="note-history" aria-expanded="false">Edit History</button></div>'+
-    '</div></div>'+
-    window.NotepadFormatting.html()+
+      '<div class="note-metadata">'+
+        '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select></div>'+
+        '<div class="note-attribution"><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.name)+'</span>'+timestamp(n.createdAt)+'<button type="button" class="note-history-link" data-action="open-history" aria-controls="note-history" aria-expanded="false">Edit History</button></div>'+
+      '</div></div>'+
+    window.NotepadFormatting.html(mobileFormattingExpanded)+
     '<div class="general-notes-workspace"><div class="general-notes-body"><div class="general-notes-scroll"><div class="general-notes-paper '+(mode!=='text'?'is-drawing':'')+'"><div class="note-content" style="font-size:'+(n.fontSize||16)+'px;font-family:&quot;'+escape(n.fontFamily||'Comic Sans MS')+'&quot;,&quot;Comic Sans MS&quot;,cursive" role="textbox" aria-label="Notepad writing area" aria-multiline="true" contenteditable="'+(mode==='text')+'" spellcheck="true" data-placeholder="Write a note, add a checklist, or type @…">'+n.content+'</div><svg class="note-ink" xmlns="http://www.w3.org/2000/svg" aria-label="Handwriting canvas"></svg></div></div></div>'+
     '<div class="editor-attachments">'+attachmentMarkup(n)+'</div>'+tools()+'</div><section id="note-history" class="note-history" aria-label="Edit History" hidden></section></article>';
 }
 function render() {
   finishTitleEdit();
   noteTransition++;activeNoteTransition=0;
-  closePopover();closeMentions();selectionRange=null;
+  closePopover();closeMentions();selectionRange=null;resizeGesture=null;
   formattingController?.destroy();formattingController=null;attachmentController?.destroy();attachmentController=null;
   historyController=null;
   titleResizeObserver?.disconnect();titleResizeObserver=null;
   paperResizeObserver?.disconnect();paperResizeObserver=null;
   inkController?.destroy();inkController=null;
   if(!note()||!canView(note()))activeNote=orderedNotes()[0]?.id||'';
-  $('#layout-body').innerHTML='<section class="np-layout layout-1" aria-label="Familiar Sidebar"><aside class="np-sidebar" aria-label="Saved notes"><div class="search-box"><button class="search-new" data-action="new" aria-label="New Note" title="New Note">'+icon('plus')+'</button><input type="search" aria-label="Search notes" placeholder="Search notes" value="'+escape(query)+'"></div><div class="np-notes-slot">'+renderNotes()+'</div><div class="np-sidebar-summary"><span class="note-count">'+orderedNotes().length+' notes</span></div></aside><div class="pane-divider" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><main class="np-main" aria-label="Selected note">'+editor()+'</main></section>';
+  $('#layout-body').innerHTML='<section class="np-layout layout-1" aria-label="Familiar Sidebar"><aside id="notepad-sidebar" class="np-sidebar" aria-label="Saved notes"><div class="search-box"><button class="search-new" data-action="new" aria-label="New Note" title="New Note">'+icon('plus')+'</button><input type="search" aria-label="Search notes" placeholder="Search notes" value="'+escape(query)+'"></div><div class="np-notes-slot">'+renderNotes()+'</div><div class="np-sidebar-summary"><span class="note-count">'+orderedNotes().length+' notes</span></div></aside><div class="pane-divider" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" aria-controls="notepad-sidebar" tabindex="0"><span class="pane-divider-grip" aria-hidden="true" title="Drag to resize sidebar"></span></div><button type="button" class="sidebar-toggle" data-toggle-sidebar aria-controls="notepad-sidebar" aria-expanded="true">'+icon('chevron')+'</button><main class="np-main" aria-label="Selected note">'+editor()+'</main></section>';
+  $('[data-toggle-sidebar]').addEventListener('touchend',finishSidebarTap,{passive:false});
   $('#window-wrap').classList.toggle('is-mobile',device==='mobile');
   $$('[data-device]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.device===device)));
   const n=note();
@@ -265,7 +267,7 @@ function render() {
       paperResizeObserver.observe($('.general-notes-scroll'));
     }
     const generation=accountGeneration;
-    attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),onChange:changed=>{if(generation!==accountGeneration)return;markEdited(notes.find(n=>n.id===changed.noteId));save();if(changed.noteId===activeNote)$('.editor-attachments').innerHTML=attachmentMarkup(note());}});
+    attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),pickerRoot:$('.general-notes-body'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),onChange:changed=>{if(generation!==accountGeneration)return;markEdited(notes.find(n=>n.id===changed.noteId));save();if(changed.noteId===activeNote)$('.editor-attachments').innerHTML=attachmentMarkup(note());}});
     $$('.note-check').forEach(updateTaskAccessibleLabel);
   }
   applyPaneWidth();save();
@@ -297,13 +299,39 @@ async function selectNote(id) {
 }
 function applyPaneWidth(value) {
   const layout=$('.layout-1'),divider=$('.pane-divider');if(!layout||!divider)return;
-  const available=layout.clientWidth,min=available<650?80:140,max=Math.max(min,Math.min(460,available-195));
-  const current=Math.round(Math.max(min,Math.min(max,value??paneWidths[device]??(device==='mobile'?110:220))));
-  layout.style.setProperty('--sidebar-width',current+'px');paneWidths[device]=current;
-  divider.setAttribute('aria-valuemin',String(min));divider.setAttribute('aria-valuemax',String(max));divider.setAttribute('aria-valuenow',String(current));
+  const available=layout.clientWidth,mobile=device==='mobile',min=available<650?80:140,max=Math.max(min,Math.min(460,available-(mobile?150:195)));
+  const collapsed=mobile&&mobileSidebarCollapsed,sidebar=$('#notepad-sidebar'),toggle=$('[data-toggle-sidebar]');
+  const width=Math.round(Math.max(min,Math.min(max,value??paneWidths[device]??(mobile?110:220))));
+  if(!mobile||value!==undefined)paneWidths[device]=width;
+  layout.style.setProperty('--sidebar-width',(collapsed?0:width)+'px');
+  layout.toggleAttribute('data-sidebar-collapsed',collapsed);
+  sidebar.inert=collapsed;
+  toggle.setAttribute('aria-expanded',String(!collapsed));
+  const label=collapsed?'Expand sidebar':'Collapse sidebar';
+  toggle.setAttribute('aria-label',label);toggle.title=label;
+  divider.setAttribute('aria-valuemin',String(mobile?0:min));divider.setAttribute('aria-valuemax',String(max));divider.setAttribute('aria-valuenow',String(collapsed?0:width));
   $$('.reply-input').forEach(sizeReplyInput);
   sizeNoteTitle();
   sizeNotePaper();
+}
+
+function setMobileFormatting(expanded) {
+  if(device!=='mobile')return;
+  mobileFormattingExpanded=expanded;
+  $('[data-toggle-formatting]')?.setAttribute('aria-expanded',String(expanded));
+}
+
+function toggleMobileSidebar() {
+  if(device!=='mobile')return;
+  mobileSidebarCollapsed=!mobileSidebarCollapsed;applyPaneWidth();save();
+}
+
+function finishSidebarTap(event) {
+  if(!event.cancelable||event.touches.length||event.changedTouches.length!==1)return;
+  const button=event.currentTarget,touch=event.changedTouches[0];
+  if(!button.contains(document.elementFromPoint(touch.clientX,touch.clientY)))return;
+  // Chromium may omit a synthetic click on a tap immediately after a divider drag.
+  event.preventDefault();button.focus({preventScroll:true});toggleMobileSidebar();
 }
 
 function sizeNotePaper() {
@@ -866,7 +894,11 @@ document.addEventListener('pointerdown',e=>{
   if($('#popover-layer').children.length&&!target.closest('#popover-layer')&&!popoverAnchor?.contains(target))closePopover();
   if(!target.closest('.mention-popover'))closeMentions();
   const divider=target.closest('.pane-divider');
-  if(divider&&e.button===0){e.preventDefault();divider.setPointerCapture(e.pointerId);resizeGesture={pointerId:e.pointerId,startX:e.clientX,startWidth:$('.np-sidebar').getBoundingClientRect().width,divider};return;}
+  if(divider&&e.button===0&&e.isPrimary!==false&&!resizeGesture){
+    e.preventDefault();divider.setPointerCapture(e.pointerId);
+    resizeGesture={pointerId:e.pointerId,startX:e.clientX,startWidth:$('.np-sidebar').getBoundingClientRect().width,savedWidth:paneWidths[device],collapsed:device==='mobile'&&mobileSidebarCollapsed,divider};
+    return;
+  }
   const drag=target.closest('[data-drag-note]');
   if(drag&&e.button===0) {
     suppressNoteClick=false;
@@ -882,7 +914,14 @@ document.addEventListener('pointermove',e=>{
     const left=Math.max(3,Math.min(innerWidth-drag.width-3,drag.left+e.clientX-drag.startX)),top=Math.max(3,Math.min(innerHeight-drag.height-3,drag.top+e.clientY-drag.startY));
     Object.assign(drag.dialog.style,{inset:'auto',margin:'0',left:left+'px',top:top+'px'});return;
   }
-  if(resizeGesture?.pointerId===e.pointerId){e.preventDefault();applyPaneWidth(resizeGesture.startWidth+e.clientX-resizeGesture.startX);return;}
+  if(resizeGesture?.pointerId===e.pointerId){
+    e.preventDefault();const drag=resizeGesture,delta=e.clientX-drag.startX;
+    if(device==='mobile'){
+      mobileSidebarCollapsed=drag.collapsed&&delta<=4;
+      if(mobileSidebarCollapsed){applyPaneWidth(drag.savedWidth);return;}
+    }
+    applyPaneWidth(drag.startWidth+delta);return;
+  }
   const drag=pointerDrag;if(!drag||drag.pointerId!==e.pointerId)return;
   if(!drag.moved&&Math.abs(e.clientY-drag.startY)<4)return;
   e.preventDefault();drag.moved=true;
@@ -908,8 +947,16 @@ function finishPointerDrag(e) {
   }
 }
 document.addEventListener('pointerup',finishPointerDrag);
-document.addEventListener('pointercancel',e=>{if(deleteGesture?.pointerId===e.pointerId)deleteGesture=null;if(pointerDrag?.pointerId===e.pointerId){pointerDrag=null;clearDragMarks();}if(resizeGesture?.pointerId===e.pointerId){applyPaneWidth(resizeGesture.startWidth);resizeGesture=null;save();}});
-document.addEventListener('dblclick',e=>{if(e.target.closest('.pane-divider')){applyPaneWidth(device==='mobile'?110:220);save();}});
+document.addEventListener('pointercancel',e=>{
+  if(deleteGesture?.pointerId===e.pointerId)deleteGesture=null;
+  if(pointerDrag?.pointerId===e.pointerId){pointerDrag=null;clearDragMarks();}
+  if(resizeGesture?.pointerId===e.pointerId){
+    const drag=resizeGesture;resizeGesture=null;
+    if(device==='mobile')mobileSidebarCollapsed=drag.collapsed;
+    applyPaneWidth(drag.savedWidth);save();
+  }
+});
+document.addEventListener('dblclick',e=>{if(e.target.closest('.pane-divider')){if(device==='mobile')mobileSidebarCollapsed=false;applyPaneWidth(device==='mobile'?110:220);save();}});
 document.addEventListener('focusin',e=>{
   if(e.target.matches('#note-title'))startTitleEdit(e.target);
   if(e.target.closest('.notepad-formatting')&&mode!=='text')setMode('text');
@@ -924,6 +971,8 @@ document.addEventListener('dragend',()=>{draggedNote=null;clearDragMarks();});
 document.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
   if(b.dataset.mentionChoice!==undefined){insertMention(Number(b.dataset.mentionChoice));return;}
+  if(b.hasAttribute('data-toggle-sidebar')){toggleMobileSidebar();return;}
+  if(b.hasAttribute('data-toggle-formatting')){setMobileFormatting(!mobileFormattingExpanded);return;}
   if(b.dataset.itemReply){toggleItemThread(b.dataset.itemReply);return;}
   if(b.dataset.parentReply){const id=b.dataset.replyItem;replyTargets[note().id+':'+id]=b.dataset.parentReply;renderItemThread(id,true);$('.reply-input',threadPanel(id))?.focus();return;}
   if(b.dataset.clearTarget){const id=b.dataset.clearTarget;delete replyTargets[note().id+':'+id];renderItemThread(id,true);$('.reply-input',threadPanel(id))?.focus();return;}
@@ -981,7 +1030,16 @@ document.addEventListener('keydown',e=>{
       e.preventDefault();finishTitleEdit(cancel);restoreSelection();return;
     }
   }
-  if(e.target.matches('.pane-divider')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const current=Number(e.target.getAttribute('aria-valuenow'));applyPaneWidth(e.key==='Home'?Number(e.target.getAttribute('aria-valuemin')):e.key==='End'?Number(e.target.getAttribute('aria-valuemax')):current+(e.key==='ArrowRight'?8:-8));save();return;}
+  if(e.target.matches('.pane-divider')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){
+    e.preventDefault();const current=Number(e.target.getAttribute('aria-valuenow'));
+    if(device==='mobile'&&(e.key==='Home'||mobileSidebarCollapsed&&e.key==='ArrowRight')){
+      mobileSidebarCollapsed=e.key==='Home';applyPaneWidth();
+    }else if(device!=='mobile'||!mobileSidebarCollapsed||e.key==='End'){
+      if(device==='mobile')mobileSidebarCollapsed=false;
+      applyPaneWidth(e.key==='Home'?Number(e.target.getAttribute('aria-valuemin')):e.key==='End'?Number(e.target.getAttribute('aria-valuemax')):current+(e.key==='ArrowRight'?8:-8));
+    }
+    save();return;
+  }
   if(mentionSession&&['ArrowDown','ArrowUp','Enter','Tab','Escape'].includes(e.key)) {
     e.preventDefault();if(e.key==='Escape'){closeMentions();return;}
     if(e.key==='Enter'||e.key==='Tab'){insertMention(mentionSession.index);return;}
@@ -996,6 +1054,9 @@ document.addEventListener('keydown',e=>{
     if($('.recipient-dialog')||$('.delete-dialog')||$('.staff-giphy-picker'))return;
     if(historyController){e.preventDefault();closeHistory();return;}
     if($('#popover-layer').children.length){const anchor=popoverAnchor;closePopover();anchor?.focus();return;}
+    if(device==='mobile'&&mobileFormattingExpanded&&e.target.closest('.notepad-formatting')){
+      e.preventDefault();setMobileFormatting(false);$('[data-toggle-formatting]')?.focus({preventScroll:true});return;
+    }
     $('.stage').classList.remove('is-expanded');
   }
 });
@@ -1011,7 +1072,7 @@ function applyPalette(values) {
 }
 function editingCurrent() {
   const element=document.activeElement;
-  return activeNoteTransition!==0||!!titleEdit||isComposing||!!historyController||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.title-actions,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover'));
+  return activeNoteTransition!==0||!!titleEdit||isComposing||!!historyController||!!resizeGesture||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.title-actions,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover,.pane-divider,.sidebar-toggle'));
 }
 function installRemote(incoming,renderCurrent=true) {
   // A refresh started before deletion may arrive after the save acknowledgement.
@@ -1047,6 +1108,7 @@ window.addEventListener('message',event=>{
     titleResizeObserver?.disconnect();titleResizeObserver=null;
     paperResizeObserver?.disconnect();paperResizeObserver=null;
     notes=[];people=[];roles=[];mentionChoices=[];historyController=null;currentPerson='';activeNote='';query='';mode='text';orders={};VIEW_STORE='';lastOrder='';legacyAliases={};bridgeScope='';timeFormat='12h';
+    mobileSidebarCollapsed=false;mobileFormattingExpanded=false;
     selectionRange=null;draggedNote=null;pointerDrag=null;resizeGesture=null;blankLineGesture=null;recipientDraft=null;isComposing=false;suppressNoteClick=false;
     Object.keys(replyTargets).forEach(key=>delete replyTargets[key]);dirtyNotes.clear();sentDocuments.clear();sequences.clear();deferredNotes.clear();baseRevisions.clear();baseLegacyVersions.clear();confirmedDeletions.clear();
     clearTimeout(toastTimer);$('#preview-toast').textContent='';$('#preview-toast').classList.remove('visible');$('#reorder-status').textContent='';
@@ -1060,7 +1122,7 @@ window.addEventListener('message',event=>{
     orders={[currentPerson]:payload.order||[]};lastOrder=JSON.stringify(orders[currentPerson]);
     VIEW_STORE='cmpri:notepad:view:'+payload.hotelId+':'+currentPerson;
     let view={};try{view=JSON.parse(localStorage.getItem(VIEW_STORE)||'{}');}catch{}
-    if(view.paneWidths)paneWidths=view.paneWidths;
+    paneWidths={desktop:220,mobile:110,...view.paneWidths};mobileSidebarCollapsed=view.mobileSidebarCollapsed===true;
     legacyAliases=payload.legacyAliases||{};const requested=payload.targetNoteId||view.activeNote;activeNote=legacyAliases[requested]||requested||notes[0]?.id||'';
     for(const n of notes){sentDocuments.set(n.id,JSON.stringify(documentFor(n)));baseRevisions.set(n.id,n.revision??null);baseLegacyVersions.set(n.id,n.legacyVersion||null);}
     for(const [id,sequence]of Object.entries(payload.sequences||{})){sequences.set(id,sequence);dirtyNotes.add(id);if(!sentDocuments.has(id))sentDocuments.set(id,'null');}

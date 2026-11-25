@@ -8,7 +8,7 @@ from cmpri_fixture import BASE, HOTEL, OUT, UID, install
 
 NOTE = "00000000-0000-4000-8000-000000000081"
 OTHER = "00000000-0000-4000-8000-000000000082"
-SIZES = [(1440, 900, 6), (1024, 330, 6), (768, 620, 6), (600, 620, 5), (420, 630, 3)]
+SIZES = [(1440, 900, 6), (1024, 330, 6), (768, 620, 6), (600, 620, 5), (420, 630, 3), (320, 440, 3)]
 
 
 def dimensions(index, full=False):
@@ -103,6 +103,8 @@ async def main():
         trigger = toolbar.locator("[data-notepad-gif-trigger]")
         badge = picker.get_by_role("link", name="Powered by GIPHY")
         search = picker.get_by_role("searchbox", name="Search GIPHY")
+        title = editor.get_by_role("textbox", name="Note title")
+        grid = picker.locator(".staff-gif-grid")
 
         async def open_picker():
             await trigger.click()
@@ -114,7 +116,7 @@ async def main():
         await expect(first).to_be_visible()
         await expect(badge).to_be_visible()
         await expect(search).to_be_focused()
-        assert await picker.evaluate("element => element.matches(':modal') && element.parentElement === document.body")
+        assert await picker.evaluate("element => !element.matches(':modal') && element.parentElement.matches('.general-notes-body')")
         assert await first.evaluate("""element => {
             const style = getComputedStyle(element);
             return style.borderTopWidth === '0px' && style.borderRadius === '5px'
@@ -126,31 +128,52 @@ async def main():
             await page.set_viewport_size({"width": width, "height": height})
             await expect(picker).to_be_visible()
             bounds = await picker.bounding_box()
+            writing = await body.bounding_box()
+            dock = await toolbar.bounding_box()
             badge_box = await badge.bounding_box()
-            assert abs(bounds["x"] + bounds["width"] / 2 - width / 2) <= 1, (width, bounds)
-            assert abs(bounds["y"] + bounds["height"] / 2 - height / 2) <= 1, (height, bounds)
-            assert bounds["height"] == min(440, height - 16), (height, bounds)
+            assert bounds["x"] >= writing["x"] + 6.9 and bounds["y"] >= writing["y"] + 6.9, (width, bounds, writing)
+            assert abs(bounds["x"] + bounds["width"] - (writing["x"] + writing["width"] - 7)) <= .1
+            assert bounds["y"] + bounds["height"] <= writing["y"] + writing["height"] - 6.9
+            if columns == 6:
+                assert abs(bounds["y"] - writing["y"] - 7) <= .1, (height, bounds, writing)
+                assert abs(bounds["height"] - min(440, writing["height"] - 14)) <= .1, (height, bounds, writing)
+            else:
+                assert bounds["width"] <= dock["width"] + .02, (width, bounds, dock)
             assert abs(badge_box["x"] + badge_box["width"] - bounds["x"] - bounds["width"]) <= 1
             assert abs(badge_box["y"] + badge_box["height"] - bounds["y"] - bounds["height"]) <= 1
             assert await search.evaluate("element => getComputedStyle(element).borderRadius") == "9999px"
             geometry = await picker.locator(".staff-gif-results").evaluate("""results => {
                 const css = getComputedStyle(results);
-                const boxes = [...results.querySelectorAll('button')].map(tile => tile.getBoundingClientRect());
+                const tiles = [...results.querySelectorAll('button')];
+                const boxes = tiles.map(tile => tile.getBoundingClientRect());
+                const viewport = results.parentElement.getBoundingClientRect();
+                const visibleRows = new Set(boxes.filter(box => box.bottom > viewport.top && box.top < viewport.bottom - .04).map(box => box.y));
                 return {
                     columns: Number(css.columnCount), gap: css.columnGap,
                     lanes: new Set(boxes.map(box => box.x)).size,
-                    sameColumn: boxes[0].x === boxes[1].x,
                     stackedGap: boxes[1].top - boxes[0].bottom,
-                    aspect: [boxes[0].width / boxes[0].height, boxes[1].width / boxes[1].height],
+                    naturalAspect: boxes[0].width / boxes[0].height,
+                    visibleRows: visibleRows.size,
+                    viewportHeight: viewport.height,
+                    tileHeight: boxes[0].height,
+                    tallestTile: Math.max(...boxes.map(box => box.height)),
+                    fitsWithoutCrop: getComputedStyle(tiles[1].querySelector('img')).objectFit === 'contain',
+                    rowGap: css.rowGap,
                 };
             }""")
-            assert geometry["columns"] == geometry["lanes"] == columns, (width, geometry)
-            assert geometry["gap"] == "4px" and geometry["sameColumn"], geometry
-            assert abs(geometry["stackedGap"] - 4) <= .02, geometry
-            assert abs(geometry["aspect"][0] - 2) <= .01 and abs(geometry["aspect"][1] - .5) <= .01, geometry
-            if width in (1440, 600, 420):
+            assert geometry["lanes"] == columns and geometry["gap"] == "4px", (width, geometry)
+            assert geometry["fitsWithoutCrop"], geometry
+            if columns == 6:
+                assert geometry["columns"] == columns and abs(geometry["stackedGap"] - 4) <= .02, geometry
+                assert geometry["tallestTile"] <= geometry["viewportHeight"], geometry
+                if height >= 620:
+                    assert abs(geometry["naturalAspect"] - 2) <= .01, geometry
+            else:
+                assert geometry["rowGap"] == "4px" and 1 <= geometry["visibleRows"] <= 3, (width, geometry)
+                assert geometry["viewportHeight"] <= 3 * geometry["tileHeight"] + 8.1, geometry
+            if width in (1440, 600, 420, 320):
                 await first.locator("img").evaluate("image => image.decode()")
-                await page.screenshot(path=OUT / f"notepad-giphy-original-{width}.png", animations="disabled")
+                await page.screenshot(path=OUT / f"notepad-giphy-inset-{width}.png", animations="disabled")
 
         tile_before = await first.bounding_box()
         await first.hover()
@@ -158,8 +181,11 @@ async def main():
         assert await first.bounding_box() == tile_before
         await expect(picker.locator("[data-attachment-gif-preview]")).to_have_count(0)
         assert provider_queries == [("", 0)], provider_queries
-        await page.set_viewport_size({"width": 1024, "height": 720})
-        grid = picker.locator(".staff-gif-grid")
+        await page.set_viewport_size({"width": 420, "height": 630})
+        narrower = int((await picker.bounding_box())["width"]) - 28
+        await toolbar.evaluate("(dock, width) => { dock.style.maxWidth = width + 'px'; }", narrower)
+        await expect(picker).to_have_css("width", f"{narrower}px")
+        await toolbar.evaluate("dock => dock.style.removeProperty('max-width')")
         await grid.hover()
         await page.mouse.wheel(0, 2500)
         await expect(editor.get_by_role("button", name="Select Fixture trending-53", exact=True)).to_be_attached()
@@ -181,13 +207,14 @@ async def main():
         await expect(picker).to_have_count(0)
         await expect(trigger).to_be_focused()
         await open_picker()
-        await page.mouse.click(1, 1)
+        await title.click()
         await expect(picker).to_have_count(0)
-        await expect(trigger).to_be_focused()
+        await expect(title).to_be_focused()
+        await page.set_viewport_size({"width": 1024, "height": 720})
         await sidebar.get_by_text("Valve checklist", exact=True).click()
         await expect(editor.locator("#note-title")).to_have_value("Valve checklist")
         assert not failures, failures
-        print(f"Centered picker, pill ends, original image proportions, gaps, badge and 6/5/3 columns passed at {SIZES}. Hover stays still; paging, search, selection, save and dismissal passed.")
+        print(f"Writing-area inset, dock width and three-row mobile cap, spacing and 6/5/3 columns passed at {SIZES}. Hover stays still; paging, search, selection, save and dismissal passed.")
         await browser.close()
 
 

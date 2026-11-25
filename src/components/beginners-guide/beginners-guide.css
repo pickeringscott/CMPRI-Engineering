@@ -36,6 +36,11 @@
 
 .cmpri-guide-launcher:hover { background: var(--guide-raised); }
 
+@media (width < 701px) {
+  .cmpri-guide-launchers { left: env(safe-area-inset-left, 0px); }
+  .cmpri-guide-launcher { display: none; }
+}
+
 .cmpri-beginners-guide {
   position: fixed;
   inset: 0;

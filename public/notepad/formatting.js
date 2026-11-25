@@ -28,15 +28,16 @@
     indent: svg('<path d="M10 5h11M10 10h11M10 15h11M10 20h11M2 8l4 4-4 4"/>')
   };
   function button(command,label) {return '<button type="button" data-format-command="'+command+'" aria-label="'+label+'" title="'+label+'" aria-pressed="false">'+ICONS[command]+'</button>';}
-  function html() {
+  function html(mobileExpanded=false) {
     return '<div class="notepad-formatting" role="toolbar" aria-label="Text formatting">'+
+      '<button type="button" class="fmt-mobile-toggle" data-toggle-formatting aria-expanded="'+mobileExpanded+'" aria-controls="notepad-format-controls">Formatting'+svg('<path d="m6 9 6 6 6-6"/>')+'</button><div class="fmt-controls" id="notepad-format-controls">'+
       '<div class="fmt-group"><select class="fmt-font" aria-label="Font" data-format-select="font">'+FONTS.map(f=>'<option value="'+escape(f)+'">'+escape(f)+'</option>').join('')+'<option value="__installed__">Installed fonts…</option></select>'+
       '<select class="fmt-size" aria-label="Font Size" data-format-select="size">'+SIZES.map(n=>'<option value="'+n+'"'+(n===16?' selected':'')+'>'+n+'</option>').join('')+'</select></div>'+
       '<div class="fmt-group">'+button('bold','Bold')+button('italic','Italic')+button('underline','Underline')+
       '<button type="button" class="fmt-color-control" data-format-color-trigger aria-label="Font Color" title="Font Color" aria-haspopup="listbox" aria-expanded="false"><span aria-hidden="true">A<span class="fmt-color-line"></span></span></button></div>'+
       '<div class="fmt-group">'+button('align-left','Align Left')+button('align-center','Center')+button('align-right','Align Right')+button('align-justify','Justify')+'</div>'+
       '<div class="fmt-group">'+button('check','Checklist')+button('bullet','Bullets')+button('number','Numbers')+button('letter','Letters')+'</div>'+
-      '<div class="fmt-group">'+button('outdent','Decrease Indent')+button('indent','Increase Indent')+'</div><span class="fmt-status" role="status" aria-live="polite"></span></div>';
+      '<div class="fmt-group">'+button('outdent','Decrease Indent')+button('indent','Increase Indent')+'</div><span class="fmt-status" role="status" aria-live="polite"></span></div></div>';
   }
   function familyName(name,fallback=FONT_DEFAULT) {
     return String(name||fallback).replace(/[\u0000-\u001f\u007f]/g,'').slice(0,120)||fallback;

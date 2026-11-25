@@ -51,9 +51,7 @@ async def main():
         page = await context.new_page()
         await page.goto(f"{BASE}/engineering", wait_until="domcontentloaded", timeout=120_000)
         await expect(page.locator("html")).to_have_attribute("data-cmpri-time-format", "12h", timeout=60_000)
-        guide_close = page.get_by_role("button", name="Close Beginner’s Guide")
-        await expect(guide_close).to_be_visible(timeout=60_000)
-        await guide_close.click()
+        await expect(page.get_by_role("button", name="Beginner’s Guide", exact=True)).to_be_visible(timeout=60_000)
         await expect(page.locator("[data-cmpri-guide-dialog]")).to_have_count(0)
 
         async def open_modal(path, title):

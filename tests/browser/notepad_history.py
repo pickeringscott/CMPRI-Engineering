@@ -95,19 +95,18 @@ async def main():
         priority_label = frame.locator('label[for="note-priority"]')
 
         async def header_geometry():
-            title_box, label_box = await title.bounding_box(), await priority_label.bounding_box()
-            priority_box = await priority.bounding_box()
+            title_box = await title.bounding_box()
             share_box, trash_box = await share_button.bounding_box(), await trash_button.bounding_box()
-            attribution_box = await creator.bounding_box()
-            stamp_box, history_box = await creator.locator("time").bounding_box(), await history_link.bounding_box()
-            assert label_box["y"] >= title_box["y"] + title_box["height"] - 1
-            assert abs(label_box["x"] - (title_box["x"] + 2)) <= 1
-            assert abs(label_box["y"] + label_box["height"] / 2 - priority_box["y"] - priority_box["height"] / 2) <= 1
+            values = (priority_label, priority, creator.locator(".note-creator"), creator.locator("time"), history_link)
+            boxes = [await value.bounding_box() for value in values]
+            assert all(boxes)
+            centers = [box["y"] + box["height"] / 2 for box in boxes]
+            gaps = [right["x"] - left["x"] - left["width"] for left, right in zip(boxes, boxes[1:])]
+            assert centers[0] >= title_box["y"] + title_box["height"]
+            assert max(centers) - min(centers) <= 1
+            assert min(gaps) > 0 and max(gaps) - min(gaps) <= 1
             assert await priority.evaluate("control => getComputedStyle(control).alignItems") == "center"
             assert abs(share_box["y"] + share_box["height"] - trash_box["y"] - trash_box["height"]) <= 1
-            assert 0 < attribution_box["y"] - (trash_box["y"] + trash_box["height"]) <= 5
-            assert history_box["x"] >= stamp_box["x"] + stamp_box["width"]
-            assert abs(history_box["y"] - stamp_box["y"]) <= 1
             font_size = "element => getComputedStyle(element).fontSize"
             attribution_size = await creator.locator(".note-creator").evaluate(font_size)
             for control in (priority_label, priority):

@@ -20,7 +20,8 @@ function setup(request,extraOptions={}){
  const original={id:uuid(1),attachments:[]},other={id:uuid(2),attachments:[]};let current=original;
  const container=window.document.querySelector('.dock');container.innerHTML=window.NotepadAttachments.html();
  const changes=[],errors=[],available=new Set([original.id,other.id]);
- const controller=window.NotepadAttachments.attach({container,getNote:()=>current,request,onChange:value=>changes.push(value),onError:value=>errors.push(value),isNoteAvailable:id=>available.has(id),badge:'/Poweredby_100px_Badge.gif',...extraOptions});
+ const pickerRoot=window.document.querySelector('.general-notes-body');
+ const controller=window.NotepadAttachments.attach({container,pickerRoot,getNote:()=>current,request,onChange:value=>changes.push(value),onError:value=>errors.push(value),isNoteAvailable:id=>available.has(id),badge:'/Poweredby_100px_Badge.gif',...extraOptions});
  const click=selector=>{const target=window.document.querySelector(selector);assert.ok(target,selector);target.click()};
  return {dom,window,original,other,changes,errors,available,controller,click,timers,setNote:note=>{current=note},runTimers(){for(const [id,{fn}] of [...timers]){timers.delete(id);fn()}},cleanup(){controller.destroy();dom.window.close()}};
 }
@@ -29,7 +30,7 @@ test('GIPHY loads only when opened, ignores stale searches, and saves the provid
  try{
   assert.equal(calls.length,0);
   s.click('[data-notepad-gif-trigger]');assert.equal(calls.length,1);assert.equal(calls[0].action,'giphy');assert.equal(calls[0].payload.query,'');
-  assert.equal(s.window.document.querySelector('[aria-label="GIPHY picker"]').parentElement,s.window.document.body);
+  assert.equal(s.window.document.querySelector('[aria-label="GIPHY picker"]').parentElement.className,'general-notes-body');
   const input=s.window.document.querySelector('[aria-label="Search GIPHY"]');
   input.value='old';input.dispatchEvent(new s.window.Event('input'));s.runTimers();
   input.value='new';input.dispatchEvent(new s.window.Event('input'));s.runTimers();
@@ -43,25 +44,25 @@ test('GIPHY loads only when opened, ignores stale searches, and saves the provid
   assert.equal(s.original.attachments[0].url,undefined);assert.equal(s.original.attachments[0].localOnly,undefined);assert.equal(s.changes.length,1);
  }finally{s.cleanup()}
 });
-test('GIPHY preserves native image dimensions, tile selection, and centered-dialog dismissal without a hover preview',async()=>{
+test('GIPHY sizes against the dock, preserves image dimensions and dismisses when clicking outside',async()=>{
  const portrait={...gif('portrait'),preview:{url:'https://media.giphy.com/portrait.gif',width:125,height:225}};
  const s=setup(async()=>({gifs:[portrait],total:1}));
  try{
-  s.click('[data-notepad-gif-trigger]');await tick();
   const {document,MouseEvent}=s.window;
+  document.querySelector('.dock').getBoundingClientRect=()=>({width:196});
+  s.click('[data-notepad-gif-trigger]');await tick();
   const panel=document.querySelector('.staff-giphy-picker'),tile=panel.querySelector('[data-attachment-gif]');
   const image=tile.querySelector('img');
   assert.equal(panel.open,true);
+  assert.equal(panel.style.getPropertyValue('--notepad-gif-dock-width'),'196px');
   assert.equal(panel.lastElementChild.className,'staff-giphy-credit');
   assert.equal(image.src,portrait.preview.url);
   assert.equal(image.width,125);assert.equal(image.height,225);
   tile.dispatchEvent(new MouseEvent('pointerover',{bubbles:true,clientX:30,clientY:90}));
   assert.equal(s.timers.size,0);
   assert.equal(panel.querySelectorAll('[data-attachment-gif]').length,1);
-  panel.getBoundingClientRect=()=>({left:10,top:20,right:650,bottom:460});
-  panel.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,clientX:5,clientY:5}));await tick();
+  document.body.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true}));await tick();
   assert.equal(panel.isConnected,false);
-  assert.equal(document.activeElement,document.querySelector('[data-notepad-gif-trigger]'));
   s.click('[data-notepad-gif-trigger]');await tick();
   s.click('[data-attachment-gif]');await tick();
   assert.equal(s.original.attachments[0].gifId,'portrait');

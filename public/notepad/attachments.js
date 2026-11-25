@@ -34,7 +34,7 @@
   }
 
   function attach(options) {
-    const { container, getNote, getNoteById, onChange, badge, request, onError, isNoteAvailable } = options || {};
+    const { container, pickerRoot, getNote, getNoteById, onChange, badge, request, onError, isNoteAvailable } = options || {};
     const filesTrigger = container?.querySelector('[data-notepad-attachments-trigger]');
     const gifTrigger = container?.querySelector('[data-notepad-gif-trigger]');
     const cameraTrigger = container?.querySelector('[data-notepad-camera-trigger]');
@@ -194,6 +194,8 @@
     }
     function positionGifOrigin(session) {
       const { node, anchor, origin } = session;
+      const dockWidth = container.getBoundingClientRect().width;
+      if (dockWidth > 0) node.style.setProperty('--notepad-gif-dock-width', dockWidth + 'px');
       const rect = anchor.isConnected ? anchor.getBoundingClientRect() : origin;
       const transform = node.style.transform;
       node.style.transform = 'none';
@@ -202,17 +204,17 @@
       node.style.transform = transform;
     }
     function openGif(anchor, note) {
-      if (gif || destroyed || !anchor.isConnected || !sameNote(note)) return;
+      if (gif || destroyed || !pickerRoot?.isConnected || !anchor.isConnected || !sameNote(note)) return;
       const node = document.createElement('dialog');
-      node.className = 'staff-giphy-picker attachment-giphy-dialog';
+      node.className = 'staff-giphy-picker attachment-giphy-dialog note-giphy-picker';
       node.setAttribute('aria-label', 'GIPHY picker');
       const badgeURL = typeof badge === 'string' && (/^data:image\//i.test(badge) || badge === '/Poweredby_100px_Badge.gif') ? badge : '';
       const credit = '<a class="staff-giphy-credit" href="https://giphy.com/" target="_blank" rel="noopener noreferrer" aria-label="Powered by GIPHY">' + (badgeURL ? '<img src="' + escapeHTML(badgeURL) + '" alt="Powered by GIPHY" width="40" height="57">' : '<span>GIPHY</span>') + '</a>';
       node.innerHTML = '<div class="staff-gif-search"><input aria-label="Search GIPHY" type="search" placeholder="Search GIPHY" maxlength="50" autocomplete="off"><button type="button" data-attachment-close-gif aria-label="Close GIF picker">×</button></div><p class="giphy-status" role="status"></p><div class="staff-gif-grid"><div class="staff-gif-results"></div></div>' + credit;
       const grid = node.querySelector('.staff-gif-grid');
-      gif = { node, anchor, origin: anchor.getBoundingClientRect(), note, closing: false, closePromise: null, selecting: false, query: '', gifs: [], offset: 0, total: 0, loading: false, version: 0, timer: null };
+      gif = { node, anchor, origin: anchor.getBoundingClientRect(), note, closing: false, closePromise: null, selecting: false, query: '', gifs: [], offset: 0, total: 0, loading: false, version: 0, timer: null, resize: null };
       const session = gif;
-      document.body.append(node);
+      pickerRoot.append(node);
       node.addEventListener('cancel', event => { event.preventDefault(); event.stopPropagation(); closeGif(); });
       node.addEventListener('click', event => {
         const closeButton = event.target.closest('[data-attachment-close-gif]');
@@ -224,8 +226,15 @@
       grid.addEventListener('scroll', () => {
         if (!session.loading && session.offset < session.total && grid.scrollHeight - grid.scrollTop - grid.clientHeight < 100) void loadGifs(session, true);
       });
-      try { node.showModal(); } catch (_) { gif = null; node.remove(); return; }
+      node.open = true;
       positionGifOrigin(session);
+      if (typeof ResizeObserver === 'function') {
+        session.resize = new ResizeObserver(() => {
+          if (gif === session && !session.closing) positionGifOrigin(session);
+        });
+        session.resize.observe(container);
+        session.resize.observe(pickerRoot);
+      }
       node.style.transform = 'scale(.035)';
       node.style.opacity = '0';
       focus(node.querySelector('input'));
@@ -250,6 +259,7 @@
       session.closing = true;
       session.version++;
       clearTimeout(session.timer);
+      session.resize?.disconnect();
       session.node.style.pointerEvents = 'none';
       if (immediate) { finish(); return Promise.resolve(); }
       session.closePromise = animate(session.node, false).then(finish);
@@ -551,12 +561,7 @@
     function onPointerDown(event) {
       if (!gif) return;
       if (!sameNote(gif.note)) { void closeGif({ restoreFocus: false, immediate: true }); return; }
-      if (event.target !== gif.node) return;
-      const rect = gif.node.getBoundingClientRect();
-      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
-        event.preventDefault();
-        void closeGif();
-      }
+      if (!gif.node.contains(event.target) && !gifTrigger.contains(event.target)) void closeGif({ restoreFocus: false });
     }
     function onResize() { if (gif && !gif.closing) positionGifOrigin(gif); }
     function onKeyDown(event) {

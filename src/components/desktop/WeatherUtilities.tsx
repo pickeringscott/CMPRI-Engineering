@@ -1,7 +1,7 @@
 "use client";
 
 import Script from "next/script";
-import { useEffect, useId, useRef, useState, type MouseEventHandler, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type MouseEventHandler, type ReactNode } from "react";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import type { DashboardWeather } from "@/lib/weather/dashboard-weather";
 import styles from "./weather-utilities.module.css";
@@ -13,6 +13,7 @@ type WeatherVisuals = {
 };
 
 const REFRESH_INTERVAL = 10 * 60 * 1000;
+const DESKTOP_WEATHER = "(min-width: 701px)";
 const CENTER_X = 51.6, CENTER_Y = 49, RADIUS = 42.5;
 const ARC_START = 210, ARC_SPAN = 300, HIGH_ANGLE = 321, LOW_ANGLE = 498;
 const UNKNOWN_COLOR = "#373a40";
@@ -199,9 +200,20 @@ function WeatherTile({ onOpen }: { onOpen: MouseEventHandler<HTMLButtonElement> 
   return <WeatherDial data={data} onOpen={onOpen} />;
 }
 
+function subscribeToWeatherViewport(change: () => void) {
+  const viewport = window.matchMedia(DESKTOP_WEATHER);
+  viewport.addEventListener("change", change);
+  return () => viewport.removeEventListener("change", change);
+}
+
+function readWeatherViewport() {
+  return window.matchMedia(DESKTOP_WEATHER).matches;
+}
+
 export default function WeatherUtilities({ children, onOpen }: { children: ReactNode; onOpen?: MouseEventHandler<HTMLButtonElement> }) {
+  const showWeather = useSyncExternalStore(subscribeToWeatherViewport, readWeatherViewport, () => false);
   return <div className={styles.utilities}>
-    {onOpen ? <WeatherTile onOpen={onOpen} /> : null}
+    {onOpen && showWeather ? <WeatherTile onOpen={onOpen} /> : null}
     {children}
   </div>;
 }
