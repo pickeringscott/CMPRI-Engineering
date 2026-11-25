@@ -96,11 +96,14 @@ async def main():
 
         async def header_geometry():
             title_box, label_box = await title.bounding_box(), await priority_label.bounding_box()
+            priority_box = await priority.bounding_box()
             share_box, trash_box = await share_button.bounding_box(), await trash_button.bounding_box()
             attribution_box = await creator.bounding_box()
             stamp_box, history_box = await creator.locator("time").bounding_box(), await history_link.bounding_box()
             assert label_box["y"] >= title_box["y"] + title_box["height"] - 1
             assert abs(label_box["x"] - (title_box["x"] + 2)) <= 1
+            assert abs(label_box["y"] + label_box["height"] / 2 - priority_box["y"] - priority_box["height"] / 2) <= 1
+            assert await priority.evaluate("control => getComputedStyle(control).alignItems") == "center"
             assert abs(share_box["y"] + share_box["height"] - trash_box["y"] - trash_box["height"]) <= 1
             assert 0 < attribution_box["y"] - (trash_box["y"] + trash_box["height"]) <= 5
             assert history_box["x"] >= stamp_box["x"] + stamp_box["width"]
@@ -163,7 +166,7 @@ async def main():
         location = frame.locator('.note-content [data-mention-kind="location"]')
         mention = frame.locator('.note-content [data-mention-kind="person"]')
         await expect(location).to_have_text("Lobby")
-        await expect(mention).to_have_text("@Morgan")
+        await expect(mention).to_have_text("Morgan")
         color = "element => getComputedStyle(element).color"
         assert await location.evaluate(color) != await mention.evaluate(color)
 

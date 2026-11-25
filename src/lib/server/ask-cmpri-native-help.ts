@@ -43,7 +43,7 @@ function guide(query: string) {
 const notes = {
   source: "CMPRI Notepad document validator",
   screen: "/notepad",
-  read: "notepad.read returns only notes visible to the current authenticated property account, including legacy personal Notes and Staff Notes. Use the same returned notes for all Notepad questions and edits. Names and roles come from this active property directory; only active, taggable people may be @mentioned.",
+  read: "notepad.read returns only notes visible to the current authenticated property account, including legacy personal Notes and Staff Notes. Use the same returned notes for all Notepad questions and edits. Names and roles come from this property directory. Add person tags only for active, taggable and selectable recipients.",
   save: {
     operation: "notepad.save", patch: "notepad.patch preserves every omitted document field on the server",
     id: "UUID for this note", changeId: "UUID; reuse only for an identical retry",
@@ -52,7 +52,7 @@ const notes = {
     document: {
       title: "String, at most 120 characters; only the creator can rename an existing note",
       audience: "Required {all:boolean,roles:string[],people:UUID[]}. New notes default to Just me: all:false and both arrays empty. All Roles is all:true. Engineering selects engineer and technician. Use returned role/person IDs and change manual sharing only when requested. The server adds an eligible person when a new structured tag names that person.",
-      content: "HTML string, at most 1000000 characters. Native save allows safe paragraphs, headings, spans, formatting, lists and checkboxes. Preserve existing data-item-id identities on unchanged lines. Font and color are safe inline styles. A checklist item is <div class=note-check data-item-id=ID><input type=checkbox checked><span class=task-label>Text</span></div>; omit checked for an unfinished item. data-completed-by and data-completed-at are stamped by the server. Use span class=mention contenteditable=false data-mention-kind=person|role data-mention-id=returnedID with visible @name text for a structured tag. Plain @text is ordinary text.",
+      content: "HTML string, at most 1000000 characters. Native save allows safe paragraphs, headings, spans, formatting, lists and checkboxes. Preserve existing data-item-id identities on unchanged lines. Font and color are safe inline styles. A checklist item is <div class=note-check data-item-id=ID><input type=checkbox checked><span class=task-label>Text</span></div>; omit checked for an unfinished item. data-completed-by and data-completed-at are stamped by the server. Use span class=mention contenteditable=false data-mention-kind=person|role data-mention-id=returnedID containing @name for a structured tag. Notepad displays the name without @. Plain @text is ordinary text.",
       priority: "Low | Normal | High | Urgent; the UI labels Urgent as Urgent! and shows a red exclamation before the title",
       fontSize: "Number from 6 to 96",
       fontFamily: "Text font name, at most 120 characters; fallback Comic Sans MS",

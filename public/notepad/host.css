@@ -60,7 +60,7 @@ body{margin:0}
 .layout-1 .priority-row.note-details{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:0 5px;min-height:22px;padding:0 2px;font-size:var(--note-metadata-size)}
 .layout-1 .priority-row.note-details label{font:inherit}
 .layout-1 .note-title-fields:has(.note-urgent:not([hidden])) .note-details{padding-left:25px}
-.layout-1 .priority-row.note-details #note-priority{height:auto;min-height:22px;border:0}
+.layout-1 .priority-row.note-details #note-priority{height:auto;min-height:22px;align-items:center;border:0}
 .layout-1 .general-notes-editor{gap:0}
 .layout-1 .notepad-formatting{margin-top:0;padding-top:3px;padding-bottom:3px;gap:2px 0}
 /* Keep the approved controls together in the normal CMPRI window by removing

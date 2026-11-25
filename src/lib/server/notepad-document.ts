@@ -129,7 +129,7 @@ function replyMentions(value: unknown, text: string): NotepadReplyMention[] | un
       || (mark.kind === 'person' && !NOTEPAD_UUID.test(mark.id))
       || typeof mark.start !== 'number' || !Number.isSafeInteger(mark.start) || mark.start < previousEnd
       || typeof mark.end !== 'number' || !Number.isSafeInteger(mark.end) || mark.end <= mark.start + 1 || mark.end > text.length
-      || !/^@[^@\r\n]+$/.test(text.slice(mark.start,mark.end))) throw Error('Invalid reply tags.');
+      || !/^@[^\r\n]+$/.test(text.slice(mark.start,mark.end))) throw Error('Invalid reply tags.');
     previousEnd = mark.end;
     return { id:mark.id, kind:mark.kind, start:mark.start, end:mark.end };
   });
@@ -141,7 +141,7 @@ export function notepadPersonTagCounts(document: NotepadDocument, directory?: re
     .map(person => [person.id, '@' + person.name]));
   const counts = new Map<string,number>();
   const count = (id: string, label: string) => {
-    if (names ? names.get(id) === label : NOTEPAD_UUID.test(id) && /^@[^@\r\n]+$/.test(label)) {
+    if (names ? names.get(id) === label : NOTEPAD_UUID.test(id) && /^@[^\r\n]+$/.test(label)) {
       counts.set(id,(counts.get(id) || 0) + 1);
     }
   };

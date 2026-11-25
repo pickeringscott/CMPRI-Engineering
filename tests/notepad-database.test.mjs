@@ -35,9 +35,9 @@ test('a collaborator save grants only the verified active tagged recipient and r
   await save(db,owner,null,change(190));
   const tagged={...doc,content:'<p><span class="mention" contenteditable="false" data-mention-kind="person" data-mention-id="'+manager+'">@Riley Chen</span></p>',
     audience:{...doc.audience,people:[manager]}};
-  const tagWrite=(mutation,document,people)=>db.query(
-    'select * from cmpri_save_notepad($1::uuid,$2::uuid,$3::uuid,1,$4::uuid,$5::jsonb,null,null,$6::uuid[])',
-    [hotel,tech,id,change(mutation),JSON.stringify(document),people]).then(result=>result.rows[0]);
+  const tagWrite=(mutation,document,people,expected=1)=>db.query(
+    'select * from cmpri_save_notepad($1::uuid,$2::uuid,$3::uuid,$4::bigint,$5::uuid,$6::jsonb,null,null,$7::uuid[])',
+    [hotel,tech,id,expected,change(mutation),JSON.stringify(document),people]).then(result=>result.rows[0]);
   await assert.rejects(save(db,tech,1,change(191),tagged),/creator/);
   await assert.rejects(tagWrite(192,{...tagged,audience:{...tagged.audience,roles:[]}},[manager]),/creator/);
   await assert.rejects(tagWrite(193,{...tagged,audience:{...tagged.audience,people:[outside]}},[outside]),/recipient is unavailable/);
@@ -53,6 +53,14 @@ test('a collaborator save grants only the verified active tagged recipient and r
   assert.deepEqual(recipientHistory.map(row=>row.revision),[2]);
   assert.deepEqual(recipientHistory[0].before_fields,{});
   assert.equal(recipientHistory[0].after_fields.content,tagged.content);
+
+  const all={...tagged,audience:{all:true,roles:[],people:[manager]}};
+  await save(db,owner,2,change(198),all);
+  const alsoTagged={...all,audience:{...all.audience,people:[tech,manager]},
+    content:all.content+'<p><span class="mention" contenteditable="false" data-mention-kind="person" data-mention-id="'+tech+'">@Morgan Ellis</span></p>'};
+  const allResult=await tagWrite(199,alsoTagged,[tech],3);
+  assert.deepEqual(allResult.document.audience,alsoTagged.audience);
+  assert.equal((await tagWrite(199,alsoTagged,[tech],3)).revision,4);
   await db.exec('set role authenticated');
   await assert.rejects(tagWrite(196,tagged,[manager]),/permission denied/);
  }finally{await db.close();}

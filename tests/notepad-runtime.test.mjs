@@ -386,6 +386,24 @@ test('Edit History opens for a private note owner and for each kind of authorize
   }
 });
 
+test('Edit History shows selected body and reply tags without exposing their @ prefixes',async()=>{
+  const s=setup();
+  try{
+    s.click('.note-history-link');
+    const request=s.outgoing.at(-1).data;
+    const body='<p><span class="mention" data-mention-kind="person">@Morgan</span> and literal @Morgan</p>';
+    const text='@Morgan and literal @Morgan';
+    const reply={authorId:colleague.id,text,mentions:[{id:colleague.id,kind:'person',start:0,end:7}],replies:[]};
+    const entry={revision:2,at:'2026-11-23T20:31:00.000Z',kind:'updated',actorId:user.id,
+      before:{content:'<p>Before</p>',itemThreads:{}},after:{content:body,itemThreads:{item:[reply]}}};
+    s.send('result',{requestId:request.requestId,result:{entries:[entry],next:null}});
+    await tick();
+    const added=[...s.document.querySelectorAll('.history-line[data-change=added]')].map(line=>line.textContent);
+    assert.equal(added.filter(line=>line.includes('Morgan and literal @Morgan')).length,2);
+    assert.ok(added.every(line=>!line.includes('@Morgan and literal')));
+  }finally{s.cleanup();}
+});
+
 test('Revoking a recipient closes their history panel and preserves their unsaved draft', async () => {
   const note = makeNote({audience: {all: false, roles: [], people: [colleague.id]}});
   const s = setup({userId: colleague.id, notes: [note], order: [note.id]});
@@ -419,16 +437,21 @@ test('sidebar shows recipient first names before the creation time and responds 
   }finally{s.cleanup();}
 });
 
-test('displayed location tags omit the trigger character while other tagged text and formatting stay intact',()=>{
-  const content='<p data-item-id="fixture"><span class="mention" data-mention-kind="location" data-mention-id="lobby"><strong>@Lobby</strong></span> <span class="mention" data-mention-kind="person" data-mention-id="person">@Morgan</span></p>';
+test('stored tags display without the trigger while formatted and literal text survives editing',()=>{
+  const content='<p data-item-id="fixture"><span class="mention" data-mention-kind="location" data-mention-id="lobby"><strong>@Lobby</strong></span> <span class="mention" data-mention-kind="person" data-mention-id="person"><strong>@Morgan</strong></span> <span class="mention" data-mention-kind="role" data-mention-id="engineer">@Chief Engineer</span> plain @Morgan</p>';
   const s=setup({notes:[makeNote({content})]});
   try{
     assert.equal(s.find('.mention[data-mention-kind=location] strong').textContent,'Lobby');
-    assert.equal(s.find('.mention[data-mention-kind=person]').textContent,'@Morgan');
+    assert.equal(s.find('.mention[data-mention-kind=person] strong').textContent,'Morgan');
+    assert.equal(s.find('.mention[data-mention-kind=role]').textContent,'Chief Engineer');
+    assert.match(s.find('.note-content').textContent,/plain @Morgan/);
+    s.event(s.find('.note-content'),'input');
     s.input('#note-title','Edited location note');
     titleKey(s,'Enter');
     assert.match(s.latestSave().document.content,/<strong>Lobby<\/strong>/);
-    assert.match(s.latestSave().document.content,/@Morgan/);
+    assert.match(s.latestSave().document.content,/<strong>@Morgan<\/strong>/);
+    assert.match(s.latestSave().document.content,/>@Chief Engineer<\/span>/);
+    assert.doesNotMatch(s.latestSave().document.content,/data-np-tag-prefix/);
   }finally{s.cleanup();}
 });
 
@@ -783,12 +806,13 @@ test('confirmed deletion state clears before another account initializes', () =>
   }finally{s.cleanup();}
 });
 
-test('mentions and individual recipients exclude deactivated and six test accounts', () => {
+test('tag picker and individual recipients use the same available accounts', () => {
   const excludedEmails = ['assmgr@test.com', 'chief@test.com', 'frontmgr@test.com', 'gm@test.com', 'gpt@test.com', 'frontdesk@test.com'];
   const excluded = excludedEmails.map((email, i) => ({...colleague, id: uuid(100 + i), name: `Excluded ${i}`, email: ` ${email.toUpperCase()} `}));
   for (const [i, flag] of [{active: false}, {is_active: false}, {isActive: false}, {deactivated: true}, {deactivated_at: '2026-11-01'}, {deactivatedAt: '2026-11-01'}, {status: 'disabled'}, {status: 'inactive'}, {status: 'deactivated'}, {taggable: false}].entries()) {
     excluded.push({...colleague, id: uuid(200 + i), name: `Inactive ${i}`, ...flag});
   }
+  excluded.push({...colleague,id:uuid(400),name:'Hidden Duplicate',recipientSelectable:false});
   const s = setup({people: [user, colleague, ...excluded]});
   try {
     s.click('[data-action=new]');
@@ -799,9 +823,10 @@ test('mentions and individual recipients exclude deactivated and six test accoun
       assert.equal(s.document.querySelector('.mention-option'), null, account.name);
     }
     s.typeMention('@Morgan');
-    assert.equal(s.find('.mention-option strong').textContent, '@Morgan Technician');
+    assert.equal(s.find('.mention-option strong').textContent, 'Morgan Technician');
     s.click('.mention-option');
     assert.equal(s.find('.mention').dataset.mentionId, colleague.id);
+    assert.equal(s.find('.mention').textContent, 'Morgan Technician');
     assert.match(s.latestSave().document.content, /data-mention-id="00000000-0000-4000-8000-000000000002"/);
   } finally {s.cleanup();}
 });
@@ -1003,6 +1028,29 @@ test('a confirmed body tag shows the newly shared recipient and reply controls b
   }finally{s.cleanup();}
 });
 
+test('a confirmed self-tag stays checked alongside All Roles and can be unchecked independently',()=>{
+  const all={all:true,roles:[],people:[]};
+  const s=setup({notes:[makeNote({audience:all})]});
+  try{
+    s.typeMention('@'+user.name);
+    s.click('.mention-option');
+    const saved=s.latestSave();
+    assert.deepEqual(saved.document.audience,all);
+    const audience={...all,people:[user.id]};
+    const note={...s.bootstrap.notes[0],...saved.document,revision:2,audience};
+    s.send('saved',{id:note.id,sequence:saved.sequence,revision:2,note,taggedPeople:[user.id]});
+    assert.equal(s.find('.audience-meta').textContent,user.short+', All Roles');
+    s.click('[data-action=share]');
+    const person=s.find('[data-recipient=person][value="'+user.id+'"]');
+    assert.equal(person.checked,true);
+    assert.equal(s.find('[data-recipient=all]').checked,true);
+    person.click();
+    assert.equal(s.find('[data-recipient=all]').checked,true);
+    s.event(s.find('#recipient-form'),'submit');
+    assert.deepEqual(s.latestSave().document.audience,all);
+  }finally{s.cleanup();}
+});
+
 test('a nested reply preserves selected tag ranges through typing and leaves literal @text untagged', () => {
   const person={...colleague,id:uuid(408),name:'Taylor Quinn',short:'Taylor'};
   const parent={id:'parent',authorId:colleague.id,at:'2026-11-23T20:31:00.000Z',text:'Please check the unit',replies:[]};
@@ -1015,6 +1063,7 @@ test('a nested reply preserves selected tag ranges through typing and leaves lit
     input.value='   @Taylor';
     input.setSelectionRange(input.value.length,input.value.length);s.event(input,'input');
     s.click('.mention-option');
+    assert.equal(input.value,'   Taylor Quinn ');
     input.value+='and plain @Taylor Quinn';
     input.setSelectionRange(input.value.length,input.value.length);s.event(input,'input');
     input.value='  For '+input.value;
@@ -1023,7 +1072,8 @@ test('a nested reply preserves selected tag ranges through typing and leaves lit
     const reply=s.latestSave().document.itemThreads[uuid(20)][0].replies[0];
     assert.equal(reply.text,'For    @Taylor Quinn and plain @Taylor Quinn');
     assert.deepEqual(reply.mentions,[{id:person.id,kind:'person',start:7,end:20}]);
-    assert.equal(s.find('.reply-children .mention').textContent,'@Taylor Quinn');
+    assert.equal(s.find('.reply-children .mention').textContent,'Taylor Quinn');
+    assert.equal(s.find('.reply-children .reply-text').textContent,'For    Taylor Quinn and plain @Taylor Quinn');
     assert.equal(s.document.querySelectorAll('.reply-children .mention').length,1);
   }finally{s.cleanup();}
 });

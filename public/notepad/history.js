@@ -38,7 +38,7 @@ function bodyLines(html,describeFormatting=false) {
     if(node.nodeType===Node.TEXT_NODE)return node.data.replace(/\u200b/g,'');
     if(node.nodeType!==Node.ELEMENT_NODE||node.matches('ul,ol,input,script,style'))return '';
     if(node.tagName==='BR')return '\n';
-    if(node.matches('.mention[data-mention-kind="location"]'))return node.textContent.replace(/^@/,'');
+    if(node.matches('.mention[data-mention-kind]'))return decorate(node,node.textContent.replace(/^@/,''));
     return decorate(node,Array.from(node.childNodes,plain).join(''));
   };
   const add=(text,prefix)=>{
@@ -62,7 +62,7 @@ function bodyLines(html,describeFormatting=false) {
         marker=parent.tagName==='UL'?'• ':orderedMarker(parent,itemNumber);
         itemNumber++;
       }
-      const text=decorate(node,Array.from(node.childNodes,plain).join(''));
+      const text=plain(node);
       if(node.tagName==='HR')add('—',localIndent);
       else if(text.trim()||marker)add(text,localIndent+marker);
       for(const list of childLists)walk(list,depth+1);
@@ -84,7 +84,9 @@ function replyLines(threads,personName) {
   const append=(replies,depth)=>{
     for(const reply of replies){
       const indent='  '.repeat(depth);
-      lines.push(...String(reply.text??'').split('\n').map((line,i)=>indent+(i?'  ':(reply.authorName||personName(reply.authorId))+': ')+line));
+      const tags=Array.isArray(reply.mentions)?reply.mentions:[];
+      const text=tags.reduceRight((text,tag)=>text[tag?.start]==='@'?text.slice(0,tag.start)+text.slice(tag.start+1):text,String(reply.text??''));
+      lines.push(...text.split('\n').map((line,i)=>indent+(i?'  ':(reply.authorName||personName(reply.authorId))+': ')+line));
       append(reply.replies||[],depth+1);
     }
   };

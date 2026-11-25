@@ -40,7 +40,7 @@ export function notepadCanRead(note: Pick<NotepadNote, 'authorId' | 'audience'>,
   return person.active && (note.authorId === person.id || note.audience.all || note.audience.people.includes(person.id) || person.roles.some(role => note.audience.roles.includes(role)));
 }
 export function notepadAudienceWithPeople(audience: NotepadAudience, ids: readonly string[]): NotepadAudience {
-  if (audience.all || !ids.length) return audience;
+  if (!ids.length) return audience;
   return { ...audience, people:[...new Set([...audience.people,...ids])].sort() };
 }
 /** Drop server metadata and signed URLs before saving. */

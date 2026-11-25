@@ -83,11 +83,11 @@ test('new structured person tags add eligible recipients for creators and collab
  const body={...base,document:{...document(),content}};
  const saved=await f.route.PUT(request(body));
  assert.equal(saved.status,200);
- assert.deepEqual(JSON.parse(JSON.stringify(saved.body.taggedPeople)),[tagged]);
- assert.deepEqual(saved.body.note.audience.people,[tagged]);
+ assert.deepEqual(JSON.parse(JSON.stringify(saved.body.taggedPeople)),[owner,tagged]);
+ assert.deepEqual(saved.body.note.audience.people,[owner,tagged]);
  assert.deepEqual(saved.body.note.audience.roles,prior.audience.roles);
  const savedRPC=f.calls.filter(([key])=>key==='cmpri_save_notepad').at(-1)[1];
- assert.deepEqual(JSON.parse(JSON.stringify(savedRPC.p_tagged_people)),[tagged]);
+ assert.deepEqual(JSON.parse(JSON.stringify(savedRPC.p_tagged_people)),[owner,tagged]);
  assert.equal(savedRPC.p_actor,actor);
  assert.equal((await f.route.PUT(request({...base,document:{...body.document,audience:{all:true,people:[],roles:[]}}}))).status,403);
  assert.equal((await f.route.PUT(request({...base,document:{...body.document,audience:{...prior.audience,people:[tagged]}}}))).status,403);
@@ -96,8 +96,8 @@ test('new structured person tags add eligible recipients for creators and collab
  f.state.rows=[{id,revision:4,author_user_id:owner,change_id:change}];
  const replay=await f.route.PUT(request(body));
  assert.equal(replay.status,200);
- assert.deepEqual(replay.body.note.audience.people,[tagged]);
- assert.deepEqual(JSON.parse(JSON.stringify(replay.body.taggedPeople)),[tagged]);
+ assert.deepEqual(replay.body.note.audience.people,[owner,tagged]);
+ assert.deepEqual(JSON.parse(JSON.stringify(replay.body.taggedPeople)),[owner,tagged]);
 
  const revoked={...prior,content,revision:5};
  f.state.notes=[revoked];f.state.rows=[{id,revision:5,author_user_id:owner,change_id:owner}];
@@ -110,6 +110,24 @@ test('new structured person tags add eligible recipients for creators and collab
  f.state.rows=[{id,revision:3,author_user_id:actor,change_id:owner}];
  const privateEdit=await f.route.PUT(request({...base,document:{...document(),audience:{all:false,roles:[],people:[]},content:'<p>'+chip(tagged,'Taylor Quinn')+'</p>'}}));
  assert.equal(privateEdit.status,200); assert.deepEqual(privateEdit.body.note.audience.people,[tagged]);
+});
+test('explicit tags coexist with All Roles and selecting oneself persists over a retry',async()=>{
+ const f=fixture(),tagged='00000000-0000-4000-8000-000000000020';
+ f.state.people=[{id:actor,name:'Sam Chen',active:true,taggable:true},{id:tagged,name:'Taylor Quinn',active:true,taggable:true}];
+ const audience={all:true,people:[],roles:[]},prior={...document(),id,authorId:actor,revision:3,createdAt:at,updatedAt:at,audience};
+ f.state.notes=[prior];f.state.rows=[{id,revision:3,author_user_id:actor,change_id:owner}];
+ const chip=(id,name)=>'<span class="mention" contenteditable="false" data-mention-kind="person" data-mention-id="'+id+'">@'+name+'</span>';
+ const edit={...document(),audience,content:'<p>'+chip(actor,'Sam Chen')+' '+chip(tagged,'Taylor Quinn')+'</p>'};
+ const operation={...f.body(),expectedRevision:3,document:edit};
+ const saved=await f.route.PUT(request(operation));
+ assert.equal(saved.status,200);
+ assert.deepEqual(saved.body.note.audience,{...audience,people:[actor,tagged]});
+ assert.deepEqual(JSON.parse(JSON.stringify(saved.body.taggedPeople)),[actor,tagged]);
+ f.state.notes=[{...saved.body.note,revision:4}];f.state.rows=[{id,revision:4,author_user_id:actor,change_id:change}];
+ const replay=await f.route.PUT(request(operation));
+ assert.equal(replay.status,200);
+ assert.deepEqual(replay.body.note.audience,saved.body.note.audience);
+ assert.deepEqual(JSON.parse(JSON.stringify(replay.body.taggedPeople)),[actor,tagged]);
 });
 test('only explicitly recorded reply tags can grant access, including in nested replies',async()=>{
  const f=fixture(),tagged='00000000-0000-4000-8000-000000000024';

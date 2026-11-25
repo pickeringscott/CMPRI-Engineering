@@ -34,7 +34,7 @@
   }
 
   function attach(options) {
-    const { container, pickerRoot, getNote, getNoteById, onChange, badge, request, onError, isNoteAvailable } = options || {};
+    const { container, getNote, getNoteById, onChange, badge, request, onError, isNoteAvailable } = options || {};
     const filesTrigger = container?.querySelector('[data-notepad-attachments-trigger]');
     const gifTrigger = container?.querySelector('[data-notepad-gif-trigger]');
     const cameraTrigger = container?.querySelector('[data-notepad-camera-trigger]');
@@ -152,60 +152,9 @@
         }
       });
     }
-    function clearGifHover(session) {
-      if (!session.hover) return;
-      clearTimeout(session.hover.timer);
-      session.hover.preview?.remove();
-      session.hover = null;
-    }
-    function showGifHover(session, hover) {
-      if (destroyed || gif !== session || session.closing || hover !== session.hover || !hover.tile.isConnected || !sameNote(session.note)) return;
-      const item = session.gifs.find(row => row.id === hover.tile.dataset.attachmentGif);
-      if (!item) return;
-      const grid = session.grid.getBoundingClientRect();
-      const picker = session.node.getBoundingClientRect();
-      const tile = hover.tile.getBoundingClientRect();
-      const maxWidth = Math.min(tile.width * 3, session.grid.clientWidth);
-      const maxHeight = Math.min(tile.height * 3, session.grid.clientHeight);
-      if (!maxWidth || !maxHeight) return;
-      const ratio = Number(item.original.width) / Number(item.original.height);
-      const aspect = Number.isFinite(ratio) && ratio > 0 ? ratio : tile.width / tile.height;
-      const width = Math.min(maxWidth, maxHeight * aspect);
-      const height = width / aspect;
-      const left = Math.max(grid.left, Math.min(grid.left + session.grid.clientWidth - width, hover.x - width / 2));
-      const top = Math.max(grid.top, Math.min(grid.top + session.grid.clientHeight - height, hover.y - height / 2));
-      const preview = document.createElement('button');
-      preview.type = 'button';
-      preview.className = 'staff-gif-preview';
-      preview.dataset.attachmentGifPreview = item.id;
-      preview.tabIndex = -1;
-      preview.setAttribute('aria-hidden', 'true');
-      Object.assign(preview.style, { left: (left - picker.left) + 'px', top: (top - picker.top) + 'px', width: width + 'px', height: height + 'px' });
-      const image = document.createElement('img');
-      image.alt = '';
-      image.addEventListener('error', () => { image.src = item.preview.url; }, { once: true });
-      image.src = item.original.url;
-      preview.append(image);
-      hover.preview = preview;
-      session.grid.append(preview);
-    }
-    function trackGifHover(session, event) {
-      if (session.closing || event.pointerType === 'touch' || event.buttons) return;
-      const previous = session.hover;
-      if (previous?.preview?.contains(event.target)) return;
-      const tile = event.target.closest('[data-attachment-gif]');
-      const { clientX: x, clientY: y } = event;
-      if (previous && tile === previous.tile && x === previous.x && y === previous.y) return;
-      clearGifHover(session);
-      if (!tile) return;
-      const hover = { tile, x, y, timer: null, preview: null };
-      session.hover = hover;
-      hover.timer = setTimeout(() => showGifHover(session, hover), 750);
-    }
     function renderGifResults(session) {
-      clearGifHover(session);
       session.node.querySelector('.staff-gif-results').innerHTML = session.gifs.length
-        ? session.gifs.map(item => '<button type="button" data-attachment-gif="' + escapeHTML(item.id) + '" aria-label="Select ' + escapeHTML(item.title) + '"><img src="' + escapeHTML(item.preview.url) + '" alt="" loading="lazy"></button>').join('')
+        ? session.gifs.map(item => '<button type="button" data-attachment-gif="' + escapeHTML(item.id) + '" aria-label="Select ' + escapeHTML(item.title) + '"><img src="' + escapeHTML(item.preview.url) + '" alt="' + escapeHTML(item.title) + '" width="' + (Number(item.preview.width) || 200) + '" height="' + (Number(item.preview.height) || 150) + '" loading="lazy"></button>').join('')
         : '';
     }
     async function loadGifs(session, append = false) {
@@ -243,37 +192,40 @@
       // Debounce only a user edit. No polling or background provider requests.
       session.timer = setTimeout(() => { session.timer = null; void loadGifs(session); }, session.query ? 300 : 0);
     }
+    function positionGifOrigin(session) {
+      const { node, anchor, origin } = session;
+      const rect = anchor.isConnected ? anchor.getBoundingClientRect() : origin;
+      const transform = node.style.transform;
+      node.style.transform = 'none';
+      const panel = node.getBoundingClientRect();
+      node.style.transformOrigin = (rect.left + rect.width / 2 - panel.left) + 'px ' + (rect.top + rect.height / 2 - panel.top) + 'px';
+      node.style.transform = transform;
+    }
     function openGif(anchor, note) {
-      if (gif || destroyed || !pickerRoot?.isConnected || !note || !sameNote(note)) return;
+      if (gif || destroyed || !anchor.isConnected || !sameNote(note)) return;
       const node = document.createElement('dialog');
-      node.className = 'staff-giphy-picker attachment-giphy-dialog note-giphy-picker';
+      node.className = 'staff-giphy-picker attachment-giphy-dialog';
       node.setAttribute('aria-label', 'GIPHY picker');
       const badgeURL = typeof badge === 'string' && (/^data:image\//i.test(badge) || badge === '/Poweredby_100px_Badge.gif') ? badge : '';
-      const credit = '<a class="staff-giphy-credit" href="https://giphy.com/" target="_blank" rel="noopener noreferrer" aria-label="Powered by GIPHY">' + (badgeURL ? '<img src="' + escapeHTML(badgeURL) + '" alt="" width="24" height="34">' : '<span>GIPHY</span>') + '</a>';
-      node.innerHTML = '<div class="staff-gif-search"><input aria-label="Search GIPHY" type="search" placeholder="Search GIPHY" maxlength="50" autocomplete="off">' + credit + '<button type="button" data-attachment-close-gif aria-label="Close GIF picker">×</button></div><p class="giphy-status" role="status"></p><div class="staff-gif-grid"><div class="staff-gif-results"></div></div>';
+      const credit = '<a class="staff-giphy-credit" href="https://giphy.com/" target="_blank" rel="noopener noreferrer" aria-label="Powered by GIPHY">' + (badgeURL ? '<img src="' + escapeHTML(badgeURL) + '" alt="Powered by GIPHY" width="40" height="57">' : '<span>GIPHY</span>') + '</a>';
+      node.innerHTML = '<div class="staff-gif-search"><input aria-label="Search GIPHY" type="search" placeholder="Search GIPHY" maxlength="50" autocomplete="off"><button type="button" data-attachment-close-gif aria-label="Close GIF picker">×</button></div><p class="giphy-status" role="status"></p><div class="staff-gif-grid"><div class="staff-gif-results"></div></div>' + credit;
       const grid = node.querySelector('.staff-gif-grid');
-      gif = { node, grid, anchor, note, closing: false, closePromise: null, selecting: false, query: '', gifs: [], offset: 0, total: 0, loading: false, version: 0, timer: null, hover: null };
+      gif = { node, anchor, origin: anchor.getBoundingClientRect(), note, closing: false, closePromise: null, selecting: false, query: '', gifs: [], offset: 0, total: 0, loading: false, version: 0, timer: null };
       const session = gif;
-      pickerRoot.append(node);
+      document.body.append(node);
+      node.addEventListener('cancel', event => { event.preventDefault(); event.stopPropagation(); closeGif(); });
       node.addEventListener('click', event => {
         const closeButton = event.target.closest('[data-attachment-close-gif]');
-        const result = event.target.closest('[data-attachment-gif], [data-attachment-gif-preview]');
+        const result = event.target.closest('[data-attachment-gif]');
         if (closeButton) { event.stopPropagation(); closeGif(); }
-        else if (result) { event.stopPropagation(); selectGif(session, result.dataset.attachmentGif ?? result.dataset.attachmentGifPreview); }
+        else if (result) { event.stopPropagation(); selectGif(session, result.dataset.attachmentGif); }
       });
       node.querySelector('input').addEventListener('input', event => searchGifs(session, event.target.value));
-      grid.addEventListener('pointerover', event => trackGifHover(session, event));
-      grid.addEventListener('pointermove', event => trackGifHover(session, event));
-      grid.addEventListener('pointerout', event => {
-        const hover = session.hover;
-        if (hover && !(hover.preview || hover.tile).contains(event.relatedTarget)) clearGifHover(session);
-      });
-      grid.addEventListener('pointerdown', () => { if (!session.hover?.preview) clearGifHover(session); });
       grid.addEventListener('scroll', () => {
-        clearGifHover(session);
         if (!session.loading && session.offset < session.total && grid.scrollHeight - grid.scrollTop - grid.clientHeight < 100) void loadGifs(session, true);
       });
-      node.open = true;
+      try { node.showModal(); } catch (_) { gif = null; node.remove(); return; }
+      positionGifOrigin(session);
       node.style.transform = 'scale(.035)';
       node.style.opacity = '0';
       focus(node.querySelector('input'));
@@ -286,6 +238,7 @@
       const finish = () => {
         if (gif !== session) return;
         stopAnimation(session.node);
+        if (session.node.open) session.node.close();
         session.node.remove();
         gif = null;
         if (restoreFocus && sameNote(session.note)) focus(session.anchor);
@@ -297,7 +250,6 @@
       session.closing = true;
       session.version++;
       clearTimeout(session.timer);
-      clearGifHover(session);
       session.node.style.pointerEvents = 'none';
       if (immediate) { finish(); return Promise.resolve(); }
       session.closePromise = animate(session.node, false).then(finish);
@@ -597,9 +549,16 @@
       else openGif(gifTrigger, currentNote());
     }
     function onPointerDown(event) {
-      if (!gif || gif.node.contains(event.target) || gifTrigger.contains(event.target)) return;
-      void closeGif({ restoreFocus: false, immediate: !sameNote(gif.note) });
+      if (!gif) return;
+      if (!sameNote(gif.note)) { void closeGif({ restoreFocus: false, immediate: true }); return; }
+      if (event.target !== gif.node) return;
+      const rect = gif.node.getBoundingClientRect();
+      if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) {
+        event.preventDefault();
+        void closeGif();
+      }
     }
+    function onResize() { if (gif && !gif.closing) positionGifOrigin(gif); }
     function onKeyDown(event) {
       if (!(gif || camera || viewer) || event.key !== 'Escape') return;
       event.preventDefault();
@@ -629,6 +588,7 @@
       for (const animation of animations.values()) animation.cancel();
       animations.clear();
       window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('resize', onResize);
       for (const input of [fileInput, cameraInput]) {
         input.removeEventListener('change', filesChanged);
         input.removeEventListener('cancel', filesCanceled);
@@ -648,6 +608,7 @@
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('resize', onResize);
     return { destroy, close, openAttachment, uploading: () => uploads > 0, isInteracting: () => !destroyed && !!(gif || camera || pendingFiles || viewer) };
   }
 

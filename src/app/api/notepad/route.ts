@@ -51,21 +51,19 @@ export async function PUT(request:NextRequest) {
       if(previous&&previous.authorId!==actor&&(document.title!==previous.title||document.titleFontFamily!==(previous.titleFontFamily||'Comic Sans MS')))return response({error:'Only the creator can edit the note title or its font.'},403);
       if(previous&&previous.authorId!==actor&&!replay&&!sameAudience(document.audience,previous.audience))return response({error:'Only the creator can change sharing.'},403);
       for(const id of document.audience.people)if(!previous?.audience.people.includes(id)&&!state.people.some(p=>p.id===id&&p.active&&p.taggable&&p.recipientSelectable!==false))return response({error:'A selected recipient is no longer available.'},400);
-      if(!document.audience.all){
-        const explicit=new Set(document.audience.people), owner=previous?.authorId||actor;
-        if(replay&&previous){
-          // Restore the canonical result for an acknowledgement lost after the
-          // commit. SQL still requires the entire result to equal that mutation.
-          const tags=notepadPersonTagCounts(document);
-          taggedPeople=previous.audience.people.filter(id=>!explicit.has(id)&&id!==owner&&tags.has(id));
-        }else{
-          const tags=notepadPersonTagCounts(document,state.people);
-          const olderTags=earlier?notepadPersonTagCounts(earlier,state.people):new Map<string,number>();
-          taggedPeople=[...tags].filter(([id,total])=>id!==owner&&!explicit.has(id)&&total>(olderTags.get(id)||0)).map(([id])=>id);
-        }
-        if(document.audience.people.length+taggedPeople.length>500)return response({error:'The note can be shared with at most 500 individual recipients.'},400);
-        document.audience=notepadAudienceWithPeople(document.audience,taggedPeople);
+      const explicit=new Set(document.audience.people);
+      if(replay&&previous){
+        // Restore the canonical result for an acknowledgement lost after the
+        // commit. SQL still requires the entire result to equal that mutation.
+        const tags=notepadPersonTagCounts(document);
+        taggedPeople=previous.audience.people.filter(id=>!explicit.has(id)&&tags.has(id));
+      }else{
+        const tags=notepadPersonTagCounts(document,state.people);
+        const olderTags=earlier?notepadPersonTagCounts(earlier,state.people):new Map<string,number>();
+        taggedPeople=[...tags].filter(([id,total])=>!explicit.has(id)&&total>(olderTags.get(id)||0)).map(([id])=>id).sort();
       }
+      if(document.audience.people.length+taggedPeople.length>500)return response({error:'The note can be shared with at most 500 individual recipients.'},400);
+      document.audience=notepadAudienceWithPeople(document.audience,taggedPeople);
       if(replay&&previous&&previous.authorId!==actor&&!sameAudience(document.audience,previous.audience))return response({error:'Only the creator can change sharing.'},403);
       const added=document.attachments.filter(file=>file.kind==='file'&&!previous?.attachments.some(old=>old.id===file.id));
       if(added.length>20)return response({error:'Attach at most 20 new files at a time.'},400);

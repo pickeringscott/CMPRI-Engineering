@@ -27,6 +27,7 @@ function isTaggableAccount(account) {
   const status=String(account.status||'').trim().toLowerCase();
   return account.taggable!==false && account.active!==false && account.is_active!==false && account.isActive!==false && !account.deactivated && !account.deactivated_at && !account.deactivatedAt && !['inactive','deactivated','disabled'].includes(status) && !excludedTagEmails.has(email);
 }
+const isSelectableRecipient=account=>isTaggableAccount(account)&&account.recipientSelectable!==false;
 const clone = value => JSON.parse(JSON.stringify(value));
 const personById = id => people.find(p => p.id === id) || {id,name:'Former user',short:'Former user',roles:[]};
 const priorityNames = ['Low','Normal','High','Urgent'];
@@ -82,15 +83,37 @@ let inkController=null, popoverAnchor=null, selectionRange=null, toastTimer, men
 let recipientDraft=null, recipientSession=null, deleteSession=null, deleteGesture=null, titleEdit=null, isComposing=false;
 let formattingController=null, attachmentController=null, historyController=null, titleResizeObserver=null, paperResizeObserver=null, resizeGesture=null, paneWidths={desktop:220,mobile:110}, noteTransition=0, activeNoteTransition=0;
 const replyTargets={};
+const storedTagSelector='.mention[data-mention-kind]';
+function firstTagText(chip) {
+  return document.createTreeWalker(chip,NodeFilter.SHOW_TEXT).nextNode();
+}
 function sanitizeContent(html) {
   const template=document.createElement('template');template.innerHTML=String(html||'');
   template.content.querySelectorAll('script,style,iframe,object,embed,link,meta,img,video,audio,form').forEach(el=>el.remove());
   template.content.querySelectorAll('*').forEach(el=>Array.from(el.attributes).forEach(a=>{if(/^on/i.test(a.name)||['src','srcdoc','href'].includes(a.name))el.removeAttribute(a.name);}));
   template.content.querySelectorAll('.mention[data-mention-kind="location"]').forEach(chip=>{
-    const text=document.createTreeWalker(chip,NodeFilter.SHOW_TEXT).nextNode();
+    const text=firstTagText(chip);
     if(text?.data.startsWith('@'))text.deleteData(0,1);
   });
   return template.innerHTML;
+}
+// Keep the saved HTML format and remove the prefix only in the writing view.
+function displayTagLabels(root) {
+  for(const chip of $$(storedTagSelector,root)){
+    const text=firstTagText(chip);
+    if(text?.data.startsWith('@')){
+      text.deleteData(0,1);
+      chip.dataset.npTagPrefix='';
+    }
+  }
+}
+function restoreTagPrefixes(root) {
+  for(const chip of $$('[data-np-tag-prefix]',root)){
+    const text=firstTagText(chip);
+    if(text)text.insertData(0,'@');
+    else chip.prepend('@');
+    delete chip.dataset.npTagPrefix;
+  }
 }
 
 const actor=()=>personById(currentPerson);
@@ -102,11 +125,10 @@ function orderedNotes() {
   return notes.filter(canView).sort((a,b)=>{const ai=order.indexOf(a.id),bi=order.indexOf(b.id);return(ai<0?order.length+notes.indexOf(a):ai)-(bi<0?order.length+notes.indexOf(b):bi);});
 }
 function filteredNotes() {const term=query.trim().toLowerCase();return orderedNotes().filter(n=>(n.title+' '+plainContent(n)).toLowerCase().includes(term));}
-function plainContent(n) {const el=document.createElement('div');el.innerHTML=n.content.replace(/<\/(p|div|li)>/gi,' </$1>');return(el.textContent||'').replace(/\s+/g,' ').trim();}
+function plainContent(n) {const el=document.createElement('div');el.innerHTML=n.content.replace(/<\/(p|div|li)>/gi,' </$1>');displayTagLabels(el);return(el.textContent||'').replace(/\s+/g,' ').trim();}
 function audienceLabel(a) {
-  if(a.all)return 'All Roles';
-  if(!a.roles.length&&!a.people.length)return 'Just me';
-  const roleNames=a.roles.length===3&&['engineer','technician','system_admin'].every(role=>a.roles.includes(role))
+  if(!a.all&&!a.roles.length&&!a.people.length)return 'Just me';
+  const roleNames=a.all?['All Roles']:a.roles.length===3&&['engineer','technician','system_admin'].every(role=>a.roles.includes(role))
     ? ['Engineering'] : a.roles.map(r=>roles.find(item=>item.id===r)?.label||r);
   return [...a.people.map(p=>personById(p).short),...roleNames].join(', ');
 }
@@ -143,6 +165,7 @@ function syncEditor() {
   $$('.note-check input[type=checkbox]',el).forEach(box=>box.toggleAttribute('checked',box.checked));
   const clean=el.cloneNode(true);
   $$('.item-reply-actions,.item-thread,.task-completion,.task-stamp',clean).forEach(node=>node.remove());
+  restoreTagPrefixes(clean);
   n.content=clean.innerHTML;n.fontSize=parseInt(el.style.fontSize)||n.fontSize||16;
   save();
 }
@@ -229,6 +252,7 @@ function render() {
   const n=note();
   if(n) {
     textSize=n.fontSize||16;
+    displayTagLabels($('.note-content'));
     $$('.task-label').forEach(el=>el.contentEditable=String(mode==='text'));
     inkController=window.NotepadInk.attach({paper:$('.general-notes-paper'),textLayer:$('.note-content'),svg:$('.note-ink'),getNote:note,getMode:()=>mode,getColor:()=>inkColor,getWidth:()=>penWidth,onSave:changed=>{markEdited(changed);save();},onModeChange:next=>setMode(next)});
     normalizeSharedItems();
@@ -241,7 +265,7 @@ function render() {
       paperResizeObserver.observe($('.general-notes-scroll'));
     }
     const generation=accountGeneration;
-    attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),pickerRoot:$('.general-notes-workspace'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),onChange:changed=>{if(generation!==accountGeneration)return;markEdited(notes.find(n=>n.id===changed.noteId));save();if(changed.noteId===activeNote)$('.editor-attachments').innerHTML=attachmentMarkup(note());}});
+    attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),onChange:changed=>{if(generation!==accountGeneration)return;markEdited(notes.find(n=>n.id===changed.noteId));save();if(changed.noteId===activeNote)$('.editor-attachments').innerHTML=attachmentMarkup(note());}});
     $$('.note-check').forEach(updateTaskAccessibleLabel);
   }
   applyPaneWidth();save();
@@ -337,7 +361,7 @@ function recipientForm(a,purpose) {
   const roleLabel=p=>p.displayRole||roles.find(r=>r.id===p.role)?.label||roles.find(r=>p.roles?.includes(r.id))?.label||String(p.role||'').replace(/_/g,' ');
   const create=purpose==='new'?'<button class="recipient-submit recipient-create" type="submit">Create Note</button>':'';
   return '<div class="recipient-private-choice">'+pill('private','Just Me','',isPrivate)+create+'</div>'+
-    '<section class="recipient-section" aria-labelledby="recipient-people-heading"><h3 id="recipient-people-heading">Individual Names</h3><div class="recipient-options">'+people.filter(p=>isTaggableAccount(p)&&p.recipientSelectable!==false).map(p=>pill('person',p.name+' ('+roleLabel(p)+')',p.id)).join('')+'</div></section>'+
+    '<section class="recipient-section" aria-labelledby="recipient-people-heading"><h3 id="recipient-people-heading">Individual Names</h3><div class="recipient-options">'+people.filter(isSelectableRecipient).map(p=>pill('person',p.name+' ('+roleLabel(p)+')',p.id)).join('')+'</div></section>'+
     '<section class="recipient-section" aria-labelledby="recipient-roles-heading"><h3 id="recipient-roles-heading">Roles and Departments</h3><div class="recipient-options">'+pill('all','All Roles','',a.all)+pill('engineering','Engineering')+roles.map(r=>pill('role',r.label,r.id)).join('')+'</div></section>'+
     (purpose==='share'?'<div class="recipient-footer"><button class="recipient-submit" type="submit">Save recipients</button></div>':'');
 }
@@ -418,9 +442,9 @@ function updateRecipientChecks() {
 function changeRecipient(box) {
   const kind=box.dataset.recipient,a=recipientDraft;if(!a)return;
   if(kind==='private') {recipientDraft=privateAudience();}
-  else if(kind==='all') {recipientDraft={all:box.checked,roles:[],people:[]};}
+  else if(kind==='all') {recipientDraft={all:box.checked,roles:[],people:a.people};}
   else {
-    if(a.all) {a.all=false;a.roles=[];a.people=[];}
+    if(a.all&&kind!=='person') {a.all=false;a.roles=[];}
     const set=(array,value,checked)=>checked?(array.includes(value)?array:array.concat(value)):array.filter(v=>v!==value);
     if(kind==='engineering')for(const id of ['engineer','technician','system_admin'])a.roles=set(a.roles,id,box.checked);
     if(kind==='role')a.roles=set(a.roles,box.value,box.checked);
@@ -451,7 +475,7 @@ function finishRecipients() {
 }
 function isShared(n=note()) {return !!(n&&(n.audience.all||n.audience.roles.length||n.audience.people.length));}
 function includeTaggedPeople(audience,ids) {
-  if(audience.all||!ids.some(id=>!audience.people.includes(id)))return audience;
+  if(!ids.some(id=>!audience.people.includes(id)))return audience;
   return {...audience,people:[...new Set([...audience.people,...ids])].sort()};
 }
 function confirmTaggedPeople(note,ids) {
@@ -602,11 +626,19 @@ function toggleItemThread(id) {
   normalizeSharedItems();save();
 }
 function submitItemReply(form) {
-  const id=form.dataset.threadItem,n=note(),input=$('.reply-input',form),text=input.value.trim();
-  if(!n||!linkedItem(id)||!isShared(n)||!text)return;
+  const id=form.dataset.threadItem,n=note(),input=$('.reply-input',form),visibleText=input.value.trim();
+  if(!n||!linkedItem(id)||!isShared(n)||!visibleText)return;
   const leading=input.value.length-input.value.trimStart().length;
-  const mentions=updateReplyDraftTags(input).map(tag=>({...tag,start:tag.start-leading,end:tag.end-leading}));
-  const reply={id:uid('reply'),authorId:currentPerson,at:new Date().toISOString(),text,mentions,replies:[]};
+  let text='',offset=0;
+  const mentions=updateReplyDraftTags(input).map(tag=>{
+    const start=tag.start-leading,end=tag.end-leading;
+    text+=visibleText.slice(offset,start);
+    const savedStart=text.length;
+    text+='@'+visibleText.slice(start,end);
+    offset=end;
+    return {...tag,start:savedStart,end:text.length};
+  });
+  const reply={id:uid('reply'),authorId:currentPerson,at:new Date().toISOString(),text:text+visibleText.slice(offset),mentions,replies:[]};
   markEdited(n);
   n.itemThreads[id] ||= [];
   const targetId=replyTargets[n.id+':'+id],target=targetId?findReply(n.itemThreads[id],targetId):null;
@@ -630,7 +662,7 @@ function completeTask(box) {
 let mentionChoices=[];
 function refreshMentionChoices() {
   mentionChoices=[
-    ...people.filter(isTaggableAccount).map(p=>({id:p.id,label:p.name,kind:'person',detail:p.displayRole||p.role})),
+    ...people.filter(isSelectableRecipient).map(p=>({id:p.id,label:p.name,kind:'person',detail:p.displayRole||p.role})),
     {id:'engineering',label:'Engineering',kind:'department',detail:'Chief Engineer + technician'},
     {id:'all',label:'All Roles',kind:'role',detail:'Everyone'},
     ...roles.map(r=>({id:r.id,label:r.label,kind:'role',detail:'Role'})),
@@ -650,7 +682,7 @@ function detectMention() {
 }
 function renderMentions() {
   const s=mentionSession;if(!s)return;
-  $('#mention-layer').innerHTML='<div class="mention-popover" role="listbox" aria-label="Mention a person or role">'+s.choices.map((c,i)=>'<button class="mention-option" id="mention-option-'+i+'" data-mention-choice="'+i+'" role="option" aria-selected="'+(i===s.index)+'"><strong>@'+escape(c.label)+'</strong><small>'+escape(c.detail)+'</small></button>').join('')+'</div>';
+  $('#mention-layer').innerHTML='<div class="mention-popover" role="listbox" aria-label="Mention a person or role">'+s.choices.map((c,i)=>'<button class="mention-option" id="mention-option-'+i+'" data-mention-choice="'+i+'" role="option" aria-selected="'+(i===s.index)+'"><strong>'+escape(c.label)+'</strong><small>'+escape(c.detail)+'</small></button>').join('')+'</div>';
   const el=$('.mention-popover'),rect=s.input?s.input.getBoundingClientRect():s.range.getBoundingClientRect(),area=$('.note-content').getBoundingClientRect();
   const left=rect.width||rect.height?rect.left:area.left+4,top=rect.height?rect.bottom:area.top+22;
   el.style.left=Math.max(5,Math.min(innerWidth-el.offsetWidth-5,left))+'px';el.style.top=Math.max(5,Math.min(innerHeight-el.offsetHeight-5,top+2))+'px';
@@ -659,7 +691,7 @@ function renderMentions() {
 function insertMention(index) {
   const s=mentionSession,c=s?.choices[index];if(!c)return;
   if(s.input) {
-    const input=s.input,value='@'+c.label+' ';
+    const input=s.input,value=c.label+' ';
     const tags=shiftReplyTags(updateReplyDraftTags(input),s.start,s.end,value.length-(s.end-s.start));
     input.value=input.value.slice(0,s.start)+value+input.value.slice(s.end);
     tags.push({id:c.id,kind:c.kind,start:s.start,end:s.start+value.length-1});
@@ -668,7 +700,7 @@ function insertMention(index) {
     input.focus();input.setSelectionRange(s.start+value.length,s.start+value.length);sizeReplyInput(input);closeMentions();return;
   }
   markEdited();
-  const range=s.range;range.deleteContents();const chip=document.createElement('span');chip.className='mention';chip.setAttribute('contenteditable','false');chip.dataset.mentionId=c.id;chip.dataset.mentionKind=c.kind;chip.textContent='@'+c.label;range.insertNode(chip);
+  const range=s.range;range.deleteContents();const chip=document.createElement('span');chip.className='mention';chip.setAttribute('contenteditable','false');chip.dataset.mentionId=c.id;chip.dataset.mentionKind=c.kind;chip.dataset.npTagPrefix='';chip.textContent=c.label;range.insertNode(chip);
   const space=document.createTextNode('\u00a0');chip.after(space);range.setStartAfter(space);range.collapse(true);const sel=getSelection();sel.removeAllRanges();sel.addRange(range);selectionRange=range.cloneRange();closeMentions();normalizeSharedItems();syncEditor();
 }
 function moveNote(id,targetId,after=false) {
@@ -694,16 +726,12 @@ function replyText({text,mentions}) {
   if(Array.isArray(mentions)){
     let start=0,result='';
     for(const tag of mentions){
-      result+=escape(text.slice(start,tag.start))+'<span class="mention" data-mention-kind="'+escape(tag.kind)+'" data-mention-id="'+escape(tag.id)+'">'+escape(text.slice(tag.start,tag.end))+'</span>';
+      result+=escape(text.slice(start,tag.start))+'<span class="mention" data-mention-kind="'+escape(tag.kind)+'" data-mention-id="'+escape(tag.id)+'">'+escape(text.slice(tag.start,tag.end).replace(/^@/,''))+'</span>';
       start=tag.end;
     }
     return result+escape(text.slice(start));
   }
-  // Older replies stored only their plain text; preserve their display without
-  // treating their inferred highlights as confirmed recipient selections.
-  const candidates=mentionChoices.slice().sort((a,b)=>b.label.length-a.label.length);
-  const pattern=new RegExp('(@(?:'+candidates.map(c=>c.label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|')+'))','g');
-  return String(text).split(pattern).map(part=>part.startsWith('@')&&candidates.some(c=>'@'+c.label===part)?'<span class="mention">'+escape(part)+'</span>':escape(part)).join('');
+  return escape(text);
 }
 
 function detectReplyMention(input) {

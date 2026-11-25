@@ -20,8 +20,7 @@ function setup(request,extraOptions={}){
  const original={id:uuid(1),attachments:[]},other={id:uuid(2),attachments:[]};let current=original;
  const container=window.document.querySelector('.dock');container.innerHTML=window.NotepadAttachments.html();
  const changes=[],errors=[],available=new Set([original.id,other.id]);
- const pickerRoot=window.document.querySelector('.general-notes-body');
- const controller=window.NotepadAttachments.attach({container,pickerRoot,getNote:()=>current,request,onChange:value=>changes.push(value),onError:value=>errors.push(value),isNoteAvailable:id=>available.has(id),badge:'/Poweredby_100px_Badge.gif',...extraOptions});
+ const controller=window.NotepadAttachments.attach({container,getNote:()=>current,request,onChange:value=>changes.push(value),onError:value=>errors.push(value),isNoteAvailable:id=>available.has(id),badge:'/Poweredby_100px_Badge.gif',...extraOptions});
  const click=selector=>{const target=window.document.querySelector(selector);assert.ok(target,selector);target.click()};
  return {dom,window,original,other,changes,errors,available,controller,click,timers,setNote:note=>{current=note},runTimers(){for(const [id,{fn}] of [...timers]){timers.delete(id);fn()}},cleanup(){controller.destroy();dom.window.close()}};
 }
@@ -30,7 +29,7 @@ test('GIPHY loads only when opened, ignores stale searches, and saves the provid
  try{
   assert.equal(calls.length,0);
   s.click('[data-notepad-gif-trigger]');assert.equal(calls.length,1);assert.equal(calls[0].action,'giphy');assert.equal(calls[0].payload.query,'');
-  assert.equal(s.window.document.querySelector('[aria-label="GIPHY picker"]').parentElement.className,'general-notes-body');
+  assert.equal(s.window.document.querySelector('[aria-label="GIPHY picker"]').parentElement,s.window.document.body);
   const input=s.window.document.querySelector('[aria-label="Search GIPHY"]');
   input.value='old';input.dispatchEvent(new s.window.Event('input'));s.runTimers();
   input.value='new';input.dispatchEvent(new s.window.Event('input'));s.runTimers();
@@ -44,36 +43,28 @@ test('GIPHY loads only when opened, ignores stale searches, and saves the provid
   assert.equal(s.original.attachments[0].url,undefined);assert.equal(s.original.attachments[0].localOnly,undefined);assert.equal(s.changes.length,1);
  }finally{s.cleanup()}
 });
-test('GIPHY waits 750 ms of stationary hover, cancels on exit, and attaches the expanded GIF on click',async()=>{
- const s=setup(async()=>({gifs:[{...gif('portrait'),original:{url:'https://media.giphy.com/portrait-full.gif',width:200,height:360}}],total:1}));
+test('GIPHY preserves native image dimensions, tile selection, and centered-dialog dismissal without a hover preview',async()=>{
+ const portrait={...gif('portrait'),preview:{url:'https://media.giphy.com/portrait.gif',width:125,height:225}};
+ const s=setup(async()=>({gifs:[portrait],total:1}));
  try{
   s.click('[data-notepad-gif-trigger]');await tick();
   const {document,MouseEvent}=s.window;
-  const panel=document.querySelector('.note-giphy-picker'),grid=panel.querySelector('.staff-gif-grid'),tile=grid.querySelector('[data-attachment-gif]');
-  const boxes=[{left:10,top:20,width:640,height:490},{left:10,top:65,width:640,height:445},{left:10,top:65,width:100,height:75}];
-  for(const [index,node] of [panel,grid,tile].entries())node.getBoundingClientRect=()=>boxes[index];
-  Object.defineProperties(grid,{clientWidth:{value:640},clientHeight:{value:445}});
-  const move=(type,x,relatedTarget=null)=>tile.dispatchEvent(new MouseEvent(type,{bubbles:true,clientX:x,clientY:90,relatedTarget}));
-  move('pointerover',30);
-  const first=Array.from(s.timers.keys())[0];
-  assert.equal(s.timers.get(first).delay,750);
-  move('pointermove',30);
-  assert.equal(s.timers.has(first),true,'A duplicate pointer position does not restart the timer');
-  move('pointermove',31);
-  assert.equal(s.timers.has(first),false);
-  assert.deepEqual([...s.timers.values()].map(({delay})=>delay),[750]);
-  move('pointerout',31,panel.querySelector('input'));s.runTimers();
-  assert.equal(grid.querySelector('.staff-gif-preview'),null);
-  move('pointerover',32);s.runTimers();
-  const preview=grid.querySelector('.staff-gif-preview');
-  assert.equal(preview.querySelector('img').src,'https://media.giphy.com/portrait-full.gif');
-  assert.equal(preview.style.width,'125px');assert.equal(preview.style.height,'225px');
-  assert.equal(grid.querySelector('.staff-gif-results').children.length,1);
-  move('pointerout',32,preview);
-  assert.equal(preview.isConnected,true,'Covering the tile with its preview does not dismiss it');
-  preview.click();await tick();
+  const panel=document.querySelector('.staff-giphy-picker'),tile=panel.querySelector('[data-attachment-gif]');
+  const image=tile.querySelector('img');
+  assert.equal(panel.open,true);
+  assert.equal(panel.lastElementChild.className,'staff-giphy-credit');
+  assert.equal(image.src,portrait.preview.url);
+  assert.equal(image.width,125);assert.equal(image.height,225);
+  tile.dispatchEvent(new MouseEvent('pointerover',{bubbles:true,clientX:30,clientY:90}));
+  assert.equal(s.timers.size,0);
+  assert.equal(panel.querySelectorAll('[data-attachment-gif]').length,1);
+  panel.getBoundingClientRect=()=>({left:10,top:20,right:650,bottom:460});
+  panel.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true,clientX:5,clientY:5}));await tick();
+  assert.equal(panel.isConnected,false);
+  assert.equal(document.activeElement,document.querySelector('[data-notepad-gif-trigger]'));
+  s.click('[data-notepad-gif-trigger]');await tick();
+  s.click('[data-attachment-gif]');await tick();
   assert.equal(s.original.attachments[0].gifId,'portrait');
-  assert.equal(preview.isConnected,false);
   assert.equal(document.activeElement,document.querySelector('[data-notepad-gif-trigger]'));
  }finally{s.cleanup()}
 });

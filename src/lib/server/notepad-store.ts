@@ -42,8 +42,8 @@ export async function notepadDirectory(admin: SupabaseClient,hotelId: string) {
     const name=p.full_name?.trim()||p.role||'Staff',parts=name.split(/\s+/);
     const active=p.active===true&&members.data!.some(m=>m.user_id===p.id&&m.active);
     const taggable=active&&!NOTEPAD_TEST_EMAILS.has((p.email||'').trim().toLowerCase());
-    // Hide the duplicate administrative identity only from individual sharing.
-    // Keep it in the directory for existing authors, mentions, and role access.
+    // Keep the duplicate administrative identity for existing authors, tags and
+    // role access. Omit it from new person tags and individual recipient choices.
     const duplicateAdmin=name.replace(/\s+/g,' ').toLowerCase()==='scott pickering'&&profileHasRole(p,'system_admin')&&!isMaintenanceChiefDisplay(p);
     return{id:p.id,name,short:parts[0],initials:parts.map(part=>part[0]).slice(0,2).join('').toUpperCase(),role:p.role,displayRole:accountRoleDisplayName(p),roles:NOTEPAD_ROLES.filter(r=>profileHasRole(p,r.id)).map(r=>r.id),active,taggable,recipientSelectable:taggable&&!duplicateAdmin} satisfies NotepadPerson;
   }).sort((a,b)=>a.name.localeCompare(b.name));
