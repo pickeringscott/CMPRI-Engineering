@@ -18,14 +18,14 @@ function styles(raw: string) {
     const key = part.slice(0, at).trim().toLowerCase(), value = part.slice(at + 1).trim();
     if (/url\s*\(|expression\s*\(|[<>\\{}]/i.test(value)) return '';
     const valid = (key === 'font-family' && /^[\p{L}\p{N}\s,"'._()+&/\-]{1,300}$/u.test(value))
-      || (key === 'font-size' && /^(?:[6-9]|[1-8]\d|9[0-6])(?:\.\d+)?px$/.test(value))
+      || ((key === 'font-size' || key === '--np-marker-size') && /^(?:[6-9]|[1-8]\d|9[0-6])(?:\.\d+)?px$/.test(value))
       || ((key === 'color' || key === 'background-color') && color(value))
       || (key === 'font-weight' && /^(normal|bold|[1-9]00)$/.test(value))
       || (key === 'font-style' && /^(normal|italic|oblique)$/.test(value))
       || (key === 'text-decoration' && /^(none|underline|line-through)( (underline|line-through))?$/.test(value))
       || (key === 'text-align' && /^(left|center|right|justify|start|end)$/.test(value))
       || (key === 'list-style-type' && /^(disc|circle|square|decimal|lower-alpha|upper-alpha|lower-roman|upper-roman|none)$/.test(value))
-      || ((key === 'margin-left' || key === 'margin-inline-start') && /^(0|0px|20px|24px|40px|48px)$/.test(value));
+      || ((key === 'margin-left' || key === 'margin-inline-start') && /^(0|20px|40px|\d{1,7}px)$/.test(value) && (['0','20px','40px'].includes(value) || parseInt(value,10)%24===0));
     return valid ? key + ':' + value : '';
   }).filter(Boolean).join(';');
 }
@@ -37,6 +37,14 @@ function elements(node: Node): Element[] {
   const result: Element[] = [];
   for (let child = node.firstChild; child; child = child.nextSibling) if (child.nodeType === 1) { result.push(child as Element); result.push(...elements(child)); }
   return result;
+}
+function firstText(node: Node): Node | null {
+  if (node.nodeType === 3 && node.nodeValue) return node;
+  for (let child = node.firstChild; child; child = child.nextSibling) {
+    const text = firstText(child);
+    if (text) return text;
+  }
+  return null;
 }
 function serialize(node: Node): string {
   if (node.nodeType === 3) return escape(node.nodeValue || '');
@@ -62,7 +70,15 @@ function serialize(node: Node): string {
   }
   return '<' + tag + (attrs.length ? ' ' + attrs.join(' ') : '') + '>' + (['input','br'].includes(tag) ? '' : children() + '</' + tag + '>');
 }
-export function sanitizeNotepadHTML(content: string): string { const root = parse(content); return Array.from(root.childNodes).map(serialize).join(''); }
+export function sanitizeNotepadHTML(content: string): string {
+  const root = parse(content);
+  for (const el of elements(root)) {
+    if (el.getAttribute('data-mention-kind') !== 'location' || !el.getAttribute('class')?.split(/\s+/).includes('mention')) continue;
+    const text = firstText(el);
+    if (text?.nodeValue?.startsWith('@')) text.nodeValue = text.nodeValue.slice(1);
+  }
+  return Array.from(root.childNodes).map(serialize).join('');
+}
 function checkedItems(content: string) {
   return new Map(elements(parse(content)).filter(el => el.getAttribute('class')?.split(/\s+/).includes('note-check')).map(el => {
     const checked = elements(el).some(child => child.tagName.toLowerCase() === 'input' && child.hasAttribute('checked'));
@@ -136,7 +152,7 @@ export function validateNotepadDocument(value: unknown, previous: NotepadDocumen
   for (const [id,thread] of Object.entries(value.itemThreads)) if (itemIds.has(id)) itemThreads[id] = replies(thread,0);
   // Deleting a checklist/list item deliberately drops its whole linked thread.
   const document: NotepadDocument = { title:value.title, audience:{all:a.all,roles:[...new Set(a.roles as string[])].sort(),people:[...new Set(a.people as string[])].sort()}, content,
-    priority:value.priority as NotepadDocument['priority'], fontSize:value.fontSize, fontFamily:font(value.fontFamily,'Comic Sans MS'),titleFontFamily:font(value.titleFontFamily,'Arial'), ink:ink(value.ink), itemThreads,attachments:attachments(value.attachments) };
+    priority:value.priority as NotepadDocument['priority'], fontSize:value.fontSize, fontFamily:font(value.fontFamily,'Comic Sans MS'),titleFontFamily:font(value.titleFontFamily,'Comic Sans MS'), ink:ink(value.ink), itemThreads,attachments:attachments(value.attachments) };
   if (value.untouchedDraft !== undefined || previous?.untouchedDraft !== undefined) {
     // Once edited, an empty note never becomes an untouched draft again. Older
     // clients may omit the flag; preserve it only while the document is unchanged.

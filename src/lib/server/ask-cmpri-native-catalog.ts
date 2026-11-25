@@ -657,7 +657,7 @@ export const ASK_NATIVE_OPERATIONS: readonly AskNativeOperation[] = Object.freez
   operation({
     key: "profile.update", domain: "profile", description: "Update your display name or native preferences.",
     method: "PATCH", path: "/api/profile",
-    inputContract: "JSON {full_name?:nonblank string<=200,preferences?:{language:en|es,appearance:light|dark,notification_mode:in_app|email|both,notifications:{new_work_orders:boolean,status_changes:boolean,mentions:boolean}},baseline?:{full_name,preferences}}. Supply at least full_name or preferences. Read and preserve the complete normalized preferences; baseline is the exact loaded prior snapshot. Native submit-only role notification normalization remains authoritative. This operation changes only the signed-in account.",
+    inputContract: "JSON {full_name?:nonblank string<=200,preferences?:{language:en|es,time_format?:12h|24h,appearance:light|dark,notification_mode:in_app|email|both,notifications:{new_work_orders:boolean,status_changes:boolean,mentions:boolean}},baseline?:{full_name,preferences}}. Supply at least full_name or preferences. Read and preserve the complete normalized preferences; baseline is the exact loaded prior snapshot. Native submit-only role notification normalization remains authoritative. This operation changes only the signed-in account.",
     run: async request => (await import("@/app/api/profile/route")).PATCH(request),
   }),
   operation({
@@ -898,6 +898,7 @@ export function askNativeOperation(key: string): AskNativeOperation | undefined 
 export const ASK_NATIVE_NON_OPERATIONS = Object.freeze([
   { path: "/api/notes", reason: "Retired personal Notes storage compatibility. All Ask reads and edits use the unified Notepad operations." },
   { path: "/api/notes/targets", reason: "Retired Notes directory. Use the active/taggable Notepad directory returned by notepad.read." },
+  { path: "/api/notepad/history", reason: "Revision diffs are shown in the authenticated Notepad editor." },
   { path: "/api/staff-notes", reason: "Legacy Staff Notes migration and inbox compatibility. Ask uses Notepad documents instead of editing stale legacy records." },
   { path: "/api/staff-notes/names", reason: "Legacy shared-login attribution compatibility; Notepad stamps its authenticated authors." },
   { path: "/api/staff-notes/uploads", reason: "Legacy file association compatibility. New Notepad originals use /api/notepad/uploads." },

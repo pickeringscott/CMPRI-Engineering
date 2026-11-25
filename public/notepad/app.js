@@ -32,7 +32,7 @@ const personById = id => people.find(p => p.id === id) || {id,name:'Former user'
 const priorityNames = ['Low','Normal','High','Urgent'];
 const priorityLabel = value => value==='Urgent'?'Urgent!':value;
 function titleFontFamily(n) {
-  const name=String(n.titleFontFamily||'Arial').replace(/[\u0000-\u001f\u007f]/g,'').slice(0,120);
+  const name=String(n.titleFontFamily||'Comic Sans MS').replace(/[\u0000-\u001f\u007f]/g,'').slice(0,120);
   return '"'+name.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'", "Comic Sans MS", cursive';
 }
 const urgentMark = n => '<span class="note-urgent" aria-hidden="true"'+(n.priority==='Urgent'?'':' hidden')+'><span class="note-urgent-crop"><img src="/notepad/urgent-button.jpg" width="2048" height="1143" alt="" draggable="false"></span></span>';
@@ -47,26 +47,49 @@ function sendHost(type,payload){if(bridgeToken&&parent!==window)parent.postMessa
 function hostRequest(action,payload){return new Promise((resolve,reject)=>{const requestId=crypto.randomUUID();requests.set(requestId,{resolve,reject});parent.postMessage({channel:'cmpri-notepad',token:bridgeToken,scope:bridgeScope,type:'request',requestId,action,payload},location.origin);});}
 const TIME_ZONE = 'America/Chicago';
 const uid = () => crypto.randomUUID();
-function dateParts(iso) {
-  return Object.fromEntries(new Intl.DateTimeFormat('en-US',{timeZone:TIME_ZONE,month:'2-digit',day:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(iso)).map(p=>[p.type,p.value]));
+let timeFormat='12h';
+const dateFormatters=Object.fromEntries(['12h','24h'].map(format=>{
+  const options={timeZone:TIME_ZONE,month:'short',day:'numeric',hour:format==='24h'?'2-digit':'numeric',minute:'2-digit',hourCycle:format==='24h'?'h23':'h12'};
+  return [format,{
+    sidebar:new Intl.DateTimeFormat('en-US',options),
+    full:new Intl.DateTimeFormat('en-US',{...options,year:'numeric',timeZoneName:'short'}),
+    compact:new Intl.DateTimeFormat('en-US',{...options,month:'2-digit',day:'2-digit'}),
+  }];
+}));
+function shortTime(iso,sidebar=false) {
+  const date=new Date(iso);
+  if(!Number.isFinite(date.getTime()))return '';
+  const p=Object.fromEntries(dateFormatters[timeFormat][sidebar?'sidebar':'compact'].formatToParts(date).map(({type,value})=>[type,value]));
+  return (sidebar?p.day+' '+p.month:p.month+'/'+p.day)+' '+p.hour+':'+p.minute+(p.dayPeriod?' '+p.dayPeriod:'');
 }
-function shortTime(iso) {const p=dateParts(iso);return p.month+'/'+p.day+' '+p.hour+':'+p.minute;}
-function fullTime(iso) {return new Intl.DateTimeFormat('en-US',{timeZone:TIME_ZONE,month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23',timeZoneName:'short'}).format(new Date(iso));}
-function mention(id,label,kind='person') {return '<span class="mention" contenteditable="false" data-mention-id="'+escape(id)+'" data-mention-kind="'+kind+'">@'+escape(label)+'</span>';}
+function fullTime(iso) {
+  const date=new Date(iso);
+  return Number.isFinite(date.getTime())?dateFormatters[timeFormat].full.format(date):'';
+}
+const timestamp=(iso,className='')=>'<time class="'+className+'" datetime="'+escape(iso)+'" title="'+escape(fullTime(iso))+'">'+shortTime(iso,className==='sidebar-creation')+'</time>';
+function updateTimeFormat(format) {
+  const active=personById(currentPerson);
+  timeFormat=format==='12h'||format==='24h'?format:(active.displayRole||active.role||'').toLowerCase().replace(/[\s_-]/g,'')==='chiefengineer'?'24h':'12h';
+  $$('time[datetime]').forEach(el=>{el.textContent=el.closest('.note-history')?fullTime(el.dateTime):shortTime(el.dateTime,el.matches('.sidebar-creation'));el.title=fullTime(el.dateTime);});
+}
 function taskHtml(text,id=uid('task'),completedBy='',completedAt='') {
   return '<div class="note-check" contenteditable="false" data-item-id="'+id+'" data-task-id="'+id+'"'+(completedBy?' data-completed-by="'+completedBy+'" data-completed-at="'+completedAt+'"':'')+'><input type="checkbox" aria-label="Mark task done"'+(completedBy?' checked':'')+'><span class="task-label" contenteditable="true" role="textbox" aria-label="Task text" spellcheck="true">'+text+'</span></div>';
 }
-const baseNote = (id,title,audience,content,extra={}) => ({id,title,audience,content,authorId:currentPerson,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),priority:'Normal',fontSize:16,fontFamily:'Comic Sans MS',titleFontFamily:'Arial',itemThreads:{},openThreads:[],ink:[],inkUndo:[],inkRedo:[],attachments:[],replies:[],completionEvents:[],...extra});
+const baseNote = (id,title,audience,content,extra={}) => ({id,title,audience,content,authorId:currentPerson,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),priority:'Normal',fontSize:16,fontFamily:'Comic Sans MS',titleFontFamily:'Comic Sans MS',itemThreads:{},openThreads:[],ink:[],inkUndo:[],inkRedo:[],attachments:[],replies:[],completionEvents:[],...extra});
 let notes=[], orders={}, currentPerson='', activeNote='', query='', mode='text', device=innerWidth<650?'mobile':'desktop';
 let inkColor='#ffffff',penWidth=4,textColor='#f6ebff',textSize=16;
 let inkController=null, popoverAnchor=null, selectionRange=null, toastTimer, mentionSession=null, draggedNote=null, pointerDrag=null, suppressNoteClick=false;
 let recipientDraft=null, recipientSession=null, deleteSession=null, deleteGesture=null, isComposing=false;
-let formattingController=null, attachmentController=null, titleResizeObserver=null, paperResizeObserver=null, resizeGesture=null, paneWidths={desktop:220,mobile:110}, noteTransition=0, activeNoteTransition=0;
+let formattingController=null, attachmentController=null, historyController=null, titleResizeObserver=null, paperResizeObserver=null, resizeGesture=null, paneWidths={desktop:220,mobile:110}, noteTransition=0, activeNoteTransition=0;
 const replyTargets={};
 function sanitizeContent(html) {
   const template=document.createElement('template');template.innerHTML=String(html||'');
   template.content.querySelectorAll('script,style,iframe,object,embed,link,meta,img,video,audio,form').forEach(el=>el.remove());
   template.content.querySelectorAll('*').forEach(el=>Array.from(el.attributes).forEach(a=>{if(/^on/i.test(a.name)||['src','srcdoc','href'].includes(a.name))el.removeAttribute(a.name);}));
+  template.content.querySelectorAll('.mention[data-mention-kind="location"]').forEach(chip=>{
+    const text=document.createTreeWalker(chip,NodeFilter.SHOW_TEXT).nextNode();
+    if(text?.data.startsWith('@'))text.deleteData(0,1);
+  });
   return template.innerHTML;
 }
 
@@ -82,12 +105,12 @@ function plainContent(n) {const el=document.createElement('div');el.innerHTML=n.
 function audienceLabel(a) {
   if(a.all)return 'All Roles';
   if(!a.roles.length&&!a.people.length)return 'Just me';
-  if(a.roles.length===3&&['engineer','technician','system_admin'].every(role=>a.roles.includes(role))&&!a.people.length)return 'Engineering';
-  const labels=[...a.roles.map(r=>roles.find(item=>item.id===r)?.label||r),...a.people.map(p=>personById(p).short)];
-  return labels.length===1?labels[0]:labels.length+' recipients';
+  const roleNames=a.roles.length===3&&['engineer','technician','system_admin'].every(role=>a.roles.includes(role))
+    ? ['Engineering'] : a.roles.map(r=>roles.find(item=>item.id===r)?.label||r);
+  return [...a.people.map(p=>personById(p).short),...roleNames].join(', ');
 }
 function documentFor(n) {
-  return {title:n.title,audience:n.audience,content:n.content,priority:n.priority,fontSize:n.fontSize||16,fontFamily:n.fontFamily||'Comic Sans MS',titleFontFamily:n.titleFontFamily||'Arial',ink:n.ink||[],itemThreads:n.itemThreads||{},attachments:(n.attachments||[]).map(({url,preview,original,...file})=>file),...(typeof n.untouchedDraft==='boolean'?{untouchedDraft:n.untouchedDraft}:{})};
+  return {title:n.title,audience:n.audience,content:n.content,priority:n.priority,fontSize:n.fontSize||16,fontFamily:n.fontFamily||'Comic Sans MS',titleFontFamily:n.titleFontFamily||'Comic Sans MS',ink:n.ink||[],itemThreads:n.itemThreads||{},attachments:(n.attachments||[]).map(({url,preview,original,...file})=>file),...(typeof n.untouchedDraft==='boolean'?{untouchedDraft:n.untouchedDraft}:{})};
 }
 function prepareNote(n) {return {...n,content:sanitizeContent(n.content),ink:n.ink||[],inkUndo:[],inkRedo:[],openThreads:[],itemThreads:n.itemThreads||{},attachments:n.attachments||[],completionEvents:[]};}
 function markEdited(n=note()) {if(n)n.untouchedDraft=false;}
@@ -128,7 +151,10 @@ function attachmentMarkup(n) {
 }
 function renderNotes() {
   const list=filteredNotes();
-  return '<div class="notes-list" role="list" aria-label="Notes in your order">'+(list.map(n=>'<div class="note-row" role="listitem" draggable="true" data-row="'+n.id+'" data-current="'+(n.id===activeNote)+'"><button class="note-item" data-note="'+n.id+'" data-drag-note="'+n.id+'" aria-current="'+(n.id===activeNote)+'" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" title="'+escape(n.title||'Untitled')+'"><strong style="font-family:'+escape(titleFontFamily(n))+'">'+urgentMark(n)+escape(n.title||'Untitled')+'</strong><span class="note-meta"><span class="audience-meta">'+escape(audienceLabel(n.audience))+'</span><span class="priority-meta" data-priority="'+n.priority.toLowerCase()+'">'+priorityLabel(n.priority)+'</span></span></button></div>').join('')||'<p class="empty-list">'+(query?'No matching titles or text.':'No notes yet.')+'</p>')+'</div>';
+  return '<div class="notes-list" role="list" aria-label="Notes in your order">'+(list.map(n=>{
+    const audience=escape(audienceLabel(n.audience));
+    return '<div class="note-row" role="listitem" draggable="true" data-row="'+n.id+'" data-current="'+(n.id===activeNote)+'"><button class="note-item" data-note="'+n.id+'" data-drag-note="'+n.id+'" aria-current="'+(n.id===activeNote)+'" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" title="'+escape(n.title||'Untitled')+'"><strong style="font-family:'+escape(titleFontFamily(n))+'">'+urgentMark(n)+escape(n.title||'Untitled')+'</strong><span class="note-meta"><span class="priority-meta" data-priority="'+n.priority.toLowerCase()+'">'+priorityLabel(n.priority)+'</span><span class="audience-meta" title="'+audience+'">'+audience+'</span>'+timestamp(n.createdAt,'sidebar-creation')+'</span></button></div>';
+  }).join('')||'<p class="empty-list">'+(query?'No matching titles or text.':'No notes yet.')+'</p>')+'</div>';
 }
 function refreshSidebar() {const slot=$('.np-notes-slot');if(slot)slot.innerHTML=renderNotes();const count=$('.note-count');if(count)count.textContent=orderedNotes().length+' notes';}
 function tools() {
@@ -138,16 +164,17 @@ function editor() {
   const n=note();if(!n)return '<div class="editor-empty"><strong>Your Notepad</strong><p>Use + in the search bar to create a note.</p></div>';
   const author=n.authorName?{name:n.authorName,short:n.authorName}:personById(n.authorId);
   return '<article class="general-notes-editor">'+
-    '<div class="title-row"><div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="Edit title · Choose its font in the toolbar" placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div><div class="title-identity"><div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="'+(n.authorId===currentPerson?'Delete note':'Only the note’s creator can delete it.')+'" aria-disabled="'+(n.authorId!==currentPerson)+'">'+icon('trash')+'</button></div><div class="note-attribution"><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.name)+'</span><time datetime="'+escape(n.createdAt)+'" title="'+escape(fullTime(n.createdAt))+'">'+shortTime(n.createdAt)+'</time></div></div>'+
+    '<div class="title-row"><div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="Edit title · Choose its font in the toolbar" placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div><div class="title-identity"><div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="'+(n.authorId===currentPerson?'Delete note':'Only the note’s creator can delete it.')+'" aria-disabled="'+(n.authorId!==currentPerson)+'">'+icon('trash')+'</button></div><div class="note-attribution"><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.name)+'</span>'+timestamp(n.createdAt)+'<button type="button" class="note-history-link" data-action="open-history" aria-controls="note-history" aria-expanded="false">Edit History</button></div></div>'+
     '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select></div></div>'+
     window.NotepadFormatting.html()+
-    '<div class="general-notes-scroll"><div class="general-notes-paper '+(mode!=='text'?'is-drawing':'')+'"><div class="note-content" style="font-size:'+(n.fontSize||16)+'px;font-family:&quot;'+escape(n.fontFamily||'Comic Sans MS')+'&quot;,&quot;Comic Sans MS&quot;,cursive" role="textbox" aria-label="Notepad writing area" aria-multiline="true" contenteditable="'+(mode==='text')+'" spellcheck="true" data-placeholder="Write a note, add a checklist, or type @…">'+n.content+'</div><svg class="note-ink" xmlns="http://www.w3.org/2000/svg" aria-label="Handwriting canvas"></svg></div></div>'+
-    '<div class="editor-attachments">'+attachmentMarkup(n)+'</div>'+tools()+'</article>';
+    '<div class="general-notes-body"><div class="general-notes-scroll"><div class="general-notes-paper '+(mode!=='text'?'is-drawing':'')+'"><div class="note-content" style="font-size:'+(n.fontSize||16)+'px;font-family:&quot;'+escape(n.fontFamily||'Comic Sans MS')+'&quot;,&quot;Comic Sans MS&quot;,cursive" role="textbox" aria-label="Notepad writing area" aria-multiline="true" contenteditable="'+(mode==='text')+'" spellcheck="true" data-placeholder="Write a note, add a checklist, or type @…">'+n.content+'</div><svg class="note-ink" xmlns="http://www.w3.org/2000/svg" aria-label="Handwriting canvas"></svg></div></div></div>'+
+    '<section id="note-history" class="note-history" aria-label="Edit History" hidden></section><div class="editor-attachments">'+attachmentMarkup(n)+'</div>'+tools()+'</article>';
 }
 function render() {
   noteTransition++;activeNoteTransition=0;
   closePopover();closeMentions();selectionRange=null;
   formattingController?.destroy();formattingController=null;attachmentController?.destroy();attachmentController=null;
+  historyController=null;
   titleResizeObserver?.disconnect();titleResizeObserver=null;
   paperResizeObserver?.disconnect();paperResizeObserver=null;
   inkController?.destroy();inkController=null;
@@ -170,7 +197,7 @@ function render() {
       paperResizeObserver.observe($('.general-notes-scroll'));
     }
     const generation=accountGeneration;
-    attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),onChange:changed=>{if(generation!==accountGeneration)return;markEdited(notes.find(n=>n.id===changed.noteId));save();if(changed.noteId===activeNote)$('.editor-attachments').innerHTML=attachmentMarkup(note());}});
+    attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),pickerRoot:$('.general-notes-body'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),onChange:changed=>{if(generation!==accountGeneration)return;markEdited(notes.find(n=>n.id===changed.noteId));save();if(changed.noteId===activeNote)$('.editor-attachments').innerHTML=attachmentMarkup(note());}});
     $$('.note-check').forEach(updateTaskAccessibleLabel);
   }
   applyPaneWidth();save();
@@ -262,8 +289,8 @@ function showPopover(content,anchor,cls='') {
 function recipientForm(a) {
   const isPrivate=!a.all&&!a.roles.length&&!a.people.length;
   const pill=(kind,label,value='',checked=false)=>'<label class="recipient-pill"><input type="checkbox" data-recipient="'+kind+'"'+(value?' value="'+escape(value)+'"':'')+(checked?' checked':'')+'><span>'+escape(label)+'</span></label>';
-  const roleLabel=p=>roles.find(r=>r.id===p.role)?.label||roles.find(r=>p.roles?.includes(r.id))?.label||String(p.role||'').replace(/_/g,' ');
-  return '<div class="recipient-private-choice">'+pill('private','Just me','',isPrivate)+'</div><section class="recipient-section" aria-labelledby="recipient-roles-heading"><h3 id="recipient-roles-heading">Roles and Departments</h3><div class="recipient-options">'+pill('all','All Roles','',a.all)+pill('engineering','Engineering')+roles.map(r=>pill('role',r.label,r.id)).join('')+'</div></section><section class="recipient-section" aria-labelledby="recipient-people-heading"><h3 id="recipient-people-heading">Individual Names</h3><div class="recipient-options">'+people.filter(p=>isTaggableAccount(p)&&p.recipientSelectable!==false).map(p=>pill('person',p.name+' ('+roleLabel(p)+')',p.id)).join('')+'</div></section>';
+  const roleLabel=p=>p.displayRole||roles.find(r=>r.id===p.role)?.label||roles.find(r=>p.roles?.includes(r.id))?.label||String(p.role||'').replace(/_/g,' ');
+  return '<div class="recipient-private-choice">'+pill('private','Just me','',isPrivate)+'</div><section class="recipient-section" aria-labelledby="recipient-people-heading"><h3 id="recipient-people-heading">Individual Names</h3><div class="recipient-options">'+people.filter(p=>isTaggableAccount(p)&&p.recipientSelectable!==false).map(p=>pill('person',p.name+' ('+roleLabel(p)+')',p.id)).join('')+'</div></section><section class="recipient-section" aria-labelledby="recipient-roles-heading"><h3 id="recipient-roles-heading">Roles and Departments</h3><div class="recipient-options">'+pill('all','All Roles','',a.all)+pill('engineering','Engineering')+roles.map(r=>pill('role',r.label,r.id)).join('')+'</div></section>';
 }
 function animateRecipientDialog(session,opening,done=()=>{}) {
   const dialog=session.dialog;
@@ -493,7 +520,15 @@ function completeTask(box) {
   normalizeSharedItems();updateTaskAccessibleLabel(row);syncEditor();
 }
 
-let mentionChoices=[...people.filter(isTaggableAccount).map(p=>({id:p.id,label:p.name,kind:'person',detail:p.role})),{id:'engineering',label:'Engineering',kind:'department',detail:'Chief Engineer + technician'},{id:'all',label:'All Roles',kind:'role',detail:'Everyone'},...roles.map(r=>({id:r.id,label:r.label,kind:'role',detail:'Role'}))];
+let mentionChoices=[];
+function refreshMentionChoices() {
+  mentionChoices=[
+    ...people.filter(isTaggableAccount).map(p=>({id:p.id,label:p.name,kind:'person',detail:p.displayRole||p.role})),
+    {id:'engineering',label:'Engineering',kind:'department',detail:'Chief Engineer + technician'},
+    {id:'all',label:'All Roles',kind:'role',detail:'Everyone'},
+    ...roles.map(r=>({id:r.id,label:r.label,kind:'role',detail:'Role'})),
+  ];
+}
 function closeMentions(){mentionSession=null;$('#mention-layer').innerHTML='';$('.note-content')?.removeAttribute('aria-activedescendant');}
 function detectMention() {
   if(isComposing)return;
@@ -585,10 +620,28 @@ function confirmDelete() {
   if(activeNote===n.id){inkController?.destroy();inkController=null;activeNote='';}
   notes=notes.filter(item=>item.id!==n.id);Object.keys(orders).forEach(key=>orders[key]=orders[key].filter(id=>id!==n.id));render();
 }
+function closeHistory() {
+  historyController?.close();
+  historyController=null;
+}
+function openHistory(button) {
+  if(!note()||!window.NotepadHistory)return;
+  if(historyController){closeHistory();return;}
+  closeMentions();
+  closePopover();
+  void attachmentController?.close({restoreFocus:false});
+  const id=activeNote;
+  historyController=window.NotepadHistory.attach({
+    panel:$('#note-history'),trigger:button,onClose:closeHistory,
+    load:before=>hostRequest('history',{id,before}),
+    personName:id=>personById(id).name,audienceName:audienceLabel,formatDate:fullTime,
+  });
+}
 function handleAction(action,button) {
   switch(action) {
     case 'new':openRecipients('new',button);break;
     case 'share':openRecipients('share',button);break;
+    case 'open-history':openHistory(button);break;
     case 'cancel-recipients':closeRecipients();break;
     case 'close-popover':closePopover();break;
     case 'delete':openDelete(button);break;
@@ -776,6 +829,7 @@ document.addEventListener('keydown',e=>{
   }
   if(e.key==='Escape') {
     if($('.recipient-dialog')||$('.delete-dialog')||$('.staff-giphy-picker'))return;
+    if(historyController){e.preventDefault();closeHistory();return;}
     if($('#popover-layer').children.length){const anchor=popoverAnchor;closePopover();anchor?.focus();return;}
     $('.stage').classList.remove('is-expanded');
   }
@@ -792,7 +846,7 @@ function applyPalette(values) {
 }
 function editingCurrent() {
   const element=document.activeElement;
-  return activeNoteTransition!==0||isComposing||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.title-actions,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover'));
+  return activeNoteTransition!==0||isComposing||!!historyController||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.title-actions,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover'));
 }
 function installRemote(incoming,renderCurrent=true) {
   // A refresh started before deletion may arrive after the save acknowledgement.
@@ -821,7 +875,7 @@ window.addEventListener('message',event=>{
     inkController?.destroy();formattingController?.destroy();attachmentController?.destroy();inkController=null;formattingController=null;attachmentController=null;
     titleResizeObserver?.disconnect();titleResizeObserver=null;
     paperResizeObserver?.disconnect();paperResizeObserver=null;
-    notes=[];people=[];roles=[];mentionChoices=[];currentPerson='';activeNote='';query='';mode='text';orders={};VIEW_STORE='';lastOrder='';legacyAliases={};bridgeScope='';
+    notes=[];people=[];roles=[];mentionChoices=[];historyController=null;currentPerson='';activeNote='';query='';mode='text';orders={};VIEW_STORE='';lastOrder='';legacyAliases={};bridgeScope='';timeFormat='12h';
     selectionRange=null;draggedNote=null;pointerDrag=null;resizeGesture=null;blankLineGesture=null;recipientDraft=null;isComposing=false;suppressNoteClick=false;
     Object.keys(replyTargets).forEach(key=>delete replyTargets[key]);dirtyNotes.clear();sentDocuments.clear();sequences.clear();deferredNotes.clear();baseRevisions.clear();baseLegacyVersions.clear();confirmedDeletions.clear();
     clearTimeout(toastTimer);$('#preview-toast').textContent='';$('#preview-toast').classList.remove('visible');$('#reorder-status').textContent='';
@@ -839,7 +893,7 @@ window.addEventListener('message',event=>{
     legacyAliases=payload.legacyAliases||{};const requested=payload.targetNoteId||view.activeNote;activeNote=legacyAliases[requested]||requested||notes[0]?.id||'';
     for(const n of notes){sentDocuments.set(n.id,JSON.stringify(documentFor(n)));baseRevisions.set(n.id,n.revision??null);baseLegacyVersions.set(n.id,n.legacyVersion||null);}
     for(const [id,sequence]of Object.entries(payload.sequences||{})){sequences.set(id,sequence);dirtyNotes.add(id);if(!sentDocuments.has(id))sentDocuments.set(id,'null');}
-    mentionChoices=[...people.filter(isTaggableAccount).map(p=>({id:p.id,label:p.name,kind:'person',detail:p.role})),{id:'engineering',label:'Engineering',kind:'department',detail:'Chief Engineer + technician'},{id:'all',label:'All Roles',kind:'role',detail:'Everyone'},...roles.map(r=>({id:r.id,label:r.label,kind:'role',detail:'Role'}))];
+    refreshMentionChoices();updateTimeFormat(payload.timeFormat);
     applyPalette(payload.palette);initialized=true;suppressSave=true;render();suppressSave=false;return;
   }
   if(!initialized)return;
@@ -862,7 +916,7 @@ window.addEventListener('message',event=>{
   }
   if(data.type==='remote'){
     people=payload.people||people;roles=payload.roles||roles;legacyAliases=payload.legacyAliases||legacyAliases;
-    mentionChoices=[...people.filter(isTaggableAccount).map(p=>({id:p.id,label:p.name,kind:'person',detail:p.role})),{id:'engineering',label:'Engineering',kind:'department',detail:'Chief Engineer + technician'},{id:'all',label:'All Roles',kind:'role',detail:'Everyone'},...roles.map(r=>({id:r.id,label:r.label,kind:'role',detail:'Role'}))];
+    refreshMentionChoices();updateTimeFormat(payload.timeFormat);
     const visible=new Set(payload.notes.map(n=>n.id));let updateCurrent=false;
     notes=notes.filter(n=>{if(visible.has(n.id)||dirtyNotes.has(n.id))return true;sentDocuments.delete(n.id);if(n.id===activeNote)updateCurrent=true;return false;});
     for(const incoming of payload.notes){

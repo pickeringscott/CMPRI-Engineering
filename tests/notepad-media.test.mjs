@@ -9,7 +9,7 @@ const gif=id=>({id,title:id,preview:image(id),original:image(id)});
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no});return {promise,resolve,reject}}
 function setup(request,extraOptions={}){
- const dom=new JSDOM('<div class="layout-body"><div class="dock"></div></div>',{url:'https://cmpri.example/notepad/editor.html',runScripts:'outside-only'}),{window}=dom;
+ const dom=new JSDOM('<div class="layout-body"><div class="general-notes-body"></div><div class="dock"></div></div>',{url:'https://cmpri.example/notepad/editor.html',runScripts:'outside-only'}),{window}=dom;
  window.matchMedia=()=>({matches:true});
  window.HTMLDialogElement.prototype.showModal=function(){this.open=true};
  window.HTMLDialogElement.prototype.close=function(){this.open=false};
@@ -20,7 +20,8 @@ function setup(request,extraOptions={}){
  const original={id:uuid(1),attachments:[]},other={id:uuid(2),attachments:[]};let current=original;
  const container=window.document.querySelector('.dock');container.innerHTML=window.NotepadAttachments.html();
  const changes=[],errors=[],available=new Set([original.id,other.id]);
- const controller=window.NotepadAttachments.attach({container,getNote:()=>current,request,onChange:value=>changes.push(value),onError:value=>errors.push(value),isNoteAvailable:id=>available.has(id),badge:'/Poweredby_100px_Badge.gif',...extraOptions});
+ const pickerRoot=window.document.querySelector('.general-notes-body');
+ const controller=window.NotepadAttachments.attach({container,pickerRoot,getNote:()=>current,request,onChange:value=>changes.push(value),onError:value=>errors.push(value),isNoteAvailable:id=>available.has(id),badge:'/Poweredby_100px_Badge.gif',...extraOptions});
  const click=selector=>{const target=window.document.querySelector(selector);assert.ok(target,selector);target.click()};
  return {dom,window,original,other,changes,errors,available,controller,click,setNote:note=>{current=note},runTimers(){for(const [id,fn] of [...timers]){timers.delete(id);fn()}},cleanup(){controller.destroy();dom.window.close()}};
 }
@@ -31,6 +32,7 @@ test('GIPHY loads only when opened, ignores stale searches, and saves the provid
   s.click('[data-notepad-attachments-trigger]');assert.equal(calls.length,0);
   assert.equal(s.window.document.querySelectorAll('.attachment-choice').length,2);
   s.click('[data-attachment-choice="gif"]');assert.equal(calls.length,1);assert.equal(calls[0].action,'giphy');assert.equal(calls[0].payload.query,'');
+  assert.equal(s.window.document.querySelector('[aria-label="GIPHY picker"]').parentElement.className,'general-notes-body');
   const input=s.window.document.querySelector('[aria-label="Search GIPHY"]');
   input.value='old';input.dispatchEvent(new s.window.Event('input'));s.runTimers();
   input.value='new';input.dispatchEvent(new s.window.Event('input'));s.runTimers();

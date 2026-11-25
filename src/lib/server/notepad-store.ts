@@ -6,12 +6,13 @@ import { NOTEPAD_ROLES, NOTEPAD_TEST_EMAILS, notepadCanRead, type NotepadNote, t
 import type { NoteDocument } from '../general-notes';
 import { inlineLegacy, legacyGeneralNote } from '../notepad-legacy';
 import { STAFF_FILE_BUCKET, staffInlineMedia } from '../staff-note-media';
+import { accountRoleDisplayName, isMaintenanceChiefDisplay } from '../account-display';
 
 export type NotepadRow = { hotel_id: string; id: string; author_user_id: string; author_name: string | null; document: NotepadDocument | null; revision: number; change_id: string; created_at: string; updated_at: string; deleted_at: string | null; legacy_source: 'general' | 'staff' | null };
 type Profile = { id: string; full_name: string | null; role: string; secondary_roles: string[]; email: string | null; active: boolean };
 type StaffRow = { id: string; author_user_id: string; author_name: string; body: string; parent_id: string | null; created_at: string; notepad_revision?: number; attachments: Array<{ id: string; name: string; type: string; size: number }>; gif_ids: string[]; mentions?: Array<{ id: string; kind: string; label: string; start: number; end: number }> };
 export const NOTEPAD_COLUMNS = 'hotel_id,id,author_user_id,author_name,document,revision,change_id,created_at,updated_at,deleted_at,legacy_source';
-const emptyDocument = (): NotepadDocument => ({ title:'Untitled',audience:{all:false,roles:[],people:[]},content:'',priority:'Normal',fontSize:16,fontFamily:'Comic Sans MS',titleFontFamily:'Arial',ink:[],itemThreads:{},attachments:[] });
+const emptyDocument = (): NotepadDocument => ({ title:'Untitled',audience:{all:false,roles:[],people:[]},content:'',priority:'Normal',fontSize:16,fontFamily:'Comic Sans MS',titleFontFamily:'Comic Sans MS',ink:[],itemThreads:{},attachments:[] });
 export function projectNotepadRow(row: NotepadRow): NotepadNote | null {
   if (!row.document || row.deleted_at) return null;
   return { ...row.document,id:row.id,authorId:row.author_user_id,...(row.author_name ? {authorName:row.author_name} : {}),createdAt:row.created_at,updatedAt:row.updated_at,revision:Number(row.revision),...(row.legacy_source ? {legacySource:row.legacy_source} : {}) };
@@ -43,8 +44,8 @@ export async function notepadDirectory(admin: SupabaseClient,hotelId: string) {
     const taggable=active&&!NOTEPAD_TEST_EMAILS.has((p.email||'').trim().toLowerCase());
     // Hide the duplicate administrative identity only from individual sharing.
     // Keep it in the directory for existing authors, mentions, and role access.
-    const duplicateAdmin=name.replace(/\s+/g,' ').toLowerCase()==='scott pickering'&&profileHasRole(p,'system_admin');
-    return{id:p.id,name,short:parts[0],initials:parts.map(part=>part[0]).slice(0,2).join('').toUpperCase(),role:p.role,roles:NOTEPAD_ROLES.filter(r=>profileHasRole(p,r.id)).map(r=>r.id),active,taggable,recipientSelectable:taggable&&!duplicateAdmin} satisfies NotepadPerson;
+    const duplicateAdmin=name.replace(/\s+/g,' ').toLowerCase()==='scott pickering'&&profileHasRole(p,'system_admin')&&!isMaintenanceChiefDisplay(p);
+    return{id:p.id,name,short:parts[0],initials:parts.map(part=>part[0]).slice(0,2).join('').toUpperCase(),role:p.role,displayRole:accountRoleDisplayName(p),roles:NOTEPAD_ROLES.filter(r=>profileHasRole(p,r.id)).map(r=>r.id),active,taggable,recipientSelectable:taggable&&!duplicateAdmin} satisfies NotepadPerson;
   }).sort((a,b)=>a.name.localeCompare(b.name));
 }
 export async function loadNotepad(admin:SupabaseClient,hotelId:string,userId:string,media=true) {

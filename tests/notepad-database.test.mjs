@@ -18,7 +18,13 @@ insert into profiles values('${owner}',true,'Chief Engineer','{}'),('${tech}',tr
 // constraint. Only unrelated business-table triggers are omitted from this fixture.
 const signals=readFileSync('supabase/migrations/20261106133302_event_driven_resources.sql','utf8');await db.exec(signals.slice(0,signals.indexOf('create trigger resource_orders'))+'\ncommit;');
 const modalSignals=readFileSync('supabase/migrations/20261106133511_modal_resource_events.sql','utf8');await db.exec(modalSignals.slice(0,modalSignals.indexOf('create trigger resource_assets_and_manuals'))+'\ncommit;');
-const name=readdirSync('supabase/migrations').find(n=>n.endsWith('_notepad_shared_documents.sql'));await db.exec(readFileSync('supabase/migrations/'+name,'utf8'));return db}
+await db.exec('alter table profiles add column full_name text');
+await db.query('update profiles set full_name=$1 where id=$2',['Avery Reed',owner]);
+await db.query('update profiles set full_name=$1 where id=$2',['Morgan Ellis',tech]);
+for(const suffix of ['_notepad_shared_documents.sql','_notepad_edit_history.sql']){
+ const name=readdirSync('supabase/migrations').find(n=>n.endsWith(suffix));await db.exec(readFileSync('supabase/migrations/'+name,'utf8'));
+}
+return db}
 async function save(db,actor,expected,mutation,document=doc,source=null,noteId=id,property=hotel,legacyVersion=undefined){if(legacyVersion===undefined)legacyVersion=source==='general'?'general:1':source==='staff'?(await db.query('select cmpri_private.notepad_staff_version($1,$2) as version',[property,noteId])).rows[0].version:null;return(await db.query('select * from cmpri_save_notepad($1::uuid,$2::uuid,$3::uuid,$4::bigint,$5::uuid,$6::jsonb,$7::text,$8::text)',[property,actor,noteId,expected,mutation,document===null?null:JSON.stringify(document),source,legacyVersion])).rows[0]}
 test('shared SQL writes enforce roles, creator sharing/deletion, optimistic revisions and idempotent retries',async()=>{const db=await fixture();try{await db.exec('set role service_role');const first=await save(db,owner,null,change(10));assert.equal(first.revision,1);const update=await save(db,tech,1,change(11),{...doc,title:'By tech'});assert.equal(update.revision,2);assert.equal((await save(db,tech,1,change(11),{...doc,title:'By tech'})).revision,2);await assert.rejects(save(db,owner,1,change(12)),/changed elsewhere/);await assert.rejects(save(db,tech,2,change(13),null),/creator/);await assert.rejects(save(db,tech,2,change(14),{...doc,audience:{all:true,roles:[],people:[]}}),/creator/);await assert.rejects(save(db,manager,2,change(15)),/unavailable/);const deleted=await save(db,owner,2,change(16),null);assert.ok(deleted.deleted_at);assert.equal((await save(db,owner,2,change(16),null)).revision,3);await assert.rejects(save(db,owner,null,change(17)),/unavailable|changed elsewhere/)}finally{await db.close()}});
 test('private/all/individual audiences and active property membership are authoritative; Data API is closed',async()=>{const db=await fixture();try{await db.exec('set role service_role');const personal={...doc,audience:{all:false,roles:[],people:[]}};await save(db,owner,null,change(20),personal);await assert.rejects(save(db,tech,1,change(21),personal),/unavailable/);const all={...doc,audience:{all:true,roles:[],people:[]}};await save(db,owner,1,change(22),all);await save(db,manager,2,change(23),{...all,title:'Shared'});await assert.rejects(save(db,tech,null,change(24),all,null,change(99),other),/Inactive/);await db.exec(`reset role;update hotel_members set active=false where user_id='${tech}';set role service_role`);await assert.rejects(save(db,tech,3,change(25),all),/Inactive/);await db.exec('set role authenticated');await assert.rejects(db.exec('select * from cmpri_notepad_notes'),/permission denied/);await assert.rejects(save(db,owner,3,change(26),all),/permission denied/)}finally{await db.close()}});
@@ -55,4 +61,57 @@ test('real resource signals permit Notepad writes, preserve existing topics and 
   await db.exec(`update hotel_members set active=false where user_id='${tech}';set role service_role;`);await save(db,owner,1,change(63),{...doc,title:'Private new title',audience:{all:false,roles:[],people:[]}});
   rows=(await db.query("select * from cmpri_resource_signals where topic='notepad'")).rows;assert.equal(rows.find(r=>r.recipient_user_id===tech).revision,7);assert.equal(rows.find(r=>r.recipient_user_id===owner).revision,8);assert.doesNotMatch(JSON.stringify(rows),/Private new title|content|document|author/);
  }finally{await db.close()}
+});
+
+test('Edit History records authoritative actors and changed fields atomically and respects old and current audiences',async()=>{
+ const db=await fixture();try{
+  const history=(actor,before=null,property=hotel,note=id)=>db.query('select * from cmpri_read_notepad_history($1,$2,$3,$4)',[property,actor,note,before]).then(result=>result.rows);
+  const privateNote={...doc,audience:{all:false,roles:[],people:[]},content:'<p>Private content</p>'};
+  const shared={...doc,content:'<p>Shared version</p>'};
+  await db.exec('set role service_role');
+  await save(db,owner,null,change(101),privateNote);
+  await save(db,owner,1,change(102),shared);
+  const collaboration={...shared,content:'<p>Collaborator version</p>',itemThreads:{item:[{id:change(130),authorId:tech,at:'2026-11-24T01:00:00Z',text:'Checked this.',replies:[]}]}};
+  await save(db,tech,2,change(103),collaboration);
+  await save(db,tech,2,change(103),collaboration);
+  await save(db,tech,3,change(104),collaboration);
+  await assert.rejects(save(db,tech,2,change(105),{...collaboration,title:'Conflict'}),/changed elsewhere/);
+  const versions=await history(owner);
+  assert.deepEqual(versions.map(v=>v.revision),[3,2,1]);
+  assert.deepEqual(versions.map(v=>v.actor_name),['Morgan Ellis','Avery Reed','Avery Reed']);
+  assert.equal(versions[0].actor_id,tech);
+  assert.ok(versions[0].edited_at);
+  assert.equal(versions[0].before_fields.content,shared.content);
+  assert.equal(versions[0].after_fields.content,collaboration.content);
+  assert.equal(versions[0].after_fields.itemThreads.item[0].text,'Checked this.');
+  assert.equal(versions[0].after_fields.title,undefined);
+  assert.deepEqual((await history(tech)).map(v=>v.revision),[3]);
+  assert.deepEqual((await history(owner,3)).map(v=>v.revision),[2,1]);
+  assert.deepEqual(await history(manager),[]);
+  assert.deepEqual(await history(owner,null,other),[]);
+  await save(db,owner,3,change(106),privateNote);
+  assert.deepEqual(await history(tech),[]);
+  await save(db,owner,4,change(107),null);
+  assert.deepEqual(await history(owner),[]);
+  assert.equal((await db.query('select count(*)::int as count from cmpri_notepad_history')).rows[0].count,0);
+  await db.exec('set role authenticated');
+  await assert.rejects(history(owner),/permission denied/);
+  await assert.rejects(db.exec('select * from cmpri_notepad_history'),/permission denied/);
+ }finally{await db.close();}
+});
+
+test('history can begin after an older note lacking optional snapshot data',async()=>{
+ const db=await fixture();try{
+  const {attachments,ink,itemThreads,...older}=doc;
+  await db.exec('set role service_role');
+  await db.query('select cmpri_private.cmpri_save_notepad($1,$2,$3,null,$4,$5)',[hotel,owner,id,change(110),JSON.stringify(older)]);
+  await save(db,owner,1,change(111),{...doc,title:'New title'});
+  const rows=(await db.query('select * from cmpri_read_notepad_history($1,$2,$3,null)',[hotel,owner,id])).rows;
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].before_fields.title,doc.title);
+  assert.equal(rows[0].after_fields.title,'New title');
+  assert.equal(rows[0].before_fields.drawing,undefined);
+  assert.equal(rows[0].before_fields.attachments,undefined);
+  assert.equal(rows[0].before_fields.itemThreads,undefined);
+ }finally{await db.close();}
 });

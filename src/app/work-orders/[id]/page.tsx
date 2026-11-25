@@ -2545,7 +2545,7 @@ function WorkOrderTicketEditor({ id }: { id: string }) {
                   <WorkOrderSectionIcon section="troubleshooting" />{t("Suggested Troubleshooting")} </h2>
               </summary>
 
-              {selectedAsset && cmpriSession?.capabilities.includes("view_dashboard") && cmpriSession.capabilities.includes("view_pm") &&
+              {chief && selectedAsset && cmpriSession?.capabilities.includes("view_dashboard") && cmpriSession.capabilities.includes("view_pm") &&
                 (selectedAsset.id === order.asset_id && !checklistContextUnsaved
                   ? <AskTicketTroubleshooting key={`${order.id}:${order.revision}:${selectedAsset.id}`} workOrderId={order.id} assetId={selectedAsset.id}
                       assetLabel={[selectedAsset.manufacturer, selectedAsset.model_number].filter(Boolean).join(" ") || selectedAsset.name}

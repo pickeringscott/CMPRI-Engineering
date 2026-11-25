@@ -315,12 +315,20 @@ test("substantive reads use native data even when the planner selects a legacy s
     assert.equal(calls.at(-1).question, question); assert.equal(calls.at(-1).auth.principal, currentPrincipal);
   }
   assert.equal(calls.length, cases.length);
-  currentPrincipal = { ...currentPrincipal, profile: { ...currentPrincipal.profile, role: "front_desk" } };
-  assert.equal(data.askPermittedSources(currentPrincipal).includes("assets"), false, "legacy equipment access excludes submission-only lookup");
   planned = { ...basePlan, sources: ["assets"], rooms: ["203"] };
-  const response = await handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question: "What equipment can I select for room 203?" }) }));
-  assert.equal(response.status, 200);
-  assert.equal(calls.at(-1).auth.principal.profile.role, "front_desk", "the native handler receives the original role and decides whether its submission lookup is allowed");
+  const ask = () => handler.POST(new Request("https://test.invalid/api/ask-cmpri", { method: "POST", body: JSON.stringify({ question: "What equipment can I select for room 203?" }) }));
+  for (const role of ["front_desk", "engineer", "technician", "system_admin"]) {
+    currentPrincipal = { ...currentPrincipal, profile: { ...currentPrincipal.profile, role } };
+    const response = await ask();
+    assert.equal(response.status, 403, role);
+  }
+  assert.equal(calls.length, cases.length, "non-Chief profiles must not reach Ask execution");
+  currentPrincipal = { ...currentPrincipal, profile: {
+    ...currentPrincipal.profile, id: "750f77bf-7d5d-4ca6-8421-e025edea87ba", email: "maint.cmpri@hawkeyehotels.com",
+    role: "system_admin", secondary_roles: ["engineer"],
+  } };
+  assert.equal((await ask()).status, 200);
+  assert.equal(calls.at(-1).auth.principal, currentPrincipal, "the verified Chief Engineer retains the original dual-role principal");
 });
 
 test("raw pending data and unsigned, edited or cross-actor historical evidence never retain a legacy read path", async () => {

@@ -193,18 +193,21 @@ test('pen and eraser cursors stay on the ink area and do not change drawing coor
   try{
     const svg=s.editor.parentElement.querySelector('.note-ink'),bodyCursor=s.document.body.style.cursor,paperCursor=s.editor.parentElement.style.cursor;
     s.document.querySelector('[data-mode=pen]').click();
-    assert.match(svg.style.cursor,/pencil-cursor\.svg.*3 21/);
+    assert.match(svg.style.cursor,/pencil-cursor\.svg.*3 18/);
     assert.equal(svg.getAttribute('viewBox'),'0 0 800 1100');assert.equal(svg.getAttribute('preserveAspectRatio'),'xMidYMid meet');
     s.pointer(svg,'pointerdown',500,650,{pointerType:'pen',pressure:.5});s.pointer(svg,'pointerup',500,650,{pointerType:'pen',pressure:.5});
     const stroke=s.saves().at(-1).payload.document.ink[0];assert.equal(stroke.points[0].x,400);assert.equal(stroke.points[0].y,550);
-    s.document.querySelector('[data-mode=eraser]').click();assert.match(svg.style.cursor,/eraser-cursor\.svg.*5 19/);
+    s.document.querySelector('[data-mode=eraser]').click();assert.match(svg.style.cursor,/eraser-cursor\.svg.*4 17/);
     s.pointer(svg,'pointerdown',500,650,{pointerType:'pen',pressure:.5});s.pointer(svg,'pointerup',500,650,{pointerType:'pen',pressure:.5});
     assert.equal(s.saves().at(-1).payload.document.ink.length,0);
     assert.equal(s.document.body.style.cursor,bodyCursor);assert.equal(s.editor.parentElement.style.cursor,paperCursor);
     s.document.querySelector('[data-mode=text]').click();assert.equal(svg.style.cursor,'auto');assert.equal(svg.style.pointerEvents,'none');
     for(const asset of ['pencil','eraser']){
       const parsed=new s.window.DOMParser().parseFromString(read(`../public/notepad/${asset}-cursor.svg`),'image/svg+xml');
-      assert.equal(parsed.querySelector('parsererror'),null);assert.equal(parsed.documentElement.getAttribute('width'),'24');
+      assert.equal(parsed.querySelector('parsererror'),null);
+      assert.equal(parsed.documentElement.getAttribute('width'),'21');
+      assert.equal(parsed.documentElement.getAttribute('height'),'21');
+      assert.equal(parsed.documentElement.getAttribute('viewBox'),'0 0 24 24');
     }
   }finally{s.close();}
 });

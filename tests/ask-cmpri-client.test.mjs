@@ -114,6 +114,7 @@ async function fixture({ actualUploads = false } = {}) {
     "@/components/UiLanguageProvider": { useUiLanguage: () => ({ language: "en", t: value => value }) },
     "@/lib/auth/client-session": { authorizationHeaders: async () => ({ Authorization: "Bearer fixture" }) },
     "@/lib/auth/session-storage": { SESSION_KEY: "fixture-session" },
+    "@/lib/server/roles": loadTs("src/lib/server/roles.ts"),
     "@/lib/data-cache/browser": { invalidateCachedResources: async topics => { invalidations.push(topics); } },
     "@/components/beginners-guide/ask-cmpri-practice": {},
     "@/lib/ui/desktop-windows": { RESIZE_EDGES: [] },

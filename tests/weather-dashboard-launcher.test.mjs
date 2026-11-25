@@ -81,17 +81,13 @@ test('Weather uses the existing same-origin desktop frame route and host window 
   assert.equal(routes[path].preferred.height,action.preferred.height);
 });
 
-test('the actual weather tile mounts on a desktop-sized touch device and tracks the mobile width boundary',async()=>{
+test('the actual weather dial remains available across window sizes and still respects launcher access',async()=>{
   const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:'https://fixture.invalid/engineering',pretendToBeVisual:true});
   const prior=Object.fromEntries(['window','document','HTMLElement','IS_REACT_ACT_ENVIRONMENT'].map(key=>[key,globalThis[key]]));
   Object.assign(globalThis,{window:dom.window,document:dom.window.document,HTMLElement:dom.window.HTMLElement,IS_REACT_ACT_ENVIRONMENT:true});
-  let width=1920,opened=0;
-  const queries=[],reads=[],listeners=new Set();
-  dom.window.matchMedia=value=>{
-    queries.push(value);
-    return {get matches(){return width>=Number(value.match(/min-width:\s*(\d+)px/)?.[1]||0)&&!value.includes('hover: hover');},
-      addEventListener:(_name,listener)=>listeners.add(listener),removeEventListener:(_name,listener)=>listeners.delete(listener)};
-  };
+  let opened=0;
+  const reads=[];
+  dom.window.matchMedia=()=>assert.fail('The dial should not be hidden on a viewport or input-type query');
   const Component=loadTs('src/components/desktop/WeatherUtilities.tsx',{
     react:React,'react/jsx-runtime':jsx,'next/script':{default:()=>null},
     '@/components/UiLanguageProvider':{useUiLanguage:()=>({t:value=>value})},
@@ -106,11 +102,13 @@ test('the actual weather tile mounts on a desktop-sized touch device and tracks 
     assert.ok(dial(),'A 1920px touch device must mount the weather dial');
     assert.match(dial().getAttribute('aria-label'),/46° · Cloudy/);
     assert.deepEqual(reads,['/api/weather-preview?part=dashboard']);
-    assert.ok(queries.every(query=>!query.includes('hover')));
     await act(async()=>dial().click());assert.equal(opened,1);
-    await act(async()=>{width=1024;for(const listener of listeners)listener();});assert.ok(dial());
-    await act(async()=>{width=700;for(const listener of listeners)listener();});assert.equal(dial(),null);
-    await act(async()=>{width=701;for(const listener of listeners)listener();await new Promise(resolve=>setImmediate(resolve));});assert.ok(dial());
+    for (const width of [1920, 1024, 700, 390]) {
+      dom.window.innerWidth=width;
+      await act(async()=>dom.window.dispatchEvent(new dom.window.Event('resize')));
+      assert.ok(dial(), `The weather dial should stay mounted at ${width}px`);
+    }
+    assert.deepEqual(reads,['/api/weather-preview?part=dashboard']);
     await act(async()=>root.render(React.createElement(Component,null,'Utilities')));assert.equal(dial(),null,'Native role/launcher denial still omits the tile');
   } finally {
     await act(async()=>root.unmount());dom.window.close();

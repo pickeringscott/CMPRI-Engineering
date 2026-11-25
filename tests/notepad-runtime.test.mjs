@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {JSDOM, VirtualConsole} from 'jsdom';
+import { historyExamples, historyPeople } from './fixtures/notepad-history-examples.mjs';
 
 const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
 const html = read('../public/notepad/editor.html');
 const css = read('../public/notepad/notepad.css');
 const approved = read('../docs/previews/Notepad.html');
-const modules = ['ink', 'formatting', 'attachments', 'app'].map(name => read(`../public/notepad/${name}.js`));
+const modules = ['ink', 'formatting', 'attachments', 'history', 'app'].map(name => read(`../public/notepad/${name}.js`));
 const uuid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const settleFocus = s => new Promise(resolve => s.window.setTimeout(resolve, 0));
@@ -191,6 +192,8 @@ test('urgent images replace the text marker while approved metadata and borderle
     assert.equal(s.find('.note-creator').nextElementSibling, s.find('.note-attribution time'));
     assert.equal(s.find('.note-attribution time').getAttribute('datetime'),s.bootstrap.notes[0].createdAt);
     assert.equal(s.find('.note-attribution time').textContent,'11/23 14:30');
+    assert.equal(s.find('.note-attribution time').nextElementSibling, s.find('.note-history-link'));
+    assert.equal(s.find('.sidebar-creation').textContent,'23 Nov 14:30');
     assert.equal(s.document.querySelector('.general-notes-save'), null);
     s.send('status', {message: 'Saving…'});
     s.send('status', {message: 'Saved 14:42'});
@@ -248,15 +251,71 @@ test('pen controls keep the chosen swatch and live stroke width without extra he
   }finally{s.cleanup();}
 });
 
+test('all five synthetic notes show actor-attributed additions, edits, deletions and replies inside the note',async()=>{
+  for(const {note,entries} of historyExamples){
+    const s=setup({userId:historyPeople[0].id,people:historyPeople,notes:[note],order:[note.id]});
+    try{
+      const link=s.find('.note-history-link'),panel=s.find('.note-history');
+      assert.equal(panel.hidden,true);
+      link.click();
+      const request=s.outgoing.at(-1).data;
+      assert.equal(request.action,'history');
+      assert.deepEqual(request.payload,{id:note.id,before:null});
+      s.send('result',{requestId:request.requestId,result:{entries,next:null}});await tick();
+      assert.equal(panel.hidden,false);
+      assert.equal(link.getAttribute('aria-expanded'),'true');
+      assert.equal(panel.closest('.general-notes-editor'),s.find('.general-notes-editor'));
+      assert.equal(panel.querySelectorAll('.history-version').length,3);
+      assert.equal(panel.querySelector('.history-version .history-editor-name').textContent,entries[0].actorName);
+      assert.equal(panel.querySelector('.history-version time').dateTime,entries[0].at);
+      assert.match(panel.querySelector('.history-version').textContent,/Note text/);
+      assert.match(panel.querySelector('.history-version').textContent,/Replies/);
+      assert.ok(panel.querySelector('.history-line[data-change=added]'));
+      assert.ok(panel.querySelector('.history-line[data-change=removed]'));
+      assert.match(panel.querySelector('.history-version').textContent,/before leaving the area/);
+      panel.querySelector('.history-button').click();
+      assert.equal(panel.hidden,true);
+      assert.equal(s.document.activeElement,link);
+      assert.equal(s.saves().length,0);
+    }finally{s.cleanup();}
+  }
+});
+
+test('sidebar shows recipient first names before the creation time and responds to time preference changes',()=>{
+  const note=makeNote({audience:{all:false,roles:[],people:[colleague.id]},createdAt:'2026-11-25T04:38:00.000Z'});
+  const s=setup({notes:[note]});
+  try{
+    assert.equal(s.find('.audience-meta').textContent,colleague.short);
+    assert.equal(s.find('.audience-meta').nextElementSibling,s.find('.sidebar-creation'));
+    assert.equal(s.find('.sidebar-creation').textContent,'24 Nov 22:38');
+    assert.ok(!s.find('.note-meta').textContent.includes(user.name));
+    s.send('remote',{people:[user,colleague],roles,notes:[note],timeFormat:'12h'});
+    assert.equal(s.find('.sidebar-creation').textContent,'24 Nov 10:38 PM');
+  }finally{s.cleanup();}
+});
+
+test('displayed location tags omit the trigger character while other tagged text and formatting stay intact',()=>{
+  const content='<p data-item-id="fixture"><span class="mention" data-mention-kind="location" data-mention-id="lobby"><strong>@Lobby</strong></span> <span class="mention" data-mention-kind="person" data-mention-id="person">@Morgan</span></p>';
+  const s=setup({notes:[makeNote({content})]});
+  try{
+    assert.equal(s.find('.mention[data-mention-kind=location] strong').textContent,'Lobby');
+    assert.equal(s.find('.mention[data-mention-kind=person]').textContent,'@Morgan');
+    s.input('#note-title','Edited location note');
+    assert.match(s.latestSave().document.content,/<strong>Lobby<\/strong>/);
+    assert.match(s.latestSave().document.content,/@Morgan/);
+  }finally{s.cleanup();}
+});
+
 test('new notes default to Just me, and Engineering and All Roles serialize canonical recipients', () => {
   const s = setup();
   try {
     s.click('[data-action=new]');
     assert.equal(s.find('[data-recipient=private]').checked, true);
-    assert.deepEqual(Array.from(s.document.querySelectorAll('.recipient-section h3'), el => el.textContent), ['Roles and Departments', 'Individual Names']);
+    assert.deepEqual(Array.from(s.document.querySelectorAll('.recipient-section h3'), el => el.textContent), ['Individual Names', 'Roles and Departments']);
     assert.equal(s.document.querySelectorAll('.recipient-dialog input:checked').length, 1);
     s.event(s.find('#recipient-form'), 'submit');
     assert.deepEqual(s.latestSave().document.audience, {all: false, roles: [], people: []});
+    assert.equal(s.latestSave().document.titleFontFamily,'Comic Sans MS');
     s.click('[data-action=share]');
     const engineering = s.find('[data-recipient=engineering]'); engineering.checked = true; s.event(engineering, 'change');
     s.event(s.find('#recipient-form'), 'submit');

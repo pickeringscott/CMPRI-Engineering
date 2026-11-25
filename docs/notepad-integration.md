@@ -48,7 +48,9 @@ Device-only Notes and old unsaved Notes outboxes transfer to the new outbox with
 
 ## Deployment
 
-Apply `supabase/migrations/20261123135141_notepad_shared_documents.sql` before activating this application version in an environment that does not yet have it. It adds the Notepad tables, atomic save function, legacy-write protection, private-upload associations, and resource signals. The release schema check includes the new requirements. After Scott authorized fixing the missing-storage error, this exact migration was applied to the shared CMPRI database on 2026-11-23. Existing personal notes, staff-note records, and legacy upload records retained matching before/after checksums; migration history matches the repository version. No further database migration is required for these UI changes or the optional draft state in existing JSON documents.
+Apply `supabase/migrations/20261123135141_notepad_shared_documents.sql` in environments that do not yet have the shared Notepad tables, atomic save function, legacy-write protection, private-upload associations, and resource signals. After Scott authorized the storage fix, this migration was applied to the shared CMPRI database on 2026-11-23. Existing personal notes, staff-note records, and legacy upload records retained matching checksums.
+
+The release schema check requires `supabase/migrations/20261125050000_notepad_edit_history.sql` before enabling Edit History. Existing notes start recording history with the first saved change after migration. A creator’s deletion clears that note’s recorded history.
 
 GIPHY uses the existing `requestGiphy` transport and existing deployment configuration. Files use the existing private `staff-note-files` bucket and native browser picker. Signed access URLs are transient and are not persisted inside note documents. Live GIPHY credentials and actual S Pen hardware remain deployment/device verification items.
 

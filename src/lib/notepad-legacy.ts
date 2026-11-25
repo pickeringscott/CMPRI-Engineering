@@ -1,7 +1,7 @@
 import type { NotepadDocument, NotepadNote } from './notepad';
 import type { NoteDocument } from './general-notes';
 const escape = (v: string) => v.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-const emptyDocument = (): NotepadDocument => ({ title:'Untitled',audience:{all:false,roles:[],people:[]},content:'',priority:'Normal',fontSize:16,fontFamily:'Comic Sans MS',titleFontFamily:'Arial',ink:[],itemThreads:{},attachments:[] });
+const emptyDocument = (): NotepadDocument => ({ title:'Untitled',audience:{all:false,roles:[],people:[]},content:'',priority:'Normal',fontSize:16,fontFamily:'Comic Sans MS',titleFontFamily:'Comic Sans MS',ink:[],itemThreads:{},attachments:[] });
 export function inlineLegacy(text: string, start: number, doc: Pick<NoteDocument,'mentions'|'textStyles'>) {
   const end = start + text.length;
   const mentions = (doc.mentions || []).filter(m => m.start >= start && m.end <= end && m.end > m.start).sort((a,b) => a.start-b.start);

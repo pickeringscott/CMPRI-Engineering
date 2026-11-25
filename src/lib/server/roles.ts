@@ -139,6 +139,10 @@ export function profileIsEstablishedHoursChief(profile: HoursProfile): boolean {
     && roleKey(profile.role) === 'system_admin'
     && profile.secondary_roles?.some(role => typeof role === 'string' && role.trim().toLowerCase() === 'engineer') === true;
 }
+
+export function isRecognizedChiefEngineer(profile: HoursProfile): boolean {
+  return profileIsChiefEngineer(profile) || profileIsEstablishedHoursChief(profile);
+}
 export function profileCanUseHoursTracker(profile: HoursProfile): boolean {
   return profileIsChiefEngineer(profile)
     || profileIsEstablishedHoursChief(profile)

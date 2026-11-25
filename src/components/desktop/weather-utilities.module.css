@@ -15,12 +15,12 @@
 
 .dial {
   position: fixed;
-  top: min(653px, max(0px, calc(100dvh - 225px)));
-  left: min(1198px, max(0px, calc(100vw - 225px)));
+  right: env(safe-area-inset-right, 0px);
+  bottom: env(safe-area-inset-bottom, 0px);
   z-index: 1;
-  display: none;
-  inline-size: 225px;
-  block-size: 225px;
+  display: block;
+  inline-size: min(225px, 35vw, 55dvh);
+  aspect-ratio: 1;
   min-inline-size: 0;
   padding: 0;
   border: 0;
@@ -34,10 +34,6 @@
 /* The transparent button is the whole hit target, including blank interior
    space and the outer dial. Decorative SVG/masked layers never intercept it. */
 .dial > :is(.ring, .artboard) { pointer-events: none; }
-
-@media (min-width: 701px) {
-  .dial { display: block; }
-}
 
 .dial:focus-visible {
   outline: 1px solid var(--cmpri-gold, #fbbf24);

@@ -3,21 +3,21 @@ import test from "node:test";
 import { z } from "zod";
 import { loadTs } from "./helpers/load-ts.mjs";
 import { parseTicketHistory } from "../src/lib/ticket-note-presentation.ts";
-import { roleKey } from "../src/lib/server/roles.ts";
+import * as roles from "../src/lib/server/roles.ts";
 
 const workOrderId = "00000000-0000-4000-8000-000000000001";
 const assetId = "00000000-0000-4000-8000-000000000002";
 const otherId = "00000000-0000-4000-8000-000000000003";
 const hotel = "synthetic-property";
 
-function fixture(canRead = true, issue = "Washer shows error code F9E1. Private reporter text.") {
+function fixture(canRead = true, issue = "Washer shows error code F9E1. Private reporter text.", role = "chief_engineer") {
   const queries = [], publicQueries = [], answers = [];
   const order = {
     id: workOrderId, hotel_id: hotel, asset_id: assetId, issue, technician_name: "Taylor Technician", action_root_cause: "Drain test ran for three minutes.",
     notes: "CMPRI2|2026-11-10T12:00:00Z|Taylor Technician|Maintenance Technician|note|Tried the filter. No change.\nCMPRI2|2026-11-10T12:05:00Z|Desk|Front Desk|note|Private unscoped note.",
   };
   const asset = { id: assetId, hotel_id: hotel, active: true, manufacturer: "Whirlpool", model_number: "WFW5620HW", documentation_revision_id: otherId, documentation_verified_at: null };
-  const principal = { hotelId: hotel, profile: {} };
+  const principal = { hotelId: hotel, profile: { role } };
   const admin = {
     from(table) {
       const filters = [];
@@ -39,7 +39,7 @@ function fixture(canRead = true, issue = "Washer shows error code F9E1. Private 
     "@/lib/manual-source": { reportedDiagnosticCode: input => /\bcode F9E1\b/i.test(input) ? "F9E1" : null },
     "@/lib/server/access": { allows: () => canRead },
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, mcp: false, principal, admin }) },
-    "@/lib/server/roles": { profileIsChiefEngineer: () => false, profileIsEstablishedHoursChief: () => false, roleKey },
+    "@/lib/server/roles": roles,
     "@/lib/server/uploaded-asset-guide": { loadUploadedAssetGuide: async () => ({ documentation_status: "verified", manualKnowledge: { source: { verified: true } } }) },
     "@/lib/server/work-order-reader": { workOrderReader: () => ({}) },
     "@/lib/ticket-note-presentation": { parseTicketHistory },
@@ -55,6 +55,12 @@ function fixture(canRead = true, issue = "Washer shows error code F9E1. Private 
   }, { AbortSignal });
   return { queries, publicQueries, answers, run: values => POST(new Request("https://cmpri.invalid/api/ask-cmpri/troubleshooting", { method: "POST", body: JSON.stringify({ workOrderId, assetId, ...values }) })) };
 }
+
+test("the ticket Ask entry point denies a technician even with existing ticket and PM permissions", async () => {
+  const h = fixture(true, undefined, "technician");
+  assert.equal((await h.run({})).status, 403);
+  assert.equal(h.queries.length + h.answers.length, 0);
+});
 
 test("initial troubleshooting opens approved manufacturer guidance and supplies only scoped technician findings as private context", async () => {
   const f = fixture();

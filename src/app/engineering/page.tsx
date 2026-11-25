@@ -48,7 +48,7 @@ import {
   type WindowSize,
 } from "@/lib/ui/desktop-windows";
 import { animateWindowTelescope, captureWindowLauncher, clearWindowTelescope, currentWindowLauncher, type WindowLauncher } from "@/lib/ui/window-telescope";
-import { profileCanReopenPool, profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
+import { isRecognizedChiefEngineer, profileCanReopenPool, profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
 import PoolStatus from "@/components/desktop/PoolStatus";
 import WeatherUtilities from "@/components/desktop/WeatherUtilities";
 import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
@@ -877,9 +877,8 @@ export default function EngineeringDashboardPage() {
       {typeof window !== "undefined" && window.parent === window
         && new URLSearchParams(window.location.search).get("embedded") !== "1" && (
           <BeginnerGuide key={session.user.id + ":" + session.user.role + ":" + displayRole} user={{
-            id: session.user.id,
+            ...session.user,
             name: session.user.name?.trim() || "",
-            role: session.user.role,
             displayRole,
           }} />
         )}
@@ -919,7 +918,7 @@ export default function EngineeringDashboardPage() {
           </WeatherUtilities>
         </div>
         <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
-          <ApprovedDashboardMenus anchored askEnabled restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
+          <ApprovedDashboardMenus anchored askEnabled={isRecognizedChiefEngineer(session.user)} restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
         </nav>
 
         {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={event => openPoolStatus(event.currentTarget)}/></div>}

@@ -6,18 +6,20 @@
 const root=document.documentElement;
 const nativeCaret=Boolean(window.CSS?.supports?.('caret-animation','manual'));
 const motion=window.matchMedia?.('(prefers-reduced-motion: reduce)');
-const period=2400,halfPeriod=period/2,epoch=performance.now();
+const caretPeriod=1000,halfPeriod=caretPeriod/2,urgentPeriod=caretPeriod*2,epoch=performance.now();
 let blinkTimer=0,frame=0,disposed=false,composing=false,observed=null;
 root.dataset.notepadCaret=nativeCaret?'native':'overlay';
 
 function clock(){
   clearTimeout(blinkTimer);
-  const phase=(performance.now()-epoch)%period;
+  const elapsed=performance.now()-epoch;
+  const phase=elapsed%caretPeriod;
   const visible=motion?.matches||phase<halfPeriod;
   root.style.setProperty('--notepad-blink-opacity',visible?'1':'0');
+  root.style.setProperty('--notepad-urgent-opacity',motion?.matches||elapsed%urgentPeriod<caretPeriod?'1':'0');
   root.dataset.notepadBlinkOn=visible?'true':'false';
   if(!disposed&&!motion?.matches&&!document.hidden){
-    blinkTimer=setTimeout(clock,Math.max(1,(phase<halfPeriod?halfPeriod:period)-phase));
+    blinkTimer=setTimeout(clock,Math.max(1,(phase<halfPeriod?halfPeriod:caretPeriod)-phase));
   }
 }
 
@@ -158,6 +160,7 @@ function destroy(){
   window.removeEventListener('pagehide',pageHide);window.removeEventListener('pageshow',pageShow);overlay?.remove();mirror?.remove();
   delete root.dataset.notepadCaret;delete root.dataset.notepadCaretOverlay;delete root.dataset.notepadBlinkOn;
   root.style.removeProperty('--notepad-blink-opacity');
+  root.style.removeProperty('--notepad-urgent-opacity');
 }
 window.addEventListener('pagehide',pageHide);window.addEventListener('pageshow',pageShow);
 window.NotepadCaret={destroy};

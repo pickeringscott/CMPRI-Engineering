@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { AskContext, AskLanguage, AskResponse, AskResultItem, AskSource, AskTable, AskTableCell } from "@/lib/ask-cmpri/types";
-import { profileIsChiefEngineer, profileIsEstablishedHoursChief } from "@/lib/server/roles";
+import { isRecognizedChiefEngineer, profileIsChiefEngineer, profileIsEstablishedHoursChief } from "@/lib/server/roles";
 import { requireUserAttempt } from "@/lib/server/auth";
 import { validFirstName } from "@/lib/work-order-attribution";
 import { applyAskContext, askContextSchema, askPermittedSources, asksToReformat, askText, explicitAskOrders, readAskSources, validAskRoom } from "@/lib/server/ask-cmpri-data";
@@ -334,6 +334,7 @@ export async function POST(request: NextRequest) {
   if (!auth.ok || auth.mcp) {
     return NextResponse.json({ error: "Sign in to use Ask CMPRI." }, { status: 401, headers });
   }
+  if (!isRecognizedChiefEngineer(auth.principal.profile)) return NextResponse.json({ error: "Ask CMPRI is available only to the Chief Engineer." }, { status: 403, headers });
   const parsed = requestSchema.safeParse(await requestBody(request));
   if (!parsed.success) return NextResponse.json({ error: "Send a question of up to 1,000 characters, a supported attachment, or a current confirmation." }, { status: 400, headers });
   if ("confirmationToken" in parsed.data) {

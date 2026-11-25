@@ -56,6 +56,7 @@ function setup({native=false,reduced=false}={}){
   return {window,document,root:document.documentElement,advance,flush,event,select,timers,frames,media,
     overlay:()=>document.querySelector('.notepad-caret-overlay'),
     phase:()=>document.documentElement.style.getPropertyValue('--notepad-blink-opacity'),
+    urgentPhase:()=>document.documentElement.style.getPropertyValue('--notepad-urgent-opacity'),
     motion(value){media.matches=value;event(media,'change');},
     visibility(value){hidden=value;event(document,'visibilitychange');flush();},
     focus(value){focused=value;event(window,value?'focus':'blur');flush();},
@@ -63,32 +64,34 @@ function setup({native=false,reduced=false}={}){
   };
 }
 
-test('one slow blink clock survives focus, typing, and replacement urgent markers without restarting',()=>{
+test('urgent marks remain visible across a full caret cycle and both phases survive focus and typing',()=>{
   const s=setup({native:true});
   try{
     assert.equal(s.root.dataset.notepadCaret,'native');assert.equal(s.overlay(),null);
-    assert.equal(s.phase(),'1');
-    s.advance(1100);s.select('#note-title',3);
+    assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');
+    s.advance(475);s.select('#note-title',3);
     s.document.querySelector('.note-urgent').replaceWith(s.document.createElement('span'));
     s.event(s.document.querySelector('#note-title'),'input');
-    s.advance(1200);assert.equal(s.phase(),'0');
+    s.advance(500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'1');
     assert.equal(s.root.dataset.notepadBlinkOn,'false');
-    s.advance(2399);assert.equal(s.phase(),'0');
-    s.advance(2400);assert.equal(s.phase(),'1');
+    s.advance(999);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'1');
+    s.advance(1000);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'0');
     assert.equal(s.root.dataset.notepadBlinkOn,'true');
+    s.advance(1500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'0');
+    s.advance(2000);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');
   }finally{s.close();}
 });
 
 test('reduced motion keeps icons and caret steady, and visibility resumes the same clock phase',()=>{
   const s=setup({native:true});
   try{
-    s.advance(1300);assert.equal(s.phase(),'0');
-    s.motion(true);assert.equal(s.phase(),'1');assert.equal(s.timers.size,0);
-    s.advance(3500);s.motion(false);assert.equal(s.phase(),'1');
-    s.advance(3600);assert.equal(s.phase(),'0');
+    s.advance(1600);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'0');
+    s.motion(true);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');assert.equal(s.timers.size,0);
+    s.advance(2200);s.motion(false);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'1');
+    s.advance(2500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'1');
     s.visibility(true);assert.equal(s.timers.size,0);
-    s.advance(5300);s.visibility(false);assert.equal(s.phase(),'1');
-    s.advance(6000);assert.equal(s.phase(),'0');
+    s.advance(3300);s.visibility(false);assert.equal(s.phase(),'1');assert.equal(s.urgentPhase(),'0');
+    s.advance(3500);assert.equal(s.phase(),'0');assert.equal(s.urgentPhase(),'0');
   }finally{s.close();}
 });
 
@@ -103,7 +106,7 @@ test('fallback caret tracks body and checklist selections outside saved content 
     assert.equal(s.window.getSelection().anchorOffset,3);assert.equal(editor.innerHTML,before);
     s.select('.task-label',5);
     assert.equal(s.overlay().style.left,'135px');assert.equal(editor.innerHTML,before);
-    s.advance(1200);assert.equal(s.phase(),'0');
+    s.advance(500);assert.equal(s.phase(),'0');
     s.select('.task-label',5,9);
     assert.equal(s.overlay().hidden,true);assert.equal(s.root.dataset.notepadCaretOverlay,undefined);
     assert.equal(s.window.getSelection().toString(),' a g');

@@ -1,4 +1,5 @@
 import type { InkStroke } from './general-notes';
+import type { TimeFormat } from './profile-preferences';
 
 export const NOTEPAD_ROLES = [
   { id: 'engineer', label: 'Chief Engineer' },
@@ -13,7 +14,7 @@ export const NOTEPAD_ROLES = [
 ] as const;
 export type NotepadRole = typeof NOTEPAD_ROLES[number]['id'];
 export type NotepadAudience = { all: boolean; roles: string[]; people: string[] };
-export type NotepadPerson = { id: string; name: string; short: string; initials: string; role: string; roles: string[]; active: boolean; taggable: boolean; recipientSelectable: boolean };
+export type NotepadPerson = { id: string; name: string; short: string; initials: string; role: string; displayRole?: string; roles: string[]; active: boolean; taggable: boolean; recipientSelectable: boolean };
 export type NotepadAttachment = { id: string; kind: 'file' | 'gif'; name: string; type?: string; size?: number; gifId?: string; url?: string };
 export type NotepadReply = { id: string; authorId: string; authorName?: string; at: string; text: string; replies: NotepadReply[] };
 export type NotepadDocument = {
@@ -30,6 +31,7 @@ export type NotepadNote = NotepadDocument & {
 export type NotepadBootstrap = {
   hotelId: string; userId: string; people: NotepadPerson[]; roles: Array<{ id: string; label: string }>;
   notes: NotepadNote[]; order: string[]; legacyAliases: Record<string, string>;
+  timeFormat?: TimeFormat;
 };
 export const NOTEPAD_TEST_EMAILS = new Set(['assmgr@test.com', 'chief@test.com', 'frontmgr@test.com', 'gm@test.com', 'gpt@test.com', 'frontdesk@test.com']);
 export const NOTEPAD_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

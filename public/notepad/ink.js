@@ -12,8 +12,8 @@
   const PAGE_WIDTH = 800;
   const PAGE_HEIGHT = 1100;
   const drawingCursor = {
-    pen: 'url("/notepad/pencil-cursor.svg") 3 21, crosshair',
-    eraser: 'url("/notepad/eraser-cursor.svg") 5 19, crosshair',
+    pen: 'url("/notepad/pencil-cursor.svg") 3 18, crosshair',
+    eraser: 'url("/notepad/eraser-cursor.svg") 4 17, crosshair',
   };
   const validMode = value => ['text', 'pen', 'eraser'].includes(value);
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));

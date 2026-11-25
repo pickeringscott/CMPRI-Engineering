@@ -6,6 +6,27 @@ import * as jsx from "react/jsx-runtime";
 import { JSDOM } from "jsdom";
 import { loadTs } from "./helpers/load-ts.mjs";
 
+test("document download enforces Chief Engineer access before resolving an original", async () => {
+  let auth = { ok: false };
+  let reads = 0;
+  const { POST } = loadTs("src/app/api/ask-cmpri/document-download/route.ts", {
+    "next/server": { NextResponse: Response },
+    "@/lib/server/auth": { requireUserAttempt: async () => auth },
+    "@/lib/server/roles": loadTs("src/lib/server/roles.ts"),
+    "@/lib/server/ask-cmpri-vendor-document": { askVendorDocumentDownload: async () => { reads++; return { name: "example.pdf" }; } },
+  });
+  const send = () => POST(new Request("https://cmpri.test/api/ask-cmpri/document-download", {
+    method: "POST", body: JSON.stringify({ token: "fixture-only" }),
+  }));
+  assert.equal((await send()).status, 401);
+  auth = { ok: true, principal: { profile: { role: "system_admin" } } };
+  assert.equal((await send()).status, 403);
+  assert.equal(reads, 0);
+  auth.principal.profile.role = "chief_engineer";
+  assert.equal((await send()).status, 200);
+  assert.equal(reads, 1);
+});
+
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://cmpri.test/engineering" });
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
 const { createRoot } = await import("react-dom/client");

@@ -5,6 +5,7 @@ import * as model from '../src/lib/notepad.ts';
 import * as documentTools from '../src/lib/server/notepad-document.ts';
 import * as media from '../src/lib/staff-note-media.ts';
 import { notepadDirectory,resolveNotepadAttachment,signNotepadAttachments } from '../src/lib/server/notepad-store.ts';
+import * as preferencesTools from '../src/lib/profile-preferences.ts';
 
 const hotel='00000000-0000-4000-8000-000000000001',actor='00000000-0000-4000-8000-000000000002';
 const owner='00000000-0000-4000-8000-000000000003',id='00000000-0000-4000-8000-000000000004';
@@ -14,11 +15,11 @@ const document=()=>({title:'Project',audience:{all:false,roles:['engineer'],peop
 const json=(body,init={})=>({body,status:init.status||200,headers:init.headers});
 const request=(body,url='https://fixture.invalid/api/notepad')=>({headers:new Headers({'x-cmpri-property':hotel}),nextUrl:new URL(url),body:new Response(JSON.stringify(body)).body,json:async()=>body});
 function fixture(){
- let signed=true,rpcError=null;
+ let signed=true,rpcError=null,preferences={},profile={role:'chief_engineer'};
  const calls=[],state={hotelId:hotel,userId:actor,people:[{id:actor,active:true,taggable:true}],roles:[],notes:[],rows:[],order:[],legacyAliases:{}},uploads=[];
- const admin={from(table){calls.push(['table',table]);const q={select(){return q},eq(){return q},in(){return Promise.resolve({data:uploads,error:null})},upsert:async row=>{calls.push(['order',row]);return{error:null}}};return q},rpc:async(name,args)=>{calls.push([name,args]);return {error:rpcError,data:{id:args.p_id,hotel_id:args.p_hotel,author_user_id:state.notes[0]?.authorId||actor,document:args.p_document,revision:2,created_at:at,updated_at:at,deleted_at:args.p_document?null:at}}}};
- const route=loadTs('src/app/api/notepad/route.ts',{'next/server':{NextResponse:{json}},'@/lib/server/auth':{requireUser:async()=>signed?{principal:{hotelId:hotel,identity:{id:actor}},admin}:null},'@/lib/notepad':model,'@/lib/server/notepad-document':documentTools,'@/lib/server/notepad-store':{loadNotepad:async(_admin,property,user)=>{calls.push(['load',property,user]);return state},projectNotepadRow:row=>row.document?{...row.document,id:row.id,authorId:row.author_user_id,revision:row.revision,createdAt:row.created_at,updatedAt:row.updated_at}:null,signNotepadAttachments:async()=>{}}},{TextDecoder});
- return{route,calls,state,uploads,setSigned:value=>signed=value,setRpcError:value=>rpcError=value,body:()=>({id,expectedRevision:null,changeId:change,document:document()})};
+ const admin={from(table){calls.push(['table',table]);const q={select(){return q},eq(){return q},maybeSingle:async()=>({data:{preferences},error:null}),in(){return Promise.resolve({data:uploads,error:null})},upsert:async row=>{calls.push(['order',row]);return{error:null}}};return q},rpc:async(name,args)=>{calls.push([name,args]);return {error:rpcError,data:{id:args.p_id,hotel_id:args.p_hotel,author_user_id:state.notes[0]?.authorId||actor,document:args.p_document,revision:2,created_at:at,updated_at:at,deleted_at:args.p_document?null:at}}}};
+ const route=loadTs('src/app/api/notepad/route.ts',{'next/server':{NextResponse:{json}},'@/lib/server/auth':{requireUser:async()=>signed?{principal:{hotelId:hotel,identity:{id:actor},profile},admin}:null},'@/lib/notepad':model,'@/lib/profile-preferences':preferencesTools,'@/lib/server/notepad-document':documentTools,'@/lib/server/notepad-store':{loadNotepad:async(_admin,property,user)=>{calls.push(['load',property,user]);return state},projectNotepadRow:row=>row.document?{...row.document,id:row.id,authorId:row.author_user_id,revision:row.revision,createdAt:row.created_at,updatedAt:row.updated_at}:null,signNotepadAttachments:async()=>{}}},{TextDecoder});
+ return{route,calls,state,uploads,setSigned:value=>signed=value,setRpcError:value=>rpcError=value,setProfile:(next,setting)=>{profile=next;preferences=setting},body:()=>({id,expectedRevision:null,changeId:change,document:document()})};
 }
 test('Notepad APIs bind every load and mutation to the active principal and reject tenant or ownership injection',async()=>{
  const f=fixture();assert.equal((await f.route.GET(request(null))).status,200);assert.deepEqual(f.calls[0],['load',hotel,actor]);
@@ -26,6 +27,35 @@ test('Notepad APIs bind every load and mutation to the active principal and reje
  assert.equal((await f.route.PUT(request({...f.body(),author_user_id:owner}))).status,400);
  const wrong=request(f.body());wrong.headers.set('x-cmpri-property',owner);assert.equal((await f.route.PUT(wrong)).status,401);
  f.setSigned(false);for(const method of ['GET','PUT','PATCH'])assert.equal((await f.route[method](request(f.body()))).status,401);
+});
+test('Notepad bootstrap derives the signed-in user’s default and applies an explicit time choice',async()=>{
+ const f=fixture();
+ assert.equal((await f.route.GET(request(null))).body.timeFormat,'24h');
+ f.setProfile({role:'chief_engineer'},{time_format:'12h'});
+ assert.equal((await f.route.GET(request(null))).body.timeFormat,'12h');
+ f.setProfile({role:'technician'},{});
+ assert.equal((await f.route.GET(request(null))).body.timeFormat,'12h');
+ f.setProfile({role:'technician'},{time_format:'24h'});
+ assert.equal((await f.route.GET(request(null))).body.timeFormat,'24h');
+});
+test('Edit History binds note pagination to the authenticated account and property',async()=>{
+ let signed=true;
+ const calls=[],rows=Array.from({length:6},(_,index)=>({revision:9-index,actor_id:actor,actor_name:'Test Editor',edited_at:at,kind:'updated',before_fields:{title:'Before'},after_fields:{title:'After'},ignored:'internal'}));
+ const admin={rpc:async(name,args)=>{calls.push([name,args]);return {data:rows,error:null}}};
+ const route=loadTs('src/app/api/notepad/history/route.ts',{'next/server':{NextResponse:{json}},'@/lib/server/auth':{requireUser:async()=>signed?{principal:{hotelId:hotel,identity:{id:actor}},admin}:null},'@/lib/notepad':model});
+ const read=(query)=>request(null,'https://fixture.invalid/api/notepad/history?'+query);
+ const page=await route.GET(read('id='+id+'&before=10&actor='+owner));
+ assert.equal(page.status,200);
+ assert.deepEqual(JSON.parse(JSON.stringify(calls)),[['cmpri_read_notepad_history',{p_hotel:hotel,p_actor:actor,p_note:id,p_before:10}]]);
+ assert.equal(page.body.entries.length,5);
+ assert.equal(page.body.next,5);
+ assert.equal(page.body.entries[0].actorName,'Test Editor');
+ assert.equal(page.body.entries[0].ignored,undefined);
+ assert.equal((await route.GET(read('id='+id+'&before=-1'))).status,400);
+ const otherScope=read('id='+id);otherScope.headers.set('x-cmpri-property',owner);
+ assert.equal((await route.GET(otherScope)).status,401);
+ signed=false;
+ assert.equal((await route.GET(read('id='+id))).status,401);
 });
 test('shared collaborators edit content but cannot change the audience, delete, or overwrite a newer revision',async()=>{
  const f=fixture(),note={...document(),id,authorId:owner,revision:3,createdAt:at,updatedAt:at};f.state.notes=[note];f.state.rows=[{id,revision:3,author_user_id:owner,change_id:owner}];
@@ -72,16 +102,17 @@ test('individual sharing hides Scott Pickering’s admin identity and keeps Scot
  const profiles=[
   {id:'scott-admin',full_name:'Scott Pickering',role:'system_admin',secondary_roles:['engineer']},
   {id:'scott-admin-alias',full_name:'  scott   PICKERING ',role:'System Administrator',secondary_roles:[]},
-  {id:'scott-chief',full_name:'Scott P',role:'chief_engineer',secondary_roles:[]},
+  {id:'scott-chief',full_name:'Scott P',email:'maint.cmpri@hawkeyehotels.com',role:'system_admin',secondary_roles:['engineer']},
   {id:'other-admin',full_name:'Other Administrator',role:'system_admin',secondary_roles:[]},
   {id:'same-name-engineer',full_name:'Scott Pickering',role:'engineer',secondary_roles:[]},
- ].map(p=>({...p,email:p.id+'@example.invalid',active:true}));
+ ].map(p=>({...p,email:p.email||p.id+'@example.invalid',active:true}));
  const admin={from(table){const q={select(){return q},eq(){return q},order(){return q},range:async()=>({data:profiles.map(p=>({user_id:p.id,active:true})),error:null}),in:async()=>({data:profiles,error:null})};assert.ok(['hotel_members','profiles'].includes(table));return q}};
  const people=await notepadDirectory(admin,hotel),byId=new Map(people.map(p=>[p.id,p]));
  assert.equal(people.length,profiles.length);
  for(const hidden of ['scott-admin','scott-admin-alias']){assert.equal(byId.get(hidden).recipientSelectable,false);assert.equal(byId.get(hidden).taggable,true);assert.equal(byId.get(hidden).active,true);}
  for(const visible of ['scott-chief','other-admin','same-name-engineer'])assert.equal(byId.get(visible).recipientSelectable,true);
- assert.deepEqual(byId.get('scott-chief').roles,['engineer']);
+ assert.equal(byId.get('scott-chief').displayRole,'Chief Engineer');
+ assert.deepEqual(byId.get('scott-chief').roles,['engineer','system_admin']);
  assert.equal(model.notepadCanRead({authorId:actor,audience:{all:true,roles:[],people:[]}},byId.get('scott-admin')),true);
 });
 test('file upload signing derives the storage path from trusted ownership and verifies stored size/type',async()=>{

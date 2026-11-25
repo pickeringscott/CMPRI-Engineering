@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { loadTs } from "./helpers/load-ts.mjs";
 import * as syncModule from "../src/lib/notepad-sync.ts";
 import * as closeModule from "../src/lib/ui/notepad-close.ts";
+import * as notepadModule from "../src/lib/notepad.ts";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://cmpri.test/notepad", pretendToBeVisual: true });
 Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true });
@@ -34,15 +35,18 @@ async function fixture({ holdInitial = false, count = 1 } = {}) {
     react: React, "react/jsx-runtime": jsx, "./notepad/notepad-host.css": {},
     "@/lib/supabase/client": { createClient: () => client, getValidSession: async () => state.userId ? { access_token: `session:${state.userId}`, user: { id: state.userId } } : null },
     "@/lib/general-notes-session": { isNotesSessionRestart: async () => false }, "@/lib/giphy": {}, "@/lib/staff-note-media": { STAFF_FILE_BUCKET: "staff-note-files", staffFileInput: value => value },
-    "@/lib/notepad-sync": syncModule, "@/lib/ui/notepad-close": closeModule,
+    "@/lib/notepad-sync": syncModule, "@/lib/ui/notepad-close": closeModule, "@/lib/notepad": notepadModule,
     "@/lib/notepad-device-drafts": { recoverNotepadDeviceDrafts: async (_data, restored) => restored },
-  }, { window, document, localStorage: window.localStorage, crypto, URL, Headers, AbortController, Error, File,
+  }, { window, document, localStorage: window.localStorage, crypto, URL, URLSearchParams, Headers, AbortController, Error, File,
     getComputedStyle: dom.window.getComputedStyle, MutationObserver: dom.window.MutationObserver, queueMicrotask,
     fetch: async (path, options) => {
-      assert.ok(["/api/notepad", "/api/notepad/uploads"].includes(path));
+      assert.ok(["/api/notepad", "/api/notepad/uploads"].includes(path) || path.startsWith("/api/notepad/history?"));
       const userId = options.headers.Authorization.replace("Bearer session:", "");
       const method = options.method || "GET";
       requests.push({ path, method, userId, body: options.body && JSON.parse(options.body) });
+      if (path.startsWith("/api/notepad/history?")) {
+        return Response.json({ entries: state.savedNote ? [{ revision: state.savedNote.revision, after: { title: state.savedNote.title } }] : [], next: null });
+      }
       if (path === "/api/notepad/uploads") {
         const body = JSON.parse(options.body);
         return Response.json(method === "POST" ? { id: body.id, path: `property/${userId}/notepad/${body.id}`, token: "signed-file-token" } : { id: body.id, ready: true, url: "https://storage.example/verified-file" });
@@ -207,5 +211,23 @@ for (const writeStatus of [200, 409]) test(`opening an attachment waits for its 
       assert.match(result.error, /cannot open until the note is saved/);
       assert.equal(f.requests.filter(request => request.path === "/api/notepad" && request.method === "GET").length, readsBefore);
     }
+  } finally { await f.close(); }
+});
+
+test("opening history waits for the queued save and fetches the saved revision under the same session", async () => {
+  const f = await fixture();
+  try {
+    f.state.writeGate = deferred();
+    await f.send("save", { id: noteId, sequence: 1, baseRevision: 1, document: { ...note("account-A"), title: "Latest saved title" } });
+    await f.send("request", { id: noteId, before: null }, 0, { action: "history", requestId: "history-request" });
+    assert.ok(f.requests.some(request => request.method === "PUT"));
+    assert.ok(!f.requests.some(request => request.path.startsWith("/api/notepad/history?")));
+    await act(async () => { f.state.writeGate.resolve(); await settle(); });
+    const request = f.requests.find(request => request.path.startsWith("/api/notepad/history?"));
+    assert.equal(request.path, "/api/notepad/history?id=" + noteId);
+    assert.equal(request.userId, "account-A");
+    const result = f.outgoing.find(message => message.data.type === "result" && message.data.payload.requestId === "history-request").data.payload.result;
+    assert.equal(result.entries[0].revision, 2);
+    assert.equal(result.entries[0].after.title, "Latest saved title");
   } finally { await f.close(); }
 });

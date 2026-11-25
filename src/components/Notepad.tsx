@@ -6,7 +6,7 @@ import { isNotesSessionRestart } from '@/lib/general-notes-session';
 import { requestGiphy } from '@/lib/giphy';
 import { STAFF_FILE_BUCKET, staffFileInput } from '@/lib/staff-note-media';
 import { NotepadSync, NotepadSyncError, type NotepadSyncState } from '@/lib/notepad-sync';
-import type { NotepadBootstrap, NotepadDocument } from '@/lib/notepad';
+import { NOTEPAD_UUID, type NotepadBootstrap, type NotepadDocument } from '@/lib/notepad';
 import { recoverNotepadDeviceDrafts } from '@/lib/notepad-device-drafts';
 import { NOTEPAD_CLOSE_REQUEST, type NotepadCloseRequest } from '@/lib/ui/notepad-close';
 import './notepad/notepad-host.css';
@@ -155,6 +155,17 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
     const mediaRequest = async (action: string, payload: Record<string, unknown>) => {
       const scope = bootstrap;
       if (!scope) throw Error('Sign in to use Notepad.');
+      if (action === 'history') {
+        if (typeof payload.id !== 'string' || !NOTEPAD_UUID.test(payload.id)) throw Error('Invalid note.');
+        const params = new URLSearchParams({ id: payload.id });
+        if (payload.before != null) {
+          if (typeof payload.before !== 'number' || !Number.isSafeInteger(payload.before) || payload.before < 1) throw Error('Invalid history page.');
+          params.set('before', String(payload.before));
+        } else {
+          await sync.current?.flush(payload.id);
+        }
+        return request('/api/notepad/history?' + params, {}, scope);
+      }
       await authorize(scope);
       if (action === 'giphy') {
         if (Array.isArray(payload.ids)) {
@@ -249,8 +260,12 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
       const topics = (event as CustomEvent<{ topics?: string[] }>).detail?.topics;
       if (!document.hidden && (!topics?.length || topics.some(topic => ['notepad', 'general-notes', 'staff-notes'].includes(topic)))) void load();
     };
+    const preferencesChanged = (event: MessageEvent) => {
+      if (event.origin === window.location.origin && event.data?.type === 'cmpri-profile-preferences-updated') void load();
+    };
     window.addEventListener('cmpri-data-cache-invalidated', localChange);
     window.addEventListener('message', receive);
+    window.addEventListener('message', preferencesChanged);
     window.addEventListener('focus', wake); window.addEventListener('online', wake);
     window.addEventListener('pagehide', onPageHide);
     document.addEventListener('visibilitychange', wake);
@@ -272,6 +287,7 @@ export default function Notepad({ targetNoteId, onOpenWorkOrder, compact }: Prop
       if (subscription) void client.removeChannel(subscription);
       authListener.subscription.unsubscribe(); observer.disconnect();
       window.removeEventListener('cmpri-data-cache-invalidated', localChange);
+      window.removeEventListener('message', preferencesChanged);
       window.removeEventListener('message', receive); window.removeEventListener('focus', wake); window.removeEventListener('online', wake); window.removeEventListener('pagehide', onPageHide);
       document.removeEventListener('visibilitychange', wake); hostElement?.removeEventListener(NOTEPAD_CLOSE_REQUEST, onCloseRequest);
       send.current = () => {};

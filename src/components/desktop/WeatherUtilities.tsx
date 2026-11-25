@@ -12,13 +12,12 @@ type WeatherVisuals = {
   condition: (description: string | null, options: { icon: string | null; isDaytime: boolean | null }) => SVGElement;
 };
 
-const DESKTOP = "(min-width: 701px)";
 const REFRESH_INTERVAL = 10 * 60 * 1000;
 const CENTER_X = 51.6, CENTER_Y = 49, RADIUS = 42.5;
 const ARC_START = 210, ARC_SPAN = 300, HIGH_ANGLE = 321, LOW_ANGLE = 498;
 const UNKNOWN_COLOR = "#373a40";
-// The 100-unit artboard stays 225 CSS pixels wide. Two typographic points are
-// 8/3 CSS pixels; dilating the alpha adds that exact dark edge to text and lines.
+// At the full 225px size, two typographic points are 8/3 CSS pixels.
+// Dilating the alpha applies the outline to both text and lines as the dial scales.
 const LIGHT_INK_OUTLINE = (2 * 96 / 72) / (225 / 100);
 const WIND_INDICATOR_BOTTOM = 62.4 + 4.2 + 0.55 / 2;
 
@@ -163,19 +162,9 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
 }
 
 function WeatherTile({ onOpen }: { onOpen: MouseEventHandler<HTMLButtonElement> }) {
-  const [desktop, setDesktop] = useState(false);
   const [data, setData] = useState<DashboardWeather | null>(null);
 
   useEffect(() => {
-    const query = window.matchMedia(DESKTOP);
-    const update = () => setDesktop(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-
-  useEffect(() => {
-    if (!desktop) return;
     let request: AbortController | null = null;
     let lastRead = 0;
     const refresh = () => {
@@ -205,9 +194,9 @@ function WeatherTile({ onOpen }: { onOpen: MouseEventHandler<HTMLButtonElement> 
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [desktop]);
+  }, []);
 
-  return desktop ? <WeatherDial data={data} onOpen={onOpen} /> : null;
+  return <WeatherDial data={data} onOpen={onOpen} />;
 }
 
 export default function WeatherUtilities({ children, onOpen }: { children: ReactNode; onOpen?: MouseEventHandler<HTMLButtonElement> }) {

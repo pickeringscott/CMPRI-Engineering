@@ -71,7 +71,7 @@ try {
     for (const field of fields) if (!definition.properties?.[field]) missing.push(`Column: ${table}.${field}`);
   }
   if (!schema.paths?.["/rpc/cmpri_save_mentioned_work_order"]?.post) missing.push("Function: cmpri_save_mentioned_work_order");
-  for(const rpc of ['cmpri_post_staff_note_with_mentions','cmpri_capture_staff_note_name','cmpri_save_notepad'])if(!schema.paths?.['/rpc/'+rpc]?.post)missing.push('Function: '+rpc);
+  for(const rpc of ['cmpri_post_staff_note_with_mentions','cmpri_capture_staff_note_name','cmpri_save_notepad','cmpri_read_notepad_history'])if(!schema.paths?.['/rpc/'+rpc]?.post)missing.push('Function: '+rpc);
   const statuses = schema.definitions?.work_orders?.properties?.status?.enum;
   if (Array.isArray(statuses)) for (const status of ['Open', 'Pending Verification', 'In Progress', 'Completed', 'Closed', 'Will Not Do']) {
     if (!statuses.includes(status)) missing.push(`Work-order status: ${status}`);

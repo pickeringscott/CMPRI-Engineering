@@ -10,7 +10,7 @@ import WeatherUtilities from "@/components/desktop/WeatherUtilities";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { profileCanUseHoursTracker } from "@/lib/server/roles";
+import { isRecognizedChiefEngineer, profileCanUseHoursTracker } from "@/lib/server/roles";
 import { useRouter } from "next/navigation";
 import { getValidSession } from "@/lib/supabase/client";
 import { signOutDevice } from "@/lib/supabase/client";
@@ -291,9 +291,8 @@ export default function TechnicianDashboard() {
       {account && typeof window !== "undefined" && window.parent === window
         && new URLSearchParams(window.location.search).get("embedded") !== "1" && (
           <BeginnerGuide key={account.id + ":" + account.role} user={{
-            id: account.id,
+            ...account,
             name: account.name?.trim() || "",
-            role: account.role,
           }} />
         )}
       <div className="mx-auto w-full px-1 pt-[8pt] pb-2 sm:px-2 lg:w-[66vw]">
@@ -309,7 +308,7 @@ export default function TechnicianDashboard() {
             </WeatherUtilities>
           </div>
           <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
-            <ApprovedDashboardMenus anchored askEnabled userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={launchMenuAction} />
+            <ApprovedDashboardMenus anchored askEnabled={!!account && isRecognizedChiefEngineer(account)} userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={launchMenuAction} />
           </nav>
         </header>
         <div data-weather-desktop-bulletin-host className="relative z-20 w-full" />

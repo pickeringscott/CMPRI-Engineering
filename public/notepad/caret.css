@@ -1,5 +1,5 @@
-/* One document clock drives every urgent image and insertion caret. */
-.layout-1 .note-urgent{animation:none;opacity:var(--notepad-blink-opacity,1)}
+/* Both urgent markers stay lit for one complete caret cycle. */
+.layout-1 .note-urgent{animation:none;opacity:var(--notepad-urgent-opacity,1)}
 html[data-notepad-caret="native"] :is(input,textarea,[contenteditable]){caret-animation:manual}
 html[data-notepad-caret="native"][data-notepad-blink-on="false"] :is(input,textarea,[contenteditable]){caret-color:transparent!important}
 html[data-notepad-caret-overlay="true"] :is(input,textarea,[contenteditable]){caret-color:transparent!important}

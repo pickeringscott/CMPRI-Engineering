@@ -12,15 +12,10 @@ import { isSubmitOnlyRole, landingPath } from "@/lib/server/roles";
 import { isNotificationScheduleEligibleProfile, isWebPushEligibleProfile, isStaffNotesPushEligibleProfile, normalizeNotificationSettings } from "@/lib/notifications/schedule";
 import PhoneNotificationRow from "@/components/PhoneNotificationRow";
 import { loadCmpriSession } from "@/lib/auth/client-session";
+import { resolveProfileTimeFormat, type ProfilePreferences as Preferences, type TimeFormat } from "@/lib/profile-preferences";
 import { clearPhoneScheduleRecovery, phoneScheduleKey, readPhoneScheduleRecovery, savePhoneScheduleRecovery, type PhoneScheduleRecovery, canRestoreProfileRecovery, clearProfileRecovery, profileFieldsKey, readProfileRecovery, saveProfileRecovery, type ProfileRecovery, type ProfileScope, type ProfileSettingsDraft } from "@/lib/profile-recovery";
 
 type Profile = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[] };
-type Preferences = {
-  language: "en" | "es";
-  appearance: "light" | "dark";
-  notification_mode: "in_app" | "email" | "both";
-  notifications: { new_work_orders: boolean; status_changes: boolean; mentions: boolean };
-};
 type ScheduleDay = { enabled: boolean; start: string; end: string };
 type PhoneNotificationSettings = {
   timezone: string;
@@ -590,8 +585,16 @@ export default function ProfilePage() {
 
         <section className="mt-4 rounded-2xl border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-xl font-bold">{tx("Personal Preferences", "Preferencias personales")}</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_max-content_minmax(0,1fr)]">
             <label className="grid gap-1 text-sm text-slate-300">{tx("Language", "Idioma")}<select value={preferences.language} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, language: event.target.value as Preferences["language"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="en">{tx("English")}</option><option value="es">{tx("Español")}</option></select></label>
+            <label className="grid w-fit gap-1 text-sm text-slate-300">{tx("Time Format", "Formato de hora")}
+              <select value={resolveProfileTimeFormat(preferences, data.profile)} disabled={data.profile_settings_available === false}
+                onChange={(event) => setPreferences({ ...preferences, time_format: event.target.value as TimeFormat })}
+                className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50">
+                <option value="12h">{tx("12-hour", "12 horas")}</option>
+                <option value="24h">{tx("24-hour", "24 horas")}</option>
+              </select>
+            </label>
             <label className="grid gap-1 text-sm text-slate-300">{tx("Appearance", "Apariencia")}<select value={preferences.appearance} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, appearance: event.target.value as Preferences["appearance"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="dark">{tx("Dark", "Oscuro")}</option><option value="light">{tx("Light", "Claro")}</option></select></label>
           </div>
           {!isSubmitOnlyProfile && <div className="mt-4 grid gap-1 text-sm text-slate-300">

@@ -2,6 +2,9 @@
   'use strict';
   const ANNOTATION = '.item-reply-actions,.item-thread,.task-completion,.task-stamp';
   const BLOCK = 'p,div,h1,h2,h3,h4,h5,h6,blockquote,li,.note-check';
+  const FLOW_BLOCK = BLOCK+',ul,ol';
+  const INDENT_STEP = 24;
+  const MARKER_SIZE = '--np-marker-size';
   const FONT_DEFAULT = 'Comic Sans MS';
   const FONTS = ['Comic Sans MS','Arial','Calibri','Cambria','Georgia','Helvetica','Tahoma','Times New Roman','Trebuchet MS','Verdana','Courier New'];
   const SIZES = [8,9,10,11,12,14,16,18,20,22,24,28,32,36,48,60,72];
@@ -45,21 +48,21 @@
   function attach({editor,toolbar,titleInput=null,getNote,onChange=function(){},onTitleFontChange=function(){}}) {
     if(!editor||!toolbar)throw new TypeError('Formatting needs editor and toolbar elements.');
     const doc=editor.ownerDocument, win=doc.defaultView||global;
-    let saved=null,composing=false,destroyed=false,blocked=false,refreshing=false,fontRequest=0,selectedFamily=FONT_DEFAULT;
-    let titleActive=false,titleSelection=null,titleFontFamily='Arial',colorMenu=null,selectedColor=null;
+    let saved=null,composing=false,destroyed=false,blocked=false,refreshing=false,fontRequest=0,selectedFamily=FONT_DEFAULT,clearing=false;
+    let titleActive=false,titleSelection=null,titleFontFamily=FONT_DEFAULT,colorMenu=null,selectedColor=null;
     const colorTrigger=$('[data-format-color-trigger]',toolbar);
     const removers=[];
     function listen(node,type,fn,capture=false){node.addEventListener(type,fn,capture);removers.push(()=>node.removeEventListener(type,fn,capture));}
     const element=node=>node?.nodeType===1?node:node?.parentElement;
     const annotation=node=>!!element(node)?.closest(ANNOTATION);
-    function cleanText(root) {
+    function cleanText(root,omitLists=false) {
       const copy=root.cloneNode(true);
-      if(copy.querySelectorAll) $$(ANNOTATION,copy).forEach(n=>n.remove());
+      if(copy.querySelectorAll) $$(ANNOTATION+(omitLists?',ul,ol':''),copy).forEach(n=>n.remove());
       return(copy.textContent||'').replace(/\u200b/g,'');
     }
-    function textNodes(root) {
+    function textNodes(root,ownItem=null) {
       const result=[],walker=doc.createTreeWalker(root,win.NodeFilter.SHOW_TEXT);
-      let node;while((node=walker.nextNode()))if(!annotation(node))result.push(node);
+      let node;while((node=walker.nextNode()))if(node.length&&!annotation(node)&&(!ownItem||canonical(node)===ownItem))result.push(node);
       return result;
     }
     function canonical(node) {
@@ -69,7 +72,7 @@
       return null;
     }
     function visibleLengthBefore(root,node,offset) {
-      try {const r=doc.createRange();r.selectNodeContents(root);r.setEnd(node,offset);return cleanText(r.cloneContents()).length;}catch{return 0;}
+      try {const r=doc.createRange();r.selectNodeContents(root);r.setEnd(node,offset);return cleanText(r.cloneContents(),root!==editor).length;}catch{return 0;}
     }
     function endpoint(node,offset) {
       const item=canonical(node);
@@ -97,7 +100,7 @@
       if(point.node?.nodeType===3&&editor.contains(point.node)&&!annotation(point.node))return {node:point.node,offset:Math.min(point.offset,point.node.length)};
       const item=(point.item&&editor.contains(point.item)?point.item:null)||(point.id?$$('[data-item-id]',editor).find(n=>n.dataset.itemId===point.id):null);
       const root=item||editor;let left=item?point.relative:point.global;
-      const nodes=textNodes(root);
+      const nodes=textNodes(root,item);
       for(const node of nodes){
         const length=node.length;
         if(left<=length)return {node,offset:Math.max(0,left)};
@@ -117,7 +120,7 @@
       const surface=item.matches('.note-check')?$('.task-label',item):item;
       (surface.matches('.task-label')?surface:editor).focus({preventScroll:true});
       let left=at,node=surface,offset=0;
-      for(const text of textNodes(surface)){
+      for(const text of textNodes(surface,item)){
         if(left<=text.length){node=text;offset=left;break;}left-=text.length;node=text;offset=text.length;
       }
       const r=doc.createRange();r.setStart(node,offset);r.collapse(true);
@@ -125,27 +128,35 @@
     }
     function currentRange() {
       if(blocked)return null;
-      let r=restore();
-      if(r)return r;
-      const first=items()[0]?.node;
+      normalizeBlocks(editor);
+      const r=restore(),records=items();
+      if(r&&selected(records,r).length)return r;
+      const first=records[0]?.node;
       if(first){focusAt(first,0);return restore();}
-      const p=doc.createElement('p');p.appendChild(doc.createElement('br'));editor.appendChild(p);focusAt(p,0);return restore();
+      focusAt(appendEmptyParagraph(),0);return restore();
+    }
+    function appendEmptyParagraph() {
+      const p=doc.createElement('p');p.appendChild(doc.createElement('br'));editor.appendChild(p);return p;
     }
     function kindOf(list) {return list.dataset.formatList||(list.tagName==='UL'?'bullet':(list.getAttribute('type')==='a'?'letter':'number'));}
+    function levelOf(value,fallback=1) {
+      const level=Number(value);return Number.isSafeInteger(level)&&level>0?level:fallback;
+    }
     function items() {
       const result=[];
       function walk(parent,depth=0,kind=null){
         for(const node of Array.from(parent.children)){
           if(node.matches(ANNOTATION))continue;
-          if(node.matches('ul,ol')){walk(node,Math.max(depth+1,Number(node.dataset.baseLevel)||0),kindOf(node));continue;}
-          if(node.matches('.note-check')){result.push({node,kind:'check',level:Math.min(3,Math.max(1,Number(node.dataset.listLevel)||(Number(node.dataset.depth)||0)+1))});continue;}
+          if(node.matches('ul,ol')){walk(node,levelOf(node.dataset.baseLevel,depth+1),kindOf(node));continue;}
+          if(node.matches('.note-check')){result.push({node,kind:'check',level:levelOf(node.dataset.listLevel,levelOf(Number(node.dataset.depth)+1))});continue;}
           if(node.tagName==='LI'){
-            result.push({node,kind:kind||kindOf(node.parentElement),level:Math.min(3,Math.max(1,depth))});
-            for(const list of Array.from(node.children).filter(el=>el.matches('ul,ol')))walk(list,depth+1,kindOf(list));
+            const level=levelOf(node.dataset.listLevel,Math.max(1,depth));
+            result.push({node,kind:kind||kindOf(node.parentElement),level});
+            for(const list of Array.from(node.children).filter(el=>el.matches('ul,ol')))walk(list,level+1,kindOf(list));
             continue;
           }
           if(node.tagName==='DIV'&&Array.from(node.children).some(el=>el.matches('p,div,ul,ol,h1,h2,h3,h4,blockquote')&&!el.matches(ANNOTATION))){walk(node,depth,kind);continue;}
-          if(node.matches('p,div,h1,h2,h3,h4,h5,h6,blockquote'))result.push({node,kind:'plain',level:Math.min(3,Math.max(1,Number(node.dataset.listLevel)||1))});
+          if(node.matches('p,div,h1,h2,h3,h4,h5,h6,blockquote'))result.push({node,kind:'plain',level:levelOf(node.dataset.listLevel)});
         }
       }
       walk(editor);return result;
@@ -163,6 +174,47 @@
     function copyAttrs(from,to) {
       for(const a of Array.from(from.attributes))if(a.name!=='class'&&a.name!=='contenteditable'&&a.name!=='role'&&a.name!=='aria-label')to.setAttribute(a.name,a.value);
       to.removeAttribute('value');
+    }
+    // Native contenteditable may leave the first line as inline children beside
+    // later block lines. Make every text run a block before rebuilding the list.
+    function normalizeBlocks(parent) {
+      let run=[],usedIdentity=false;
+      function wrapRun() {
+        if(!run.some(node=>node.nodeType===1||node.nodeType===3&&node.data.trim())){run=[];return;}
+        const p=doc.createElement('p');
+        if(parent!==editor){
+          copyAttrs(parent,p);
+          if(usedIdentity){p.removeAttribute('data-item-id');p.removeAttribute('data-task-id');}
+          usedIdentity=true;
+        }
+        parent.insertBefore(p,run[0]);p.append(...run);run=[];
+      }
+      for(const child of Array.from(parent.childNodes)){
+        if(child.nodeType!==1||!child.matches(FLOW_BLOCK+','+ANNOTATION)){
+          if(child.nodeType===1||child.nodeType===3)run.push(child);
+          continue;
+        }
+        wrapRun();
+        if(child.tagName!=='DIV'||child.matches('.note-check,'+ANNOTATION)||!Array.from(child.children).some(el=>el.matches(FLOW_BLOCK)&&!el.matches(ANNOTATION)))continue;
+        normalizeBlocks(child);
+        for(const line of Array.from(child.children).filter(el=>el.matches(FLOW_BLOCK)&&!el.matches(ANNOTATION))){
+          for(const property of Array.from(child.style))if(!line.style.getPropertyValue(property))line.style.setProperty(property,child.style.getPropertyValue(property));
+        }
+        child.replaceWith(...child.childNodes);
+      }
+      wrapRun();
+    }
+    function restoreMarkerSize(node) {
+      if(node.style.getPropertyValue(MARKER_SIZE))return;
+      const first=textNodes(node,node).find(text=>text.data.replace(/\u200b/g,'').trim());
+      for(let part=first?.parentElement;part&&part!==node;part=part.parentElement){
+        if(part.style.fontSize){node.style.setProperty(MARKER_SIZE,part.style.fontSize);return;}
+      }
+    }
+    function makeEmptyLineEditable(node) {
+      // Splitting at the end can leave a zero-length text node, which Chromium
+      // cannot use as the only caret position in a newly converted block.
+      if(!node.textContent&&!$('br',node))node.appendChild(doc.createElement('br'));
     }
     function convert(record,kind,tag='p') {
       const old=record.node;
@@ -182,34 +234,42 @@
         node.className='note-check';node.contentEditable='false';
         const input=doc.createElement('input');input.type='checkbox';input.checked=!!node.dataset.completedBy;input.toggleAttribute('checked',input.checked);input.setAttribute('aria-label','Mark task done');
         const label=doc.createElement('span');label.className='task-label';label.contentEditable='true';label.spellcheck=true;label.setAttribute('role','textbox');label.setAttribute('aria-label','Task text');label.appendChild(content);
-        if(!label.childNodes.length)label.appendChild(doc.createElement('br'));
+        makeEmptyLineEditable(label);
         node.append(input,label);
       }else{
-        node.appendChild(content);if(!node.childNodes.length)node.appendChild(doc.createElement('br'));
+        node.appendChild(content);makeEmptyLineEditable(node);
       }
       decorations.forEach(el=>node.appendChild(el));
       if(old.isConnected)old.replaceWith(node);
-      record.node=node;record.kind=kind;return node;
+      record.node=node;record.kind=kind;
+      if(kind!=='plain')restoreMarkerSize(node);
+      return node;
     }
-    function marker(kind,level){return(kind==='bullet'?['disc','circle','square']:kind==='letter'?['lower-alpha','lower-roman','decimal']:['decimal','lower-alpha','lower-roman'])[level-1];}
+    function marker(kind,level){return kind==='bullet'?['disc','circle','square'][Math.min(level,3)-1]:kind==='letter'?'lower-alpha':'decimal';}
     function rebuild(records) {
       const threads=new Map($$('.item-thread',editor).map(n=>[n.dataset.threadFor,n]));
       records.forEach(r=>Array.from(r.node.children).filter(n=>n.matches('ul,ol')).forEach(n=>n.remove()));
       const fragment=doc.createDocumentFragment();let stack=[];
       for(const record of records){
-        const {node,kind}=record,level=Math.min(3,Math.max(1,record.level));
+        const {node,kind,level}=record;
         node.dataset.listLevel=String(level);
         node.dataset.depth=String(level-1);
-        if(kind==='plain'||kind==='check'){stack=[];fragment.appendChild(node);continue;}
-        let entry=stack[level];
+        if(kind==='plain'||kind==='check'){
+          node.style.marginInlineStart=level===1?'':((level-1)*INDENT_STEP)+'px';
+          // A checklist label is its own editable surface. Following child
+          // lists stay outside it and keep their hierarchy through their level.
+          stack=[];fragment.appendChild(node);continue;
+        }
+        node.style.removeProperty('margin-inline-start');
+        let entry=stack.find(item=>item.level===level);
         if(!entry||entry.kind!==kind){
           const list=doc.createElement(kind==='bullet'?'ul':'ol');list.className='np-format-list';list.dataset.formatList=kind;list.style.listStyleType=marker(kind,level);
-          const parent=stack[level-1]?.last;
+          const parent=stack.find(item=>item.level===level-1)?.last;
           if(parent)parent.appendChild(list);
-          else {list.dataset.baseLevel=String(level);list.style.marginInlineStart=((level-1)*24)+'px';fragment.appendChild(list);}
-          entry={kind,list,last:null};stack[level]=entry;
+          else {list.dataset.baseLevel=String(level);list.style.marginInlineStart=((level-1)*INDENT_STEP)+'px';fragment.appendChild(list);}
+          entry={kind,list,level,last:null};
         }
-        stack.length=level+1;entry.list.appendChild(node);entry.last=node;
+        stack=stack.filter(item=>item.level<level);stack.push(entry);entry.list.appendChild(node);entry.last=node;
       }
       editor.replaceChildren(fragment);
       for(const [id,panel] of threads){
@@ -228,7 +288,12 @@
       const range=currentRange();if(!range)return;
       const mark=bookmark(range),records=items(),chosen=selected(records,range);if(!chosen.length)return;
       const remove=chosen.every(r=>r.kind===kind);
-      for(const record of chosen)convert(record,remove?'plain':kind);
+      const previous=records[records.indexOf(chosen[0])-1];
+      const startingLevel=!remove&&chosen[0].kind==='plain'&&previous?.kind==='plain'?previous.level+1:0;
+      for(const record of chosen){
+        if(record.kind==='plain')record.level=Math.max(record.level,startingLevel);
+        convert(record,remove?'plain':kind);
+      }
       rebuild(records);commit(mark);
     }
     function indent(direction) {
@@ -238,7 +303,7 @@
         const start=records.indexOf(item);
         if(item.kind!=='plain')for(let i=start+1;i<records.length&&records[i].kind!=='plain'&&records[i].level>item.level;i++)affected.add(records[i]);
       }
-      if(!affected.size||Array.from(affected).some(r=>r.level+direction<1||r.level+direction>3))return;
+      if(!affected.size||Array.from(affected).some(r=>r.level+direction<1))return;
       affected.forEach(r=>r.level+=direction);rebuild(records);commit(mark);
     }
     function style(value) {
@@ -301,6 +366,9 @@
     }
     function inlineStyle(property,value) {
       const range=currentRange();if(!range)return;
+      if(property==='fontSize'){
+        for(const record of selected(items(),range))record.node.style.setProperty(MARKER_SIZE,value);
+      }
       if(range.collapsed){
         let carrier=element(range.startContainer)?.closest('[data-format-caret]');
         if(!carrier||!editor.contains(carrier)){
@@ -353,9 +421,15 @@
       const next={node:doc.createElement('p'),kind:'plain',level:record.level};
       next.node.appendChild(fragment);
       const style=record.node.dataset.formatStyle;if(style)next.node.dataset.formatStyle=style;
+      next.node.style.textAlign=record.node.style.textAlign;
+      const markerSize=record.node.style.getPropertyValue(MARKER_SIZE);
+      if(markerSize){
+        next.node.style.setProperty(MARKER_SIZE,markerSize);
+        if(!cleanText(next.node).length)next.node.style.fontSize=markerSize;
+      }
       convert(next,record.kind);
       let at=records.indexOf(record)+1;
-      if(!check)while(at<records.length&&records[at].kind!=='plain'&&records[at].level>record.level)at++;
+      while(at<records.length&&records[at].kind!=='plain'&&records[at].level>record.level)at++;
       records.splice(at,0,next);rebuild(records);commit(null,next.node,0);return true;
     }
     function keydown(event) {
@@ -368,10 +442,10 @@
       const range=selection.getRangeAt(0);
       if(!editor.contains(range.startContainer)||!editor.contains(range.endContainer)||annotation(range.startContainer)||annotation(range.endContainer))return;
       saved=bookmark(range);blocked=false;
-      const records=items(),chosen=selected(records,range),record=chosen[0];if(!record)return;
-      if(event.key==='Tab'&&record.kind!=='plain'){
+      if(event.key==='Tab'){
         event.preventDefault();event.stopPropagation();indent(event.shiftKey?-1:1);return;
       }
+      const records=items(),chosen=selected(records,range),record=chosen[0];if(!record)return;
       if(event.key==='Backspace'&&range.collapsed&&record.kind==='check'){
         const label=$('.task-label',record.node);
         if(label?.contains(range.startContainer)&&visibleLengthBefore(label,range.startContainer,range.startOffset)===0){
@@ -381,7 +455,10 @@
       }
       if(event.key==='Enter'&&!event.shiftKey&&!event.ctrlKey&&!event.metaKey&&record.kind!=='plain'&&chosen.length===1){
         event.preventDefault();event.stopPropagation();
-        if(record.kind!=='check'&&!cleanText(record.node).trim()){
+        if(!cleanText(record.node,true).trim()){
+          const preceding=records.slice(0,records.indexOf(record)).findLast(item=>item.kind==='plain');
+          record.level=preceding?.level||1;
+          if(preceding)record.node.style.textAlign=preceding.node.style.textAlign;
           convert(record,'plain');rebuild(records);commit(null,record.node,0);
         }else splitItem(record,range,records);
       }
@@ -457,7 +534,7 @@
         if(command!=='font'){refresh();return false;}
         status('');
         if(value==='__installed__'){installedFonts();return true;}
-        titleFontFamily=familyName(value,'Arial');
+        titleFontFamily=familyName(value,FONT_DEFAULT);
         titleInput.style.fontFamily=family(titleFontFamily);
         const selection=titleSelection;
         onTitleFontChange(titleFontFamily);
@@ -514,8 +591,9 @@
     editor.spellcheck=true;
     const note=typeof getNote==='function'?getNote():null;
     editor.style.fontFamily=family(note?.fontFamily||FONT_DEFAULT);
+    for(const record of items())if(record.kind!=='plain')restoreMarkerSize(record.node);
     if(titleInput){
-      titleFontFamily=familyName(note?.titleFontFamily,'Arial');
+      titleFontFamily=familyName(note?.titleFontFamily,FONT_DEFAULT);
       titleInput.style.fontFamily=family(titleFontFamily);
       listen(titleInput,'select',()=>{if(doc.activeElement===titleInput){captureTitle();refresh();}});
       listen(titleInput,'compositionstart',()=>{composing=true;});
@@ -540,7 +618,20 @@
     listen(doc,'scroll',event=>{if(colorMenu&&!colorMenu.contains(event.target))closeColors();},true);
     listen(win,'resize',()=>closeColors());
     listen(editor,'keydown',keydown,true);
-    listen(editor,'input',event=>{if(annotation(event.target))return;if(!event.isComposing)cleanupCarriers();capture();refresh();});
+    listen(editor,'beforeinput',event=>{
+      clearing=false;
+      if(event.target!==editor||!event.inputType?.startsWith('delete'))return;
+      const selection=win.getSelection(),range=selection?.rangeCount?selection.getRangeAt(0):null;
+      clearing=!!range&&!range.collapsed&&editor.contains(range.startContainer)&&editor.contains(range.endContainer)&&cleanText(range.cloneContents())===cleanText(editor);
+    });
+    listen(editor,'input',event=>{
+      if(annotation(event.target))return;
+      if(clearing&&event.inputType?.startsWith('delete')&&!cleanText(editor).trim()){
+        editor.replaceChildren();focusAt(appendEmptyParagraph(),0);
+      }
+      clearing=false;
+      if(!event.isComposing)cleanupCarriers();capture();refresh();
+    });
     listen(editor,'compositionstart',event=>{if(!annotation(event.target))composing=true;});
     listen(editor,'compositionend',event=>{
       if(annotation(event.target))return;composing=false;

@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as recovery from '../src/lib/profile-recovery.ts';
-import {DEFAULT_PROFILE_PREFERENCES as prefs, normalizeProfilePreferences} from '../src/lib/profile-preferences.ts';
+import {DEFAULT_PROFILE_PREFERENCES as prefs, normalizeProfilePreferences, resolveProfileTimeFormat} from '../src/lib/profile-preferences.ts';
 const scope={hotelId:'property-a',userId:'person-a'};
 const baseline={name:'Alex',preferences:prefs};
 const changed={name:'Alex Morgan',preferences:{...prefs,appearance:'light'}};
@@ -71,6 +71,27 @@ test('profile CAS acknowledgement and existing caller behavior remain compatible
  assert.equal(ack.status,200);assert.equal(ack.body.profile.full_name,changed.name);assert.equal(fixture.writes,1);
  const legacy=routeFixture();assert.equal((await legacy.patch({full_name:changed.name})).status,200);assert.equal(legacy.writes,1);
  const denied=routeFixture({authorized:false});assert.equal((await denied.patch({full_name:changed.name,baseline})).status,401);assert.equal(denied.writes,0);
+});
+
+test('time defaults respect authorized Chief assignment and preferences round-trip explicitly', async () => {
+ const chief = { role: 'chief_engineer' };
+ const scott = { id:'750f77bf-7d5d-4ca6-8421-e025edea87ba', email:'maint.cmpri@hawkeyehotels.com', role:'system_admin', secondary_roles:['engineer'] };
+ assert.equal(resolveProfileTimeFormat({}, chief), '24h');
+ assert.equal(resolveProfileTimeFormat({}, scott), '24h');
+ assert.equal(resolveProfileTimeFormat({}, {...scott,id:'different'}), '12h');
+ assert.equal(resolveProfileTimeFormat({time_format:'invalid'}, {role:'engineer'}), '12h');
+ assert.equal(resolveProfileTimeFormat({time_format:'12h'}, chief), '12h');
+ assert.equal(resolveProfileTimeFormat({time_format:'24h'}, {role:'technician'}), '24h');
+ assert.equal(Object.hasOwn(normalizeProfilePreferences({}), 'time_format'), false);
+ const fixture = routeFixture(), selection = {...prefs,time_format:'12h'};
+ const ack = await fixture.patch({preferences:selection,baseline});
+ assert.equal(ack.status, 200);
+ assert.equal(ack.body.preferences.time_format, '12h');
+ assert.equal(fixture.row.preferences.time_format, '12h');
+ const oldClient = await fixture.patch({preferences:{...prefs,appearance:'light'}});
+ assert.equal(oldClient.status, 200);
+ assert.equal(fixture.row.preferences.time_format, '12h');
+ assert.equal(fixture.row.preferences.appearance, 'light');
 });
 
 const phoneSchedule={timezone:'America/Chicago',schedule:Object.fromEntries(['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(day=>[day,{enabled:false,start:'09:00',end:'17:00'}]))};

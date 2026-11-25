@@ -115,10 +115,11 @@ function selectedOriginals() {
     info: async path => { calls.push({ action: "info", path }); const value = objects.get(path); return value ? { data: { size: value.bytes.length, contentType: value.type } } : { error: { status: 404 } }; },
     download: async path => { calls.push({ action: "download", path }); const value = objects.get(path); return value ? { data: new Blob([value.bytes], { type: value.type }) } : { error: { status: 404 } }; },
   };
-  const current = () => ({ ok: true, mcp: state.mcp, principal: { ...principal, identity: { ...principal.identity, id: state.actor }, hotelId: state.hotel }, admin: { storage: { from: bucket => { assert.equal(bucket, selectedFileMedia.STAFF_FILE_BUCKET); return storage; } } } });
+  const current = () => ({ ok: true, mcp: state.mcp, principal: { ...principal, profile: { ...principal.profile, role: "chief_engineer" }, identity: { ...principal.identity, id: state.actor }, hotelId: state.hotel }, admin: { storage: { from: bucket => { assert.equal(bucket, selectedFileMedia.STAFF_FILE_BUCKET); return storage; } } } });
   const staging = loadTs("src/lib/server/ask-cmpri-file-staging.ts", {
     "server-only": {}, "@/lib/ask-cmpri/files": selectedFileTypes, "@/lib/staff-note-media": selectedFileMedia,
     "@/lib/server/auth": { requireUserAttempt: async incoming => { assert.equal(incoming.headers.get("authorization"), "Bearer fixture-user-session"); return state.denied ? { ok: false } : current(); } },
+    "@/lib/server/roles": loadTs("src/lib/server/roles.ts"),
   }, { File, Request, Uint8Array, Date: class extends Date { static now() { return state.now; } }, Error, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "selected-original-signing-key" } } });
   const stage = async ({ id = "00000000-0000-4000-8000-000000000004", name = "Room 101 original.png", type = "image/png", bytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 65, 255, 0]) } = {}) => {
     const descriptor = { id, name, type, size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
@@ -632,7 +633,7 @@ test("the exact reported PM year-end question bypasses Gemini and returns the de
   const summary = "Fixture PM plan: 39 calendar days, 29 Monday–Friday weekdays, 3 room PMs per weekday.";
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
     "next/server": { NextResponse: { json: Response.json } }, zod,
-    "@/lib/server/roles": { profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
+    "@/lib/server/roles": { isRecognizedChiefEngineer: () => true, profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, mcp: false, principal }) },
     "@/lib/work-order-attribution": {},
     "@/lib/server/ask-cmpri-data": { askContextSchema: zod.z.object({}).passthrough() },

@@ -3,6 +3,7 @@ import { requireUser } from '@/lib/server/auth';
 import { NOTEPAD_UUID, notepadDocument, type NotepadDocument } from '@/lib/notepad';
 import { validateNotepadDocument } from '@/lib/server/notepad-document';
 import { loadNotepad, projectNotepadRow, signNotepadAttachments, type NotepadRow } from '@/lib/server/notepad-store';
+import { resolveProfileTimeFormat } from '@/lib/profile-preferences';
 
 const headers = { 'Cache-Control':'private, no-store' };
 const response = (body: unknown,status=200) => NextResponse.json(body,{status,headers});
@@ -17,8 +18,14 @@ export async function GET(request:NextRequest) {
   const auth=await principal(request);if(!auth)return response({error:'Sign in is required.'},401);
   const id=request.nextUrl.searchParams.get('id');if(id&&!NOTEPAD_UUID.test(id))return response({error:'Invalid note.'},400);
   try {
-    const {hotelId,userId,people,roles,notes,order,legacyAliases}=await loadNotepad(auth.admin,auth.principal.hotelId,auth.principal.identity.id);
-    const state={hotelId,userId,people,roles,notes,order,legacyAliases};
+    const { hotelId: property, identity, profile } = auth.principal;
+    const [notepad, preferences] = await Promise.all([
+      loadNotepad(auth.admin,property,identity.id),
+      auth.admin.from('profiles').select('preferences').eq('id',identity.id).maybeSingle(),
+    ]);
+    const {hotelId,userId,people,roles,notes,order,legacyAliases}=notepad;
+    const timeFormat = resolveProfileTimeFormat(preferences.data?.preferences,profile);
+    const state={hotelId,userId,people,roles,notes,order,legacyAliases,timeFormat};
     if(id){const note=state.notes.find(n=>n.id===(state.legacyAliases[id]||id));if(!note)return response({error:'This note is unavailable.'},404);return response({...state,note})}
     return response(state);
   } catch(error) { return response({error:error instanceof Error?error.message:'Notepad could not be loaded.',code:'NOTEPAD_NOT_READY'},503); }

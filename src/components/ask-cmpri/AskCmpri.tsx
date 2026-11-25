@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { authorizationHeaders, type CmpriClientSession } from "@/lib/auth/client-session";
 import { SESSION_KEY } from "@/lib/auth/session-storage";
+import { isRecognizedChiefEngineer } from "@/lib/server/roles";
 import { invalidateCachedResources } from "@/lib/data-cache/browser";
 import { practiceAskResponse } from "@/components/beginners-guide/ask-cmpri-practice";
 import type { AskContext, AskRecordReference, AskResponse } from "@/lib/ask-cmpri/types";
@@ -292,6 +293,11 @@ export default function AskCmpri() {
     if (!response.ok || !session?.user?.id || !session.hotelId || !session.user.role) {
       if (response.status === 401 || response.status === 403) clearAccount();
       throw new Error(t("Your CMPRI session is no longer authorized."));
+    }
+    if (!isRecognizedChiefEngineer(session.user)) {
+      clearAccount();
+      dismiss({ focus: false, animate: false, force: true });
+      throw new Error(t("Ask CMPRI is available only to the Chief Engineer."));
     }
     const identity = session.hotelId + ":" + session.user.id;
     const owner = [identity, session.user.role, ...(session.user.secondary_roles || []).toSorted(),
@@ -629,28 +635,22 @@ export default function AskCmpri() {
     pickSample();
   }
 
-  function openVerified(detail: NormalizedOpenDetail, carry: boolean) {
+  async function openVerified(detail: NormalizedOpenDetail, carry: boolean, auth: Authorized) {
     const ticket = ++opening.current;
-    const expected = carry ? callRef.current?.scope : authRef.current?.scope;
-    void authorize(undefined, expected).then(async auth => {
-      if (!openRef.current || practiceRef.current || authRef.current?.scope !== auth.scope) return;
-      if (ticket === opening.current) {
-        const recent = historyRef.current[0];
-        currentView(detail.tab || "search");
-        if (detail.tab === "history" && recent) setExpandedHistory(recent.id);
-        if (detail.query) submit(detail.query, false);
-        else if (!carry && detail.voice) startVoice("modal");
-        if (!detail.voice) requestAnimationFrame(() => {
-          if (ticket !== opening.current || !openRef.current || dialog.current?.querySelector('[aria-modal="true"]')) return;
-          focusAfterLayout(viewRef.current === "search" ? field.current : document.getElementById(`ask-cmpri-${viewRef.current}-tab`));
-        });
-      }
-      const saved = await readAskAttachmentRecoveries(auth.scope);
-      if (authRef.current?.scope === auth.scope && !practiceRef.current) setRecoveries(saved);
-    }).catch(sessionProblem);
+    const recent = historyRef.current[0];
+    currentView(detail.tab || "search");
+    if (detail.tab === "history" && recent) setExpandedHistory(recent.id);
+    if (detail.query) submit(detail.query, false);
+    else if (!carry && detail.voice) startVoice("modal");
+    if (!detail.voice) requestAnimationFrame(() => {
+      if (ticket !== opening.current || !openRef.current || dialog.current?.querySelector('[aria-modal="true"]')) return;
+      focusAfterLayout(viewRef.current === "search" ? field.current : document.getElementById(`ask-cmpri-${viewRef.current}-tab`));
+    });
+    const saved = await readAskAttachmentRecoveries(auth.scope);
+    if (authRef.current?.scope === auth.scope && !practiceRef.current) setRecoveries(saved);
   }
 
-  function showModal(request: OpenDetail) {
+  function showModal(request: OpenDetail, authorized?: Authorized) {
     if (closing.current || confirmation.current) return;
     const notebookRequest = request.tab === "staff" || request.tab === "notepad";
     // Old launch events now target the same independent Daily Work window.
@@ -662,6 +662,7 @@ export default function AskCmpri() {
       launchRecord("/notepad" + (request.noteId ? "?note=" + encodeURIComponent(request.noteId) : ""), opener, openerRect, t("Notepad"));
       return;
     }
+    if (!authorized || authRef.current?.scope !== authorized.scope) return;
     const detail: NormalizedOpenDetail = { ...request, tab: notebookRequest ? "search" : request.tab as View | undefined };
     if (detail.voice && !detail.practice && !openRef.current) {
       startVoice("launcher");
@@ -684,7 +685,6 @@ export default function AskCmpri() {
     const wasOpen = openRef.current;
     const carry = !!callRef.current?.disclose;
     if (!wasOpen) {
-      setVerified(false);
       setAuthProblem("");
       if (!carry) {
         closeProposals(t("Proposal closed."));
@@ -704,7 +704,7 @@ export default function AskCmpri() {
       currentView("search");
       queryText(detail.query);
     }
-    openVerified(detail, carry);
+    void openVerified(detail, carry, authorized).catch(sessionProblem);
     void voice.refreshMicrophone();
   }
 
@@ -737,7 +737,16 @@ export default function AskCmpri() {
     else finish();
   }
 
-  const onOpen = useEffectEvent((event: Event) => showModal((event as CustomEvent<OpenDetail>).detail || {}));
+  const onOpen = useEffectEvent((event: Event) => {
+    const detail = (event as CustomEvent<OpenDetail>).detail || {};
+    if ((detail.tab === "staff" || detail.tab === "notepad") && !detail.practice) {
+      showModal(detail);
+      return;
+    }
+    void authorize(undefined, callRef.current?.scope ?? authRef.current?.scope)
+      .then(auth => showModal(detail, auth))
+      .catch(sessionProblem);
+  });
   const onStop = useEffectEvent(() => voice.stop());
   const onSignOut = useEffectEvent(() => {
     clearAccount();
@@ -1152,7 +1161,8 @@ export default function AskCmpri() {
     <div ref={results} className="ask-body" data-view={view} hidden={view === "files" && (verified || !authProblem)} tabIndex={0} aria-label={t("Ask CMPRI results")}>
       {authProblem && <div className="ask-request-status" role="alert">
         <p>{authProblem}</p>
-        <button type="button" className="ask-quiet" onClick={() => openVerified({ tab: "search" }, false)}>{t("Try again")}</button>
+        <button type="button" className="ask-quiet" onClick={() => void authorize(undefined, authRef.current?.scope)
+          .then(auth => openVerified({ tab: "search" }, false, auth)).catch(sessionProblem)}>{t("Try again")}</button>
       </div>}
       {alert && !authProblem && <p className="ask-request-status" role="alert">{alert}</p>}
       {verified && manualLink && <p className="ask-request-status"><a className="ask-text-action" href={manualLink.href} target="_blank" rel="noopener noreferrer">{manualLink.name}</a></p>}

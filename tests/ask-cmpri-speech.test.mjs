@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { loadTs } from "./helpers/load-ts.mjs";
 
 const voices = loadTs("src/lib/ask-cmpri/voices.ts");
+const roles = loadTs("src/lib/server/roles.ts");
 const wav = Buffer.alloc(46);
 wav.write("RIFF"); wav.writeUInt32LE(38, 4); wav.write("WAVE", 8); wav.write("fmt ", 12);
 wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
@@ -14,12 +15,13 @@ wav.write("data", 36); wav.writeUInt32LE(2, 40);
 
 function speechFixture() {
   const calls = [];
-  const settings = { auth: { ok: true, mcp: false }, key: "fixture-server-key", status: 200, audio: wav.toString("base64") };
+  const settings = { auth: { ok: true, mcp: false, principal: { profile: { role: "chief_engineer" } } }, key: "fixture-server-key", status: 200, audio: wav.toString("base64") };
   class NextResponse extends Response { static json = Response.json; }
   const route = loadTs("src/app/api/ask-cmpri/speech/route.ts", {
     "next/server": { NextResponse }, zod: { z }, "@/lib/ask-cmpri/voices": voices,
     "@/lib/server/ask-cmpri-gemini": { askGeminiKey: () => settings.key },
     "@/lib/server/auth": { requireUserAttempt: async () => settings.auth },
+    "@/lib/server/roles": roles,
   }, {
     AbortSignal, TextDecoder, process: { env: {} },
     fetch: async (url, options) => {
@@ -38,7 +40,9 @@ test("speech authenticates before generation and rejects non-Gemini voices", asy
   assert.equal((await h.send({ text: "Reply", voice: "Kore" })).status, 401);
   h.settings.auth = { ok: true, mcp: true };
   assert.equal((await h.send({ text: "Reply", voice: "Kore" })).status, 401);
-  h.settings.auth = { ok: true, mcp: false };
+  h.settings.auth = { ok: true, mcp: false, principal: { profile: { role: "system_admin" } } };
+  assert.equal((await h.send({ text: "Reply", voice: "Kore" })).status, 403);
+  h.settings.auth.principal.profile.role = "chief_engineer";
   assert.equal((await h.send({ text: "Reply", voice: "Browser voice" })).status, 400);
   assert.equal((await h.send({ text: "x".repeat(5001), voice: "Kore" })).status, 400);
   assert.equal(h.calls.length, 0);
