@@ -10,7 +10,8 @@ const tick=()=>new Promise(resolve=>setImmediate(resolve));
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no});return {promise,resolve,reject}}
 function setup(request,extraOptions={}){
  const dom=new JSDOM('<div class="layout-body"><div class="general-notes-body"></div><div class="dock"></div></div>',{url:'https://cmpri.example/notepad/editor.html',runScripts:'outside-only'}),{window}=dom;
- window.matchMedia=()=>({matches:true});
+ let mobilePicker=false;
+ window.matchMedia=query=>({get matches(){return query==='(max-width: 650px)'?mobilePicker:true}});
  window.HTMLDialogElement.prototype.showModal=function(){this.open=true};
  window.HTMLDialogElement.prototype.close=function(){this.open=false};
  window.HTMLMediaElement.prototype.pause=function(){};window.HTMLMediaElement.prototype.load=function(){};
@@ -23,7 +24,7 @@ function setup(request,extraOptions={}){
  const pickerRoot=window.document.querySelector('.general-notes-body');
  const controller=window.NotepadAttachments.attach({container,pickerRoot,getNote:()=>current,request,onChange:value=>changes.push(value),onError:value=>errors.push(value),isNoteAvailable:id=>available.has(id),badge:'/Poweredby_100px_Badge.gif',...extraOptions});
  const click=selector=>{const target=window.document.querySelector(selector);assert.ok(target,selector);target.click()};
- return {dom,window,original,other,changes,errors,available,controller,click,timers,setNote:note=>{current=note},runTimers(){for(const [id,{fn}] of [...timers]){timers.delete(id);fn()}},cleanup(){controller.destroy();dom.window.close()}};
+ return {dom,window,original,other,changes,errors,available,controller,click,timers,setNote:note=>{current=note},setMobilePicker:value=>{mobilePicker=value},runTimers(){for(const [id,{fn}] of [...timers]){timers.delete(id);fn()}},cleanup(){controller.destroy();dom.window.close()}};
 }
 test('GIPHY loads only when opened, ignores stale searches, and saves the provider ID without preview placeholders',async()=>{
  const calls=[];const s=setup((action,payload)=>{const pending=deferred();calls.push({action,payload,pending});return pending.promise});
@@ -67,6 +68,30 @@ test('GIPHY sizes against the dock, preserves image dimensions and dismisses whe
   s.click('[data-attachment-gif]');await tick();
   assert.equal(s.original.attachments[0].gifId,'portrait');
   assert.equal(document.activeElement,document.querySelector('[data-notepad-gif-trigger]'));
+ }finally{s.cleanup()}
+});
+test('mobile GIPHY stays open on outside touches while explicit close and Escape still work',async()=>{
+ const s=setup(async()=>({gifs:[gif('portrait')],total:1}));
+ try{
+  s.setMobilePicker(true);
+  const {document,MouseEvent,KeyboardEvent}=s.window;
+  const open=()=>s.click('[data-notepad-gif-trigger]');
+  const panel=()=>document.querySelector('.staff-giphy-picker');
+  const outside=document.querySelector('.general-notes-body');
+  for(const close of [()=>s.click('[data-attachment-close-gif]'),()=>panel().dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))]){
+   open();await tick();
+   const down=new MouseEvent('pointerdown',{bubbles:true,cancelable:true});
+   const move=new MouseEvent('touchmove',{bubbles:true,cancelable:true});
+   assert.equal(outside.dispatchEvent(down),true);
+   assert.equal(outside.dispatchEvent(move),true);
+   assert.ok(panel()?.open);
+   close();await tick();
+   assert.equal(panel(),null);
+   assert.equal(document.activeElement,document.querySelector('[data-notepad-gif-trigger]'));
+  }
+  open();await tick();s.setMobilePicker(false);
+  outside.dispatchEvent(new MouseEvent('pointerdown',{bubbles:true}));await tick();
+  assert.equal(panel(),null,'The open picker resumes desktop dismissal after a viewport change');
  }finally{s.cleanup()}
 });
 test('native file upload verifies before attaching and remains bound to its original note after switching',async()=>{

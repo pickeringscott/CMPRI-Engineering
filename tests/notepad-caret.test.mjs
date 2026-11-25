@@ -7,10 +7,24 @@ const source=readFileSync(new URL('../public/notepad/caret.js',import.meta.url),
 const markup=`<!doctype html><html><body><div id="layout-body"><span class="note-urgent"></span><div class="general-notes-scroll" style="overflow:auto"><textarea id="note-title" style="font:20px/24px Arial;color:rgb(240,240,240);border:0;padding:0">Project title</textarea><div class="note-content" contenteditable="true" tabindex="0" style="font:16px/20px Arial;color:rgb(240,240,240)"><p>Review parts</p><div class="note-check" contenteditable="false"><span class="task-label" contenteditable="true" tabindex="0">Order a gasket</span></div></div><textarea class="reply-input" style="font:16px/20px Arial;border:0;padding:0">Reply text</textarea></div></div></body></html>`;
 const rect=(left,top,width,height)=>({left,top,width,height,right:left+width,bottom:top+height,x:left,y:top});
 
-function setup({native=false,reduced=false}={}){
-  const dom=new JSDOM(markup,{runScripts:'outside-only',pretendToBeVisual:true});
-  const {window}=dom,{document}=window;
-  let now=0,nextId=0,focused=true,hidden=false;
+function setup({native=false,reduced=false,mobile=false,keyboard=false}={}){
+  const options={runScripts:'outside-only',pretendToBeVisual:true};
+  const dom=new JSDOM(keyboard?'<iframe></iframe>':markup,options);
+  const outer=dom.window;
+  const frame=outer.document.querySelector('iframe');
+  const window=frame?.contentWindow||outer,{document}=window;
+  let viewport;
+  if(frame){
+    document.open();document.write(markup);document.close();
+    frame.getBoundingClientRect=()=>rect(0,175,390,560);
+    viewport=Object.assign(new outer.EventTarget(),{height:720,scale:1,offsetTop:0});
+    Object.defineProperty(outer,'innerWidth',{value:mobile?390:1000});
+    Object.defineProperty(outer,'innerHeight',{value:720});
+    Object.defineProperty(outer,'visualViewport',{value:viewport});
+    Object.defineProperty(window,'innerWidth',{value:mobile?390:1000});
+    Object.defineProperty(window,'innerHeight',{value:560});
+  }
+  let now=0,nextId=0,focused=true,hidden=false,caretTop=80;
   const timers=new Map(),frames=new Map(),media=new window.EventTarget();media.matches=reduced;
   Object.defineProperty(window.performance,'now',{value:()=>now});
   Object.defineProperty(document,'hasFocus',{value:()=>focused});
@@ -29,7 +43,7 @@ function setup({native=false,reduced=false}={}){
   };
   window.Range.prototype.getClientRects=function(){
     if(this.startContainer.parentElement?.closest('.notepad-caret-mirror'))return [rect(72,24,0,24)];
-    return [rect(100+this.startOffset*7,80,0,20)];
+    return [rect(100+this.startOffset*7,caretTop,0,20)];
   };
   window.Range.prototype.getBoundingClientRect=function(){return this.getClientRects()[0]||rect(0,0,0,0);};
   window.eval(source);
@@ -60,7 +74,9 @@ function setup({native=false,reduced=false}={}){
     motion(value){media.matches=value;event(media,'change');},
     visibility(value){hidden=value;event(document,'visibilitychange');flush();},
     focus(value){focused=value;event(window,value?'focus':'blur');flush();},
-    close(){window.NotepadCaret.destroy();window.close();},
+    caretTop(value){caretTop=value;},
+    viewport(changes,eventName='resize'){Object.assign(viewport,changes);viewport.dispatchEvent(new outer.Event(eventName));flush();},
+    close(){window.NotepadCaret.destroy();outer.close();},
   };
 }
 
@@ -155,4 +171,49 @@ test('fallback hides for clipping, blur, and cleared account content, and tears 
     assert.equal(s.phase(),'');assert.equal(s.timers.size,0);assert.equal(s.frames.size,0);
     assert.equal(s.root.dataset.notepadCaret,undefined);
   }finally{s.close();}
+});
+
+test('mobile keyboard reveals the caret using the outer viewport of the note iframe and then leaves manual scroll alone',()=>{
+  const s=setup({native:true,mobile:true,keyboard:true});
+  try{
+    const scroller=s.document.querySelector('.general-notes-scroll');
+    const editor=s.select('.note-content',7);
+    const before=editor.innerHTML;
+    s.caretTop(245);
+    s.viewport({height:340,offsetTop:20});
+    assert.equal(scroller.scrollTop,92);
+    assert.equal(scroller.style.getPropertyValue('--notepad-keyboard-inset'),'75px');
+    assert.equal(s.window.getSelection().anchorOffset,7);
+    assert.equal(editor.innerHTML,before);
+    scroller.scrollTop=42;
+    s.event(scroller,'scroll');
+    s.viewport({offsetTop:30},'scroll');
+    s.viewport({});
+    assert.equal(scroller.scrollTop,42);
+    s.viewport({height:720,offsetTop:0});
+    assert.equal(scroller.style.getPropertyValue('--notepad-keyboard-inset'),'');
+  }finally{s.close();}
+});
+
+test('a caret already in view, address bar movement, pinch zoom, and desktop viewports do not reposition the note',()=>{
+  const mobile=setup({native:true,mobile:true,keyboard:true});
+  const desktop=setup({native:true,keyboard:true});
+  try{
+    const mobileScroll=mobile.document.querySelector('.general-notes-scroll');
+    mobile.select('.note-content',4);
+    mobile.caretTop(245);
+    mobile.viewport({height:656});
+    assert.equal(mobileScroll.scrollTop,0);
+    mobile.viewport({height:360,scale:2});
+    assert.equal(mobileScroll.scrollTop,0);
+    mobile.caretTop(85);
+    mobile.viewport({height:340,scale:1});
+    assert.equal(mobileScroll.scrollTop,0);
+    const desktopScroll=desktop.document.querySelector('.general-notes-scroll');
+    desktop.select('.note-content',4);
+    desktop.caretTop(245);
+    desktop.viewport({height:340});
+    assert.equal(desktopScroll.scrollTop,0);
+    assert.equal(desktopScroll.style.getPropertyValue('--notepad-keyboard-inset'),'');
+  }finally{mobile.close();desktop.close();}
 });

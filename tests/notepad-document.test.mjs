@@ -30,6 +30,21 @@ test('malformed note IDs, oversized coordinates and arbitrary attachment URLs ar
  const file={id:a,kind:'file',name:'photo.jpg',type:'image/jpeg',size:10,url:'https://untrusted.invalid/'};
  const doc=validateNotepadDocument({...base(),attachments:[file]},null,a,now);assert.equal(doc.attachments[0].url,undefined);assert.equal(notepadDocument({...base(),attachments:[file]}).attachments[0].url,undefined);
 });
+test('inline media locations round-trip using references to attachments on the same note',()=>{
+ const orphan='00000000-0000-4000-8000-000000000003';
+ const file={id:a,kind:'file',name:'photo.jpg',type:'image/jpeg',size:10,url:'https://untrusted.invalid/'};
+ const gif={id:b,kind:'gif',name:'Reaction',gifId:'giphy123'};
+ const marker=id=>'<span data-notepad-attachment-id="'+id+'" contenteditable="false"></span>';
+ const content='<p data-item-id="intro">First<span data-notepad-attachment-id="'+a+'" contenteditable="true" onclick="unsafe()"><a href="https://untrusted.invalid/">hidden caption</a></span> middle'+marker(b)+' last'+marker(a)+marker(orphan)+'<span data-notepad-attachment-id="invalid"> regular text</span></p>';
+ const saved=validateNotepadDocument({...base(),content,attachments:[file,gif]},null,a,now);
+ assert.equal(saved.content,'<p data-item-id="intro">First'+marker(a)+' middle'+marker(b)+' last regular text</p>');
+ assert.equal(saved.attachments[0].url,undefined);
+ assert.deepEqual(saved.attachments[1],gif);
+ const reloaded=validateNotepadDocument(saved,saved,b,now);
+ assert.equal(reloaded.content,saved.content);
+ const removed=validateNotepadDocument({...saved,attachments:[gif]},saved,a,now);
+ assert.equal(removed.content,saved.content.replace(marker(a),''));
+});
 test('legacy personal Notes retain text formatting, selected mentions, checkboxes, fonts and vector ink privately',()=>{
  const text='☐ Review @Isaiah\n☑ Done';
  const strokes=[{id:'stroke',color:'rgb(1,2,3)',size:4,points:[{x:20,y:40,p:.5}]}];

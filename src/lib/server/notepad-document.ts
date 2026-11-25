@@ -53,6 +53,11 @@ function serialize(node: Node): string {
   if (discardTags.has(tag)) return '';
   const children = () => Array.from(el.childNodes).map(serialize).join('');
   if (!allowedTags.has(tag)) return children();
+  if (tag === 'span' && el.hasAttribute('data-notepad-attachment-id')) {
+    const id = el.getAttribute('data-notepad-attachment-id') || '';
+    // Store just the reference. The editor supplies the thumbnail separately.
+    return NOTEPAD_UUID.test(id) ? '<span data-notepad-attachment-id="' + id + '" contenteditable="false"></span>' : children();
+  }
   if (tag === 'input' && el.getAttribute('type') !== 'checkbox') return '';
   const attrs: string[] = [];
   for (const attr of Array.from(el.attributes)) {
@@ -85,9 +90,15 @@ function checkedItems(content: string) {
     return [el.getAttribute('data-item-id') || el.getAttribute('data-task-id') || '', { checked, by: el.getAttribute('data-completed-by') || '', at: el.getAttribute('data-completed-at') || '' }];
   }));
 }
-function attributedContent(content: string, previous: string, actor: string, now: string) {
+function attributedContent(content: string, previous: string, actor: string, now: string, files: NotepadAttachment[]) {
   const root = parse(sanitizeNotepadHTML(content)), old = checkedItems(previous), itemIds = new Set<string>();
+  const unplacedAttachments = new Set(files.map(file => file.id));
   for (const el of elements(root)) {
+    const attachmentId = el.getAttribute('data-notepad-attachment-id');
+    if (attachmentId && !unplacedAttachments.delete(attachmentId)) {
+      el.parentNode?.removeChild(el);
+      continue;
+    }
     const id = el.getAttribute('data-item-id'); if (id) { if (itemIds.has(id)) throw Error('Every note item needs a unique identity.'); itemIds.add(id); }
     if (!el.getAttribute('class')?.split(/\s+/).includes('note-check')) continue;
     const isChecked = elements(el).some(child => child.tagName.toLowerCase() === 'input' && child.hasAttribute('checked'));
@@ -182,7 +193,8 @@ export function validateNotepadDocument(value: unknown, previous: NotepadDocumen
   const a = value.audience;
   if (!record(a) || typeof a.all !== 'boolean' || !Array.isArray(a.roles) || !Array.isArray(a.people) || a.roles.length > 20 || a.people.length > 500 || a.roles.some(r => !NOTEPAD_ROLES.some(role => role.id === r)) || a.people.some(id => typeof id !== 'string' || !NOTEPAD_UUID.test(id))) throw Error('Choose valid recipients.');
   if (!['Low','Normal','High','Urgent'].includes(String(value.priority)) || !finite(value.fontSize,6,96)) throw Error('Invalid priority or text size.');
-  const { content,itemIds } = attributedContent(value.content,previous?.content || '',actor,now);
+  const files = attachments(value.attachments);
+  const { content,itemIds } = attributedContent(value.content,previous?.content || '',actor,now,files);
   if (!record(value.itemThreads)) throw Error('Invalid replies.');
   const oldReplies = new Map<string, NotepadReply>();
   const remember = (replies: NotepadReply[]) => { for (const reply of replies) { oldReplies.set(reply.id,reply); remember(reply.replies); } };
@@ -205,7 +217,7 @@ export function validateNotepadDocument(value: unknown, previous: NotepadDocumen
   for (const [id,thread] of Object.entries(value.itemThreads)) if (itemIds.has(id)) itemThreads[id] = replies(thread,0);
   // Deleting a checklist/list item deliberately drops its whole linked thread.
   const document: NotepadDocument = { title:value.title, audience:{all:a.all,roles:[...new Set(a.roles as string[])].sort(),people:[...new Set(a.people as string[])].sort()}, content,
-    priority:value.priority as NotepadDocument['priority'], fontSize:value.fontSize, fontFamily:font(value.fontFamily,'Comic Sans MS'),titleFontFamily:font(value.titleFontFamily,'Comic Sans MS'), ink:ink(value.ink), itemThreads,attachments:attachments(value.attachments) };
+    priority:value.priority as NotepadDocument['priority'], fontSize:value.fontSize, fontFamily:font(value.fontFamily,'Comic Sans MS'),titleFontFamily:font(value.titleFontFamily,'Comic Sans MS'), ink:ink(value.ink), itemThreads,attachments:files };
   if (value.untouchedDraft !== undefined || previous?.untouchedDraft !== undefined) {
     // Once edited, an empty note never becomes an untouched draft again. Older
     // clients may omit the flag; preserve it only while the document is unchanged.

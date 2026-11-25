@@ -19,6 +19,10 @@
   function photoPreview(attachment) {
     return attachment?.kind === 'file' && isImage(attachment.type) ? safeMediaURL(attachment.url) : '';
   }
+  function inlineMedia(attachment) {
+    const video = attachment?.kind === 'file' && /^video\/(mp4|webm|quicktime)$/.test(attachment.type);
+    return { video, url: video ? safeMediaURL(attachment.url) : photoPreview(attachment) };
+  }
   function validGif(value) {
     if (!value || !/^[a-zA-Z0-9_-]{1,200}$/.test(value.id || '')) return false;
     return [value.preview, value.original].every(image => {
@@ -34,7 +38,7 @@
   }
 
   function attach(options) {
-    const { container, pickerRoot, getNote, getNoteById, onChange, badge, request, onError, isNoteAvailable } = options || {};
+    const { container, pickerRoot, getNote, getNoteById, onChange, badge, request, onError, isNoteAvailable, getInlinePlacement } = options || {};
     const filesTrigger = container?.querySelector('[data-notepad-attachments-trigger]');
     const gifTrigger = container?.querySelector('[data-notepad-gif-trigger]');
     const cameraTrigger = container?.querySelector('[data-notepad-camera-trigger]');
@@ -42,6 +46,7 @@
 
     const instance = ++nextInstance;
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const mobilePicker = window.matchMedia('(max-width: 650px)');
     const animations = new Map();
     let destroyed = false;
     let gif = null;
@@ -85,6 +90,18 @@
         gifCache.set(row.id, row);
         if (gifCache.size > 200) gifCache.delete(gifCache.keys().next().value);
       }
+    }
+
+    async function gifPreviews(ids) {
+      const values = [...new Set(ids)].filter(id => /^[a-zA-Z0-9_-]{1,200}$/.test(id || ''));
+      const missing = values.filter(id => !gifCache.has(id));
+      if (missing.length && !destroyed) {
+        try {
+          const result = await send('giphy', { ids: missing });
+          if (!destroyed) rememberGifs(Array.isArray(result?.gifs) ? result.gifs.filter(validGif) : []);
+        } catch { /* Keep the fallback thumbnail if the preview is unavailable. */ }
+      }
+      return new Map(values.flatMap(id => gifCache.has(id) ? [[id, gifCache.get(id).preview.url]] : []));
     }
 
     const fileInput = document.createElement('input');
@@ -212,7 +229,7 @@
       const credit = '<a class="staff-giphy-credit" href="https://giphy.com/" target="_blank" rel="noopener noreferrer" aria-label="Powered by GIPHY">' + (badgeURL ? '<img src="' + escapeHTML(badgeURL) + '" alt="Powered by GIPHY" width="40" height="57">' : '<span>GIPHY</span>') + '</a>';
       node.innerHTML = '<div class="staff-gif-search"><input aria-label="Search GIPHY" type="search" placeholder="Search GIPHY" maxlength="50" autocomplete="off"><button type="button" data-attachment-close-gif aria-label="Close GIF picker">×</button></div><p class="giphy-status" role="status"></p><div class="staff-gif-grid"><div class="staff-gif-results"></div></div>' + credit;
       const grid = node.querySelector('.staff-gif-grid');
-      gif = { node, anchor, origin: anchor.getBoundingClientRect(), note, closing: false, closePromise: null, selecting: false, query: '', gifs: [], offset: 0, total: 0, loading: false, version: 0, timer: null, resize: null };
+      gif = { node, anchor, origin: anchor.getBoundingClientRect(), note, placement: getInlinePlacement?.(note), closing: false, closePromise: null, selecting: false, query: '', gifs: [], offset: 0, total: 0, loading: false, version: 0, timer: null, resize: null };
       const session = gif;
       pickerRoot.append(node);
       node.addEventListener('cancel', event => { event.preventDefault(); event.stopPropagation(); closeGif(); });
@@ -278,13 +295,13 @@
       const additions = [{ id: uid(), kind: 'gif', gifId: item.id, name: item.title || 'GIPHY GIF', type: 'image/gif', size: 0 }];
       if (!Array.isArray(target.attachments)) target.attachments = [];
       target.attachments.push(...additions);
-      changed({ noteId: target.id, note: target, kind: 'gif', additions });
+      changed({ noteId: target.id, note: target, kind: 'gif', additions, placement: session.placement });
       if (!destroyed && sameNote(target)) focus(session.anchor);
     }
-    function chooseFiles(note, input, opener) {
+    function chooseFiles(note, input, opener, placement = getInlinePlacement?.(note)) {
       if (destroyed || pendingFiles || uploads || !sameNote(note)) return;
       // Capture the note before the asynchronous native chooser opens.
-      pendingFiles = { note, input, opener };
+      pendingFiles = { note, input, opener, placement };
       input.value = '';
       input.click();
     }
@@ -309,13 +326,13 @@
         focusAfterUpload(pending.note, pending.opener);
         return;
       }
-      void attachFiles(files, pending.note, pending.opener);
+      void attachFiles(files, pending.note, pending.opener, pending.placement);
     }
     function filesCanceled(event) {
       const pending = finishChoosing(event.currentTarget);
       if (pending) focusAfterUpload(pending.note, pending.opener);
     }
-    async function attachFiles(files, note, opener) {
+    async function attachFiles(files, note, opener, placement) {
       const target = resolveOrigin(note);
       if (!target) { status('The original note is no longer available. The file was not attached.', true); return; }
       if (attachmentCount(target) + files.length > MAX_ATTACHMENTS) { status('Attach up to 20 files or GIFs per note.', true); return; }
@@ -338,7 +355,7 @@
           if (!Array.isArray(destination.attachments)) destination.attachments = [];
           if (destination.attachments.length >= MAX_ATTACHMENTS) throw Error('This note now has 20 attachments. Remove one, then choose the file again.');
           destination.attachments.push(addition);
-          changed({ noteId: target.id, note: destination, kind: 'files', additions: [addition] });
+          changed({ noteId: target.id, note: destination, kind: 'files', additions: [addition], placement });
         } catch (error) {
           lastError = error?.message || 'The file could not be uploaded. Choose it again to retry.';
           status(lastError, true);
@@ -385,7 +402,7 @@
         if (!photo) throw Error();
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
         closeCamera(false);
-        await attachFiles([new File([photo], 'Camera photo ' + stamp + '.jpg', { type: 'image/jpeg' })], session.note, cameraTrigger);
+        await attachFiles([new File([photo], 'Camera photo ' + stamp + '.jpg', { type: 'image/jpeg' })], session.note, cameraTrigger, session.placement);
       } catch {
         if (camera !== session) return;
         capture.disabled = false;
@@ -394,14 +411,15 @@
     }
     async function openCamera(note) {
       if (destroyed || camera || !sameNote(note) || pendingFiles || uploads) return;
-      if (window.matchMedia('(pointer: coarse)').matches) { chooseFiles(note, cameraInput, cameraTrigger); return; }
+      const placement = getInlinePlacement?.(note);
+      if (window.matchMedia('(pointer: coarse)').matches) { chooseFiles(note, cameraInput, cameraTrigger, placement); return; }
       const node = document.createElement('dialog');
       node.className = 'notepad-media-dialog notepad-camera';
       node.setAttribute('aria-label', 'Camera');
       node.innerHTML = '<header><span>Camera</span><button type="button" data-camera-close aria-label="Close camera">×</button></header><video autoplay muted playsinline aria-label="Camera preview"></video><p role="status">Starting camera…</p><footer><button type="button" data-device-camera>Use device camera</button><button type="button" data-camera-capture disabled>Take photo</button></footer>';
       const video = node.querySelector('video');
       video.muted = true;
-      const session = { note, node, video, capture: node.querySelector('[data-camera-capture]'), label: node.querySelector('[role="status"]'), stream: null };
+      const session = { note, placement, node, video, capture: node.querySelector('[data-camera-capture]'), label: node.querySelector('[role="status"]'), stream: null };
       camera = session;
       const dismiss = node.querySelector('[data-camera-close]');
       const useDevice = node.querySelector('[data-device-camera]');
@@ -409,11 +427,11 @@
       node.addEventListener('cancel', event => { event.preventDefault(); closeCamera(); });
       useDevice.addEventListener('click', () => {
         closeCamera();
-        chooseFiles(note, cameraInput, cameraTrigger);
+        chooseFiles(note, cameraInput, cameraTrigger, placement);
       });
       session.capture.addEventListener('click', () => void takePhoto(session));
       document.body.append(node);
-      try { node.showModal(); } catch { closeCamera(false); chooseFiles(note, cameraInput, cameraTrigger); return; }
+      try { node.showModal(); } catch { closeCamera(false); chooseFiles(note, cameraInput, cameraTrigger, placement); return; }
       focus(dismiss);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
@@ -481,6 +499,10 @@
       try {
         let url = '', type = attachment.type || 'application/octet-stream';
         if (attachment.kind === 'gif') {
+          if (opener?.hasAttribute('data-open-inline-attachment')) {
+            const verified = await send('attachment', { noteId: target.id, id: attachment.id });
+            if (verified?.kind !== 'gif' || verified.gifId !== attachment.gifId) throw Error('This attachment is no longer available to your account.');
+          }
           let item = gifCache.get(attachment.gifId);
           if (!item) {
             const result = await send('giphy', { ids: [attachment.gifId] });
@@ -561,6 +583,7 @@
     function onPointerDown(event) {
       if (!gif) return;
       if (!sameNote(gif.note)) { void closeGif({ restoreFocus: false, immediate: true }); return; }
+      if (mobilePicker.matches) return;
       if (!gif.node.contains(event.target) && !gifTrigger.contains(event.target)) void closeGif({ restoreFocus: false });
     }
     function onResize() { if (gif && !gif.closing) positionGifOrigin(gif); }
@@ -614,8 +637,8 @@
     document.addEventListener('keydown', onKeyDown, true);
     window.addEventListener('pagehide', onPageHide);
     window.addEventListener('resize', onResize);
-    return { destroy, close, openAttachment, uploading: () => uploads > 0, isInteracting: () => !destroyed && !!(gif || camera || pendingFiles || viewer) };
+    return { destroy, close, openAttachment, gifPreviews, uploading: () => uploads > 0, isInteracting: () => !destroyed && !!(gif || camera || pendingFiles || viewer) };
   }
 
-  window.NotepadAttachments = { html, attach, photoPreview };
+  window.NotepadAttachments = { html, attach, photoPreview, inlineMedia };
 })();

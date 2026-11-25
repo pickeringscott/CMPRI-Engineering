@@ -3,6 +3,7 @@
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>Array.from(r.querySelectorAll(s));
 const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const iconPaths={
+ play:'<path d="m8 5 12 7-12 7z"/>',
  text:'<rect x="2" y="5" width="20" height="14" rx="3"/><path d="M5 9h1m3 0h1m3 0h1m3 0h1M5 12h1m3 0h1m3 0h1m3 0h1M7 16h10"/>',
  pen:'<path d="m4 16 11-11 4 4L8 20l-5 1zM13 7l4 4M4 16l4 4"/>',
  eraser:'<path d="m4 12 9-9 8 8-9 10H8l-6-6zM8 8l8 8M12 21h9"/>',
@@ -96,6 +97,7 @@ function sanitizeContent(html) {
     const text=firstTagText(chip);
     if(text?.data.startsWith('@'))text.deleteData(0,1);
   });
+  canonicalAttachmentMarkers(template.content);
   return template.innerHTML;
 }
 // Keep the saved HTML format and remove the prefix only in the writing view.
@@ -167,8 +169,10 @@ function syncEditor() {
   const clean=el.cloneNode(true);
   $$('.item-reply-actions,.item-thread,.task-completion,.task-stamp',clean).forEach(node=>node.remove());
   restoreTagPrefixes(clean);
+  canonicalAttachmentMarkers(clean);
   n.content=clean.innerHTML;n.fontSize=parseInt(el.style.fontSize)||n.fontSize||16;
   save();
+  refreshAttachmentViews();
 }
 function startTitleEdit(input) {
   const n=note();
@@ -204,8 +208,143 @@ function finishTitleEdit(cancel=false) {
 function inTitleEditor(element) {
   return element===titleEdit?.input||!!element?.closest?.('.notepad-formatting,.notepad-color-popover');
 }
-function attachmentMarkup(n) {
+const inlineAttachmentSelector='[data-notepad-attachment-id]';
+const attachmentUUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const writingDecoration='.item-reply-actions,.item-thread,.task-completion,.task-stamp';
+function attachmentMarker(id) {
+  const marker=document.createElement('span');
+  marker.dataset.notepadAttachmentId=id;marker.setAttribute('contenteditable','false');
+  return marker;
+}
+function canonicalAttachmentMarkers(root) {
+  for(const marker of $$(inlineAttachmentSelector,root)){
+    const id=marker.dataset.notepadAttachmentId;
+    if(marker.tagName==='SPAN'&&attachmentUUID.test(id))marker.replaceWith(attachmentMarker(id));
+    else marker.removeAttribute('data-notepad-attachment-id');
+  }
+}
+function attachmentTextBlock(item) {
+  return item?.matches('.note-check')?$('.task-label',item)||item:item;
+}
+function lastAttachmentPosition(root,block=attachmentTextBlock(itemNodes(root).at(-1))||root) {
+  const range=document.createRange(),tail=Array.from(block.children).find(child=>child.matches('ul,ol,'+writingDecoration));
+  if(tail)range.setStartBefore(tail);else{range.selectNodeContents(block);range.collapse(false);}
+  range.collapse(true);return range;
+}
+function safeAttachmentPosition(root,range) {
+  const {startContainer}=range;
+  if(!root.contains(startContainer))return null;
+  const element=startContainer.nodeType===Node.ELEMENT_NODE?startContainer:startContainer.parentElement;
+  if(element?.closest(writingDecoration))return null;
+  const island=element?.closest('[contenteditable]');
+  if(island&&island!==root&&root.contains(island)&&island.getAttribute('contenteditable')==='false')range.setStartAfter(island);
+  range.collapse(true);return range;
+}
+function captureAttachmentPosition(target) {
+  if(device!=='mobile'||!target||target.id!==activeNote)return null;
+  const editor=$('.note-content');if(!editor)return null;
+  rememberSelection();
+  const selection=selectionRange?.cloneRange();
+  if(selection)selection.collapse(false);
+  const range=(selection&&safeAttachmentPosition(editor,selection))||lastAttachmentPosition(editor);
+  const container=range.startContainer.nodeType===Node.ELEMENT_NODE?range.startContainer:range.startContainer.parentElement;
+  const item=container?.closest('[data-item-id]'),preferred=attachmentTextBlock(item);
+  const block=preferred?.contains(range.startContainer)?preferred:item||editor;
+  const prefix=document.createRange();prefix.selectNodeContents(block);
+  prefix.setEnd(range.startContainer,range.startOffset);
+  const text=prefix.cloneContents();
+  $$(writingDecoration+','+inlineAttachmentSelector,text).forEach(node=>node.remove());
+  return {editor,range,itemId:item?.dataset.itemId,offset:text.textContent.length,afterId:''};
+}
+function findAttachmentPosition(root,placement) {
+  const previous=placement.afterId&&$$(inlineAttachmentSelector,root).find(marker=>marker.dataset.notepadAttachmentId===placement.afterId);
+  if(previous){const range=document.createRange();range.setStartAfter(previous);range.collapse(true);return range;}
+  if(root===placement.editor){const live=safeAttachmentPosition(root,placement.range.cloneRange());if(live)return live;}
+  const item=placement.itemId&&itemNodes(root).find(node=>node.dataset.itemId===placement.itemId);
+  const block=attachmentTextBlock(item)||root,walker=document.createTreeWalker(block,NodeFilter.SHOW_TEXT);
+  let offset=placement.offset,node;
+  while((node=walker.nextNode())){
+    if(node.parentElement?.closest(writingDecoration+','+inlineAttachmentSelector))continue;
+    if(offset>node.length){offset-=node.length;continue;}
+    const range=document.createRange();range.setStart(node,offset);range.collapse(true);
+    return safeAttachmentPosition(root,range)||lastAttachmentPosition(root,block);
+  }
+  return lastAttachmentPosition(root,item?block:undefined);
+}
+function insertInlineAttachment(change) {
+  const {note:target,placement,additions}=change;
+  if(!placement)return false;
+  const editor=target.id===activeNote?$('.note-content'):null;
+  const root=editor||document.createElement('div');
+  if(!editor){root.innerHTML=target.content;displayTagLabels(root);}
+  for(const attachment of additions){
+    const range=findAttachmentPosition(root,placement),marker=attachmentMarker(attachment.id);
+    // Keep even a completely empty note's attachment inside a writing block.
+    if(range.startContainer===root){
+      const paragraph=document.createElement('p');paragraph.dataset.itemId=uid('item');
+      range.insertNode(paragraph);paragraph.append(marker);
+    }else range.insertNode(marker);
+    placement.afterId=attachment.id;
+  }
+  if(!editor){restoreTagPrefixes(root);target.content=root.innerHTML;}
+  return Boolean(editor);
+}
+function inlineThumbnail(attachment) {
+  const button=document.createElement('button');button.type='button';button.className='inline-attachment-open';
+  button.dataset.openInlineAttachment=attachment.id;
+  const name=attachment.name||'Attachment';button.title=name;button.setAttribute('aria-label','Open '+name);
+  const fileLabel=name.match(/\.([a-z0-9]{1,5})$/i)?.[1].toUpperCase()||'FILE';
+  const {video,url}=window.NotepadAttachments.inlineMedia(attachment);
+  button.dataset.thumbnailLabel=attachment.kind==='gif'?'GIF':video?'VIDEO':window.NotepadAttachments.photoPreview(attachment)?'PHOTO':fileLabel;
+  button.innerHTML=icon(video?'play':'book');
+  if(url)showThumbnailMedia(button,url,video);
+  const remove=document.createElement('button');remove.type='button';remove.className='inline-attachment-remove';
+  remove.dataset.removeInlineAttachment=attachment.id;remove.setAttribute('aria-label','Remove '+name);remove.innerHTML=icon('close');
+  return [button,remove];
+}
+function showThumbnailMedia(button,url,video=false) {
+  const media=document.createElement(video?'video':'img');
+  media.setAttribute('aria-hidden','true');
+  if(video){
+    media.muted=true;media.playsInline=true;media.preload='metadata';media.hidden=true;
+    media.addEventListener('loadeddata',()=>{media.hidden=false;},{once:true});
+  }else {media.alt='';media.loading='lazy';}
+  media.src=url;media.addEventListener('error',()=>media.remove(),{once:true});
+  button.append(media);
+}
+function refreshAttachmentViews() {
+  const root=$('.note-content'),target=note(),dock=$('.editor-attachments');if(!root||!target||!dock)return;
+  const inlineIds=new Set(),gifs=[],attachments=new Map(target.attachments.map(file=>[file.id,file]));
+  for(const marker of $$(inlineAttachmentSelector,root)){
+    const file=attachments.get(marker.dataset.notepadAttachmentId);
+    if(!file||device!=='mobile'||inlineIds.has(file.id)){marker.replaceChildren();continue;}
+    inlineIds.add(file.id);marker.contentEditable='false';
+    if(!marker.firstChild)marker.append(...inlineThumbnail(file));
+    const button=$('[data-open-inline-attachment]',marker);
+    if(button&&file.kind==='gif'&&!button.hasAttribute('data-gif-preview')&&attachmentController){
+      button.setAttribute('data-gif-preview','');gifs.push({button,id:file.gifId});
+    }
+  }
+  const markup=attachmentMarkup(target,inlineIds);
+  if(dock.innerHTML!==markup)dock.innerHTML=markup;
+  if(gifs.length)void attachmentController.gifPreviews(gifs.map(({id})=>id)).then(previews=>{
+    for(const {button,id} of gifs)if(button.isConnected&&previews.has(id))showThumbnailMedia(button,previews.get(id));
+  });
+}
+function noteAttachmentsChanged(change) {
+  markEdited(change.note);
+  if(insertInlineAttachment(change))syncEditor();
+  else {save();if(change.noteId===activeNote)refreshAttachmentViews();}
+}
+function removeNoteAttachment(id) {
+  const target=note();if(!target?.attachments.some(file=>file.id===id))return;
+  target.attachments=target.attachments.filter(file=>file.id!==id);
+  for(const marker of $$(inlineAttachmentSelector,$('.note-content')))if(marker.dataset.notepadAttachmentId===id)marker.remove();
+  markEdited(target);syncEditor();
+}
+function attachmentMarkup(n,inlineIds=new Set()) {
   return (n.attachments||[]).map((a,i)=>{
+    if(inlineIds.has(a.id))return '';
     const photo=window.NotepadAttachments.photoPreview(a),name=escape(a.name);
     const preview=photo?'<img src="'+escape(photo)+'" loading="lazy" alt="">':name;
     return '<div class="attachment-chip'+(photo?' is-photo':'')+'">'+(photo?'':icon(a.kind==='gif'?'book':'check'))+'<button type="button" class="attachment-open" data-open-attachment="'+i+'" aria-label="Open '+name+'" title="'+name+'">'+preview+'</button><button type="button" data-remove-attachment="'+i+'" aria-label="Remove '+name+'">×</button></div>';
@@ -247,8 +386,7 @@ function render() {
   paperResizeObserver?.disconnect();paperResizeObserver=null;
   inkController?.destroy();inkController=null;
   if(!note()||!canView(note()))activeNote=orderedNotes()[0]?.id||'';
-  $('#layout-body').innerHTML='<section class="np-layout layout-1" aria-label="Familiar Sidebar"><aside id="notepad-sidebar" class="np-sidebar" aria-label="Saved notes"><div class="search-box"><button class="search-new" data-action="new" aria-label="New Note" title="New Note">'+icon('plus')+'</button><input type="search" aria-label="Search notes" placeholder="Search notes" value="'+escape(query)+'"></div><div class="np-notes-slot">'+renderNotes()+'</div><div class="np-sidebar-summary"><span class="note-count">'+orderedNotes().length+' notes</span></div></aside><div class="pane-divider" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" aria-controls="notepad-sidebar" tabindex="0"><span class="pane-divider-grip" aria-hidden="true" title="Drag to resize sidebar"></span></div><button type="button" class="sidebar-toggle" data-toggle-sidebar aria-controls="notepad-sidebar" aria-expanded="true">'+icon('chevron')+'</button><main class="np-main" aria-label="Selected note">'+editor()+'</main></section>';
-  $('[data-toggle-sidebar]').addEventListener('touchend',finishSidebarTap,{passive:false});
+  $('#layout-body').innerHTML='<section class="np-layout layout-1" aria-label="Familiar Sidebar"><aside id="notepad-sidebar" class="np-sidebar" aria-label="Saved notes"><div class="search-box"><button class="search-new" data-action="new" aria-label="New Note" title="New Note">'+icon('plus')+'</button><input type="search" aria-label="Search notes" placeholder="Search notes" value="'+escape(query)+'"></div><div class="np-notes-slot">'+renderNotes()+'</div><div class="np-sidebar-summary"><span class="note-count">'+orderedNotes().length+' notes</span></div></aside><div class="pane-divider" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" aria-controls="notepad-sidebar" tabindex="0"><span class="pane-divider-grip" aria-hidden="true"></span></div><main class="np-main" aria-label="Selected note">'+editor()+'</main></section>';
   $('#window-wrap').classList.toggle('is-mobile',device==='mobile');
   $$('[data-device]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.device===device)));
   const n=note();
@@ -267,7 +405,8 @@ function render() {
       paperResizeObserver.observe($('.general-notes-scroll'));
     }
     const generation=accountGeneration;
-    attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),pickerRoot:$('.general-notes-body'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),onChange:changed=>{if(generation!==accountGeneration)return;markEdited(notes.find(n=>n.id===changed.noteId));save();if(changed.noteId===activeNote)$('.editor-attachments').innerHTML=attachmentMarkup(note());}});
+    attachmentController=window.NotepadAttachments.attach({container:$('.general-notes-dock'),pickerRoot:$('.general-notes-body'),getNote:note,getNoteById:id=>notes.find(n=>n.id===id),badge:'/Poweredby_100px_Badge.gif',request:hostRequest,onError:toast,isNoteAvailable:id=>initialized&&generation===accountGeneration&&notes.some(n=>n.id===id),getInlinePlacement:captureAttachmentPosition,onChange:change=>{if(generation===accountGeneration)noteAttachmentsChanged(change);}});
+    refreshAttachmentViews();
     $$('.note-check').forEach(updateTaskAccessibleLabel);
   }
   applyPaneWidth();save();
@@ -297,41 +436,37 @@ async function selectNote(id) {
   const opened=$('.general-notes-editor');
   if(opened&&!reduced)opened.animate([{transform:'scaleX(0.015)',opacity:0},{transform:'scaleX(1)',opacity:1}],{duration:160,easing:'ease-out'});
 }
-function applyPaneWidth(value) {
+function applyPaneWidth(value,remember=true) {
   const layout=$('.layout-1'),divider=$('.pane-divider');if(!layout||!divider)return;
   const available=layout.clientWidth,mobile=device==='mobile',min=available<650?80:140,max=Math.max(min,Math.min(460,available-(mobile?150:195)));
-  const collapsed=mobile&&mobileSidebarCollapsed,sidebar=$('#notepad-sidebar'),toggle=$('[data-toggle-sidebar]');
+  const collapsed=mobile&&mobileSidebarCollapsed,sidebar=$('#notepad-sidebar');
   const width=Math.round(Math.max(min,Math.min(max,value??paneWidths[device]??(mobile?110:220))));
-  if(!mobile||value!==undefined)paneWidths[device]=width;
+  if(remember&&(!mobile||value!==undefined))paneWidths[device]=width;
   layout.style.setProperty('--sidebar-width',(collapsed?0:width)+'px');
   layout.toggleAttribute('data-sidebar-collapsed',collapsed);
   sidebar.inert=collapsed;
-  toggle.setAttribute('aria-expanded',String(!collapsed));
-  const label=collapsed?'Expand sidebar':'Collapse sidebar';
-  toggle.setAttribute('aria-label',label);toggle.title=label;
   divider.setAttribute('aria-valuemin',String(mobile?0:min));divider.setAttribute('aria-valuemax',String(max));divider.setAttribute('aria-valuenow',String(collapsed?0:width));
+  if(mobile)divider.setAttribute('aria-valuetext',collapsed?'Sidebar collapsed':width+' pixels wide');
+  else divider.removeAttribute('aria-valuetext');
   $$('.reply-input').forEach(sizeReplyInput);
   sizeNoteTitle();
   sizeNotePaper();
+}
+
+function previewPaneResize(drag,x) {
+  if(drag.device!==device)return;
+  drag.x=x;
+  const requested=drag.startWidth+x-drag.startX;
+  if(device==='mobile')mobileSidebarCollapsed=requested<=4;
+  drag.width=drag.collapsed&&requested>4?Math.max(drag.savedWidth,requested):requested;
+  // Commit only on release so collapsing never overwrites the open width.
+  applyPaneWidth(drag.width,false);
 }
 
 function setMobileFormatting(expanded) {
   if(device!=='mobile')return;
   mobileFormattingExpanded=expanded;
   $('[data-toggle-formatting]')?.setAttribute('aria-expanded',String(expanded));
-}
-
-function toggleMobileSidebar() {
-  if(device!=='mobile')return;
-  mobileSidebarCollapsed=!mobileSidebarCollapsed;applyPaneWidth();save();
-}
-
-function finishSidebarTap(event) {
-  if(!event.cancelable||event.touches.length||event.changedTouches.length!==1)return;
-  const button=event.currentTarget,touch=event.changedTouches[0];
-  if(!button.contains(document.elementFromPoint(touch.clientX,touch.clientY)))return;
-  // Chromium may omit a synthetic click on a tap immediately after a divider drag.
-  event.preventDefault();button.focus({preventScroll:true});toggleMobileSidebar();
 }
 
 function sizeNotePaper() {
@@ -896,7 +1031,7 @@ document.addEventListener('pointerdown',e=>{
   const divider=target.closest('.pane-divider');
   if(divider&&e.button===0&&e.isPrimary!==false&&!resizeGesture){
     e.preventDefault();divider.setPointerCapture(e.pointerId);
-    resizeGesture={pointerId:e.pointerId,startX:e.clientX,startWidth:$('.np-sidebar').getBoundingClientRect().width,savedWidth:paneWidths[device],collapsed:device==='mobile'&&mobileSidebarCollapsed,divider};
+    resizeGesture={pointerId:e.pointerId,device,x:e.clientX,startX:e.clientX,startWidth:$('.np-sidebar').getBoundingClientRect().width,savedWidth:paneWidths[device],collapsed:device==='mobile'&&mobileSidebarCollapsed,divider};
     return;
   }
   const drag=target.closest('[data-drag-note]');
@@ -915,12 +1050,7 @@ document.addEventListener('pointermove',e=>{
     Object.assign(drag.dialog.style,{inset:'auto',margin:'0',left:left+'px',top:top+'px'});return;
   }
   if(resizeGesture?.pointerId===e.pointerId){
-    e.preventDefault();const drag=resizeGesture,delta=e.clientX-drag.startX;
-    if(device==='mobile'){
-      mobileSidebarCollapsed=drag.collapsed&&delta<=4;
-      if(mobileSidebarCollapsed){applyPaneWidth(drag.savedWidth);return;}
-    }
-    applyPaneWidth(drag.startWidth+delta);return;
+    e.preventDefault();previewPaneResize(resizeGesture,e.clientX);return;
   }
   const drag=pointerDrag;if(!drag||drag.pointerId!==e.pointerId)return;
   if(!drag.moved&&Math.abs(e.clientY-drag.startY)<4)return;
@@ -933,7 +1063,15 @@ document.addEventListener('pointermove',e=>{
 });
 function finishPointerDrag(e) {
   if(deleteGesture?.pointerId===e.pointerId){const dialog=deleteGesture.dialog;deleteGesture=null;if(dialog.hasPointerCapture(e.pointerId))dialog.releasePointerCapture(e.pointerId);return;}
-  if(resizeGesture?.pointerId===e.pointerId){const divider=resizeGesture.divider;resizeGesture=null;if(divider.hasPointerCapture(e.pointerId))divider.releasePointerCapture(e.pointerId);save();return;}
+  if(resizeGesture?.pointerId===e.pointerId){
+    const drag=resizeGesture;resizeGesture=null;
+    if(drag.x!==e.clientX)previewPaneResize(drag,e.clientX);
+    if(drag.device!==device&&drag.device==='mobile')mobileSidebarCollapsed=drag.collapsed;
+    const keepWidth=drag.device!==device||device==='mobile'&&mobileSidebarCollapsed;
+    applyPaneWidth(keepWidth?undefined:drag.width);
+    if(drag.divider.hasPointerCapture(e.pointerId))drag.divider.releasePointerCapture(e.pointerId);
+    save();return;
+  }
   const drag=pointerDrag;if(!drag||drag.pointerId!==e.pointerId)return;pointerDrag=null;
   if(drag.handle.hasPointerCapture(e.pointerId))drag.handle.releasePointerCapture(e.pointerId);
   // Pointer capture can retarget the browser's follow-up click. Complete this
@@ -952,8 +1090,8 @@ document.addEventListener('pointercancel',e=>{
   if(pointerDrag?.pointerId===e.pointerId){pointerDrag=null;clearDragMarks();}
   if(resizeGesture?.pointerId===e.pointerId){
     const drag=resizeGesture;resizeGesture=null;
-    if(device==='mobile')mobileSidebarCollapsed=drag.collapsed;
-    applyPaneWidth(drag.savedWidth);save();
+    if(drag.device==='mobile')mobileSidebarCollapsed=drag.collapsed;
+    applyPaneWidth();save();
   }
 });
 document.addEventListener('dblclick',e=>{if(e.target.closest('.pane-divider')){if(device==='mobile')mobileSidebarCollapsed=false;applyPaneWidth(device==='mobile'?110:220);save();}});
@@ -971,7 +1109,6 @@ document.addEventListener('dragend',()=>{draggedNote=null;clearDragMarks();});
 document.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
   if(b.dataset.mentionChoice!==undefined){insertMention(Number(b.dataset.mentionChoice));return;}
-  if(b.hasAttribute('data-toggle-sidebar')){toggleMobileSidebar();return;}
   if(b.hasAttribute('data-toggle-formatting')){setMobileFormatting(!mobileFormattingExpanded);return;}
   if(b.dataset.itemReply){toggleItemThread(b.dataset.itemReply);return;}
   if(b.dataset.parentReply){const id=b.dataset.replyItem;replyTargets[note().id+':'+id]=b.dataset.parentReply;renderItemThread(id,true);$('.reply-input',threadPanel(id))?.focus();return;}
@@ -983,8 +1120,10 @@ document.addEventListener('click',e=>{
     else{textColor=b.dataset.color;markEdited();restoreSelection();document.execCommand('foreColor',false,textColor);syncEditor();}
     $$('.color-swatches button').forEach(el=>el.setAttribute('aria-pressed',String(el===b)));return;
   }
+  if(b.dataset.openInlineAttachment!==undefined){const file=note()?.attachments.find(item=>item.id===b.dataset.openInlineAttachment);if(file)void attachmentController?.openAttachment(file,b);return;}
+  if(b.dataset.removeInlineAttachment!==undefined){removeNoteAttachment(b.dataset.removeInlineAttachment);return;}
   if(b.dataset.openAttachment!==undefined){const file=note()?.attachments[Number(b.dataset.openAttachment)];if(file)void attachmentController?.openAttachment(file,b);return;}
-  if(b.dataset.removeAttachment!==undefined){syncEditor();markEdited();note().attachments.splice(Number(b.dataset.removeAttachment),1);render();return;}
+  if(b.dataset.removeAttachment!==undefined){const file=note()?.attachments[Number(b.dataset.removeAttachment)];if(file)removeNoteAttachment(file.id);return;}
   if(b.dataset.action)handleAction(b.dataset.action,b);
 });
 document.addEventListener('input',e=>{
@@ -1030,10 +1169,10 @@ document.addEventListener('keydown',e=>{
       e.preventDefault();finishTitleEdit(cancel);restoreSelection();return;
     }
   }
-  if(e.target.matches('.pane-divider')&&['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){
+  if(e.target.matches('.pane-divider')&&(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)||device==='mobile'&&e.key==='Enter')){
     e.preventDefault();const current=Number(e.target.getAttribute('aria-valuenow'));
-    if(device==='mobile'&&(e.key==='Home'||mobileSidebarCollapsed&&e.key==='ArrowRight')){
-      mobileSidebarCollapsed=e.key==='Home';applyPaneWidth();
+    if(device==='mobile'&&(e.key==='Enter'||e.key==='Home'||mobileSidebarCollapsed&&e.key==='ArrowRight')){
+      mobileSidebarCollapsed=e.key==='Enter'?!mobileSidebarCollapsed:e.key==='Home';applyPaneWidth();
     }else if(device!=='mobile'||!mobileSidebarCollapsed||e.key==='End'){
       if(device==='mobile')mobileSidebarCollapsed=false;
       applyPaneWidth(e.key==='Home'?Number(e.target.getAttribute('aria-valuemin')):e.key==='End'?Number(e.target.getAttribute('aria-valuemax')):current+(e.key==='ArrowRight'?8:-8));
@@ -1063,7 +1202,12 @@ document.addEventListener('keydown',e=>{
 document.addEventListener('compositionstart',()=>{isComposing=true;closeMentions();});
 document.addEventListener('compositionend',e=>{isComposing=false;if(e.target.matches('.reply-input'))detectReplyMention(e.target);else if(e.target.closest('.note-content')){normalizeSharedItems();syncEditor();detectMention();}});
 document.addEventListener('selectionchange',()=>{rememberSelection();if(mentionSession?.range&&$('.note-content')?.contains(document.activeElement))detectMention();});
-window.addEventListener('resize',()=>{device=innerWidth<650?'mobile':'desktop';$('#window-wrap').classList.toggle('is-mobile',device==='mobile');closePopover();closeMentions();applyPaneWidth();});
+window.addEventListener('resize',()=>{
+  const previousDevice=device;
+  device=innerWidth<650?'mobile':'desktop';$('#window-wrap').classList.toggle('is-mobile',device==='mobile');
+  if(device!==previousDevice)refreshAttachmentViews();
+  closePopover();closeMentions();applyPaneWidth();
+});
 window.addEventListener('beforeunload',()=>{finishTitleEdit();if(recipientSession?.closing&&recipientSession.onClose)closeRecipients({immediate:true,restoreFocus:false});inkController?.destroy();syncEditor();sendHost('flush');});
 function applyPalette(values) {
   if(!values||typeof values!=='object')return;
@@ -1072,7 +1216,7 @@ function applyPalette(values) {
 }
 function editingCurrent() {
   const element=document.activeElement;
-  return activeNoteTransition!==0||!!titleEdit||isComposing||!!historyController||!!resizeGesture||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.title-actions,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover,.pane-divider,.sidebar-toggle'));
+  return activeNoteTransition!==0||!!titleEdit||isComposing||!!historyController||!!resizeGesture||mode!=='text'||attachmentController?.isInteracting?.()||formattingController?.isInteracting?.()||!!(element&&element.closest('.note-heading,.title-actions,.note-content,.notepad-formatting,.general-notes-dock,.recipient-dialog,.delete-dialog,.notepad-color-popover,.pane-divider'));
 }
 function installRemote(incoming,renderCurrent=true) {
   // A refresh started before deletion may arrive after the save acknowledgement.

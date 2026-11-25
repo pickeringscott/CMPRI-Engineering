@@ -140,33 +140,95 @@ test('the approved Familiar Sidebar boots from authenticated data with the exact
   } finally {s.cleanup();}
 });
 
-test('mobile sidebar collapse restores its keyboard-resized width without changing the selected note', () => {
+test('the mobile sidebar grip collapses left and reopens at the saved width', () => {
   const s = setup();
   try {
     s.window.innerWidth = 390;
-    const layout = s.find('.layout-1');
+    const layout = s.find('.layout-1'), divider = s.find('.pane-divider');
+    const sidebar = s.find('#notepad-sidebar'), grip = s.find('.pane-divider-grip');
     Object.defineProperty(layout, 'clientWidth', {value: 390});
+    const width = () => Number(divider.getAttribute('aria-valuenow'));
+    sidebar.getBoundingClientRect = () => ({width: width()});
+    let captured = null;
+    divider.setPointerCapture = id => {captured = id;};
+    divider.hasPointerCapture = id => id === captured;
+    divider.releasePointerCapture = () => {captured = null;};
     s.window.dispatchEvent(new s.window.Event('resize'));
-    const divider = s.find('.pane-divider');
-    const toggle = s.find('[data-toggle-sidebar]');
-    const sidebar = s.find('#notepad-sidebar');
     const key = name => divider.dispatchEvent(new s.window.KeyboardEvent('keydown', {key: name, bubbles: true, cancelable: true}));
-    assert.equal(toggle.getAttribute('aria-controls'), sidebar.id);
+    const pointer = (type, x, target = divider) => {
+      const event = new s.window.MouseEvent(type, {clientX: x, button: 0, bubbles: true, cancelable: true});
+      Object.defineProperty(event, 'pointerId', {value: 1});
+      target.dispatchEvent(event);
+    };
+    const view = () => JSON.parse(s.window.localStorage.getItem('cmpri:notepad:view:'+s.bootstrap.hotelId+':'+s.bootstrap.userId));
+    assert.equal(divider.getAttribute('aria-controls'), sidebar.id);
+    assert.equal(s.document.querySelector('[data-toggle-sidebar]'), null);
     key('End');
-    const wide = divider.getAttribute('aria-valuenow');
-    assert.equal(wide, '240');
-    toggle.click();
-    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
-    assert.equal(toggle.getAttribute('aria-label'), 'Expand sidebar');
+    assert.equal(width(), 240);
+    pointer('pointerdown', 260, grip);
+    pointer('pointermove', 145);
+    assert.equal(width(), 125);
+    pointer('pointermove', 2);
+    pointer('pointerup', 2);
     assert.equal(sidebar.inert, true);
-    assert.equal(divider.getAttribute('aria-valuenow'), '0');
-    key('ArrowRight');
-    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(width(), 0);
+    assert.equal(divider.getAttribute('aria-valuetext'), 'Sidebar collapsed');
+    assert.deepEqual([view().mobileSidebarCollapsed, view().paneWidths.mobile], [true, 240]);
+    assert.equal(captured, null);
+    pointer('pointerdown', 18, grip);
+    pointer('pointerup', 18);
+    assert.equal(width(), 0, 'A tap does not drag the sidebar');
+    pointer('pointerdown', 18, grip);
+    pointer('pointermove', 60);
+    assert.equal(width(), 240);
+    pointer('pointercancel', 60);
+    assert.equal(width(), 0, 'Cancelling a gesture restores the prior state');
+    pointer('pointerdown', 18, grip);
+    pointer('pointermove', 60);
+    pointer('pointerup', 60);
+    assert.equal(width(), 240);
     assert.equal(sidebar.inert, false);
-    assert.equal(divider.getAttribute('aria-valuenow'), wide);
+    key('Home');
+    assert.equal(width(), 0);
+    key('ArrowRight');
+    assert.equal(width(), 240);
     assert.equal(s.find('#note-title').value, 'Maintenance planning');
     assert.equal(s.saves().length, 0);
   } finally {s.cleanup();}
+});
+
+for(const switched of [false,true])test(`mobile uploads keep the selected caret${switched?' in the originating note after switching':''}`,async()=>{
+  const original=makeNote({content:`<p data-item-id="${uuid(20)}">Left RIGHT</p>`});
+  const other=makeNote({id:uuid(11),title:'Other note'});
+  const s=setup({notes:[original,other]});
+  try{
+    s.window.innerWidth=390;s.window.dispatchEvent(new s.window.Event('resize'));
+    const editor=s.focus('.note-content');
+    const range=s.document.createRange();range.setStart(editor.firstElementChild.firstChild,5);range.collapse(true);
+    const selection=s.window.getSelection();selection.removeAllRanges();selection.addRange(range);
+    s.document.dispatchEvent(new s.window.Event('selectionchange'));
+    const input=s.find('[data-notepad-attachment-input]');input.click=()=>{};
+    s.click('[data-notepad-attachments-trigger]');
+    const file=new s.window.File(['fixture'],'pump.jpg',{type:'image/jpeg'});
+    Object.defineProperty(input,'files',{value:[file],configurable:true});s.event(input,'change');
+    const request=s.outgoing.find(({data})=>data.type==='request'&&data.action==='upload').data;
+    if(switched){s.click(`[data-note="${other.id}"]`);await tick();}
+    const id=request.payload.id,url='https://fixture.example/verified-thumbnail.jpg';
+    s.send('result',{requestId:request.requestId,result:{id,kind:'file',name:file.name,type:file.type,size:file.size,url}});
+    await tick();
+    const saved=s.latestSave(original.id).document;
+    assert.ok(saved.content.includes(`Left <span data-notepad-attachment-id="${id}" contenteditable="false"></span>RIGHT`));
+    assert.equal(saved.attachments[0].id,id);assert.equal(saved.attachments[0].url,undefined);
+    if(switched){
+      assert.equal(s.find('#note-title').value,'Other note');
+      assert.equal(s.document.querySelector('[data-open-inline-attachment]'),null);
+      s.click(`[data-note="${original.id}"]`);await tick();
+    }
+    assert.equal(s.find('[data-open-inline-attachment] img').src,url);
+    s.click('[data-open-inline-attachment]');
+    const open=s.outgoing.find(({data})=>data.type==='request'&&data.action==='attachment').data;
+    assert.equal(open.payload.noteId,original.id);assert.equal(open.payload.id,id);
+  }finally{s.cleanup();}
 });
 
 test('mobile formatting disclosure preserves note content and returns keyboard focus on Escape', () => {

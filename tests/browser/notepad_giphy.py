@@ -34,7 +34,7 @@ async def main():
         browser = await playwright.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH"))
         context = await browser.new_context(
             viewport={"width": SIZES[0][0], "height": SIZES[0][1]},
-            reduced_motion="reduce", service_workers="block",
+            reduced_motion="reduce", service_workers="block", has_touch=True,
         )
         await install(context, "chief_engineer")
         await context.route_web_socket("wss://**", lambda socket: socket.close())
@@ -105,6 +105,7 @@ async def main():
         search = picker.get_by_role("searchbox", name="Search GIPHY")
         title = editor.get_by_role("textbox", name="Note title")
         grid = picker.locator(".staff-gif-grid")
+        close = picker.get_by_role("button", name="Close GIF picker")
 
         async def open_picker():
             await trigger.click()
@@ -186,14 +187,44 @@ async def main():
         await toolbar.evaluate("(dock, width) => { dock.style.maxWidth = width + 'px'; }", narrower)
         await expect(picker).to_have_css("width", f"{narrower}px")
         await toolbar.evaluate("dock => dock.style.removeProperty('max-width')")
+        writing_box = await body.bounding_box()
+        popup_box = await picker.bounding_box()
+        outside_x, outside_y = writing_box["x"] + 14, writing_box["y"] + 12
+        assert outside_y < popup_box["y"], (writing_box, popup_box)
+        await page.touchscreen.tap(outside_x, outside_y)
+        await expect(picker).to_be_visible()
+        scroll = body.locator(".general-notes-scroll")
+        await page.mouse.move(outside_x, outside_y)
+        await page.mouse.wheel(0, 160)
+        for _ in range(20):
+            writing_scroll = await scroll.evaluate("element => element.scrollTop")
+            if writing_scroll > 0:
+                break
+            await asyncio.sleep(.03)
+        assert writing_scroll > 0
+        assert await grid.evaluate("element => element.scrollTop") == 0
+        await expect(picker).to_be_visible()
         await grid.hover()
         await page.mouse.wheel(0, 2500)
         await expect(editor.get_by_role("button", name="Select Fixture trending-53", exact=True)).to_be_attached()
         assert provider_queries == [("", 0), ("", 48)], provider_queries
-        assert await body.locator(".general-notes-scroll").evaluate("body => body.scrollTop") == 0
+        assert await scroll.evaluate("element => element.scrollTop") == writing_scroll
         await search.fill("pump")
         await expect(editor.get_by_role("button", name="Select Fixture pump-0", exact=True)).to_be_visible()
         assert provider_queries == [("", 0), ("", 48), ("pump", 0)], provider_queries
+        await close.click()
+        await editor.locator(".note-content").evaluate("""body => {
+            body.focus();
+            const range = document.createRange();
+            range.setStart(body.firstElementChild.firstChild, 7);
+            range.collapse(true);
+            const selection = getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+        }""")
+        await open_picker()
+        await search.fill("pump")
         await editor.get_by_role("button", name="Select Fixture pump-0", exact=True).click()
         await expect(picker).to_have_count(0)
         await expect(editor.get_by_role("button", name="Open Fixture pump-0")).to_be_visible()
@@ -202,15 +233,31 @@ async def main():
                 break
             await asyncio.sleep(.05)
         assert saves and saves[-1]["document"]["attachments"][0]["gifId"] == "pump-0", saves
+        stored = saves[-1]["document"]
+        file_id = stored["attachments"][0]["id"]
+        marker = f'<span data-notepad-attachment-id="{file_id}" contenteditable="false"></span>'
+        assert f"Review {marker}the fictional pump checklist." in stored["content"]
+        await expect(editor.locator("[data-open-inline-attachment] img")).to_have_attribute(
+            "src", "https://media.giphy.com/pump-0.gif"
+        )
+        await expect(editor.locator(".editor-attachments [data-open-attachment]")).to_have_count(0)
+        await editor.get_by_role("button", name="Open Fixture pump-0").click()
+        viewer = editor.get_by_role("dialog", name="Fixture pump-0")
+        await expect(viewer.locator("img")).to_have_attribute("src", "https://media.giphy.com/pump-0-full.gif")
+        await viewer.get_by_role("button", name="Close attachment").click()
         await open_picker()
         await search.press("Escape")
         await expect(picker).to_have_count(0)
         await expect(trigger).to_be_focused()
         await open_picker()
+        await close.click()
+        await expect(picker).to_have_count(0)
+        await expect(trigger).to_be_focused()
+        await page.set_viewport_size({"width": 1024, "height": 720})
+        await open_picker()
         await title.click()
         await expect(picker).to_have_count(0)
         await expect(title).to_be_focused()
-        await page.set_viewport_size({"width": 1024, "height": 720})
         await sidebar.get_by_text("Valve checklist", exact=True).click()
         await expect(editor.locator("#note-title")).to_have_value("Valve checklist")
         assert not failures, failures

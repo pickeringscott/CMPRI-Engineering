@@ -114,6 +114,74 @@ function clippedRect(field,caret){
   const y=Math.max(caret.top,top);
   return {left:Math.max(left,Math.min(caret.left,right-1)),top:y,height:Math.min(caret.top+caret.height,bottom)-y};
 }
+// A mobile keyboard usually resizes the top-level visual viewport, even
+// when the editor iframe's layout viewport keeps its original height.
+const keyboardFrames=[];
+let keyboardWindow=window;
+while(keyboardWindow!==keyboardWindow.parent&&keyboardWindow.frameElement){
+  keyboardFrames.push(keyboardWindow.frameElement);
+  keyboardWindow=keyboardWindow.parent;
+}
+const keyboardViewport=keyboardWindow.visualViewport;
+const keyboardThreshold=120,caretMargin=12;
+let keyboardFrame=0,keyboardWidth=0,fullHeight=0,keyboardHeight=0,keyboardField=null,keyboardScroller=null;
+function setKeyboardInset(scroller,inset){
+  if(keyboardScroller&&keyboardScroller!==scroller)keyboardScroller.style.removeProperty('--notepad-keyboard-inset');
+  keyboardScroller=inset>0?scroller:null;
+  if(keyboardScroller){
+    const value=Math.ceil(inset)+'px';
+    if(keyboardScroller.style.getPropertyValue('--notepad-keyboard-inset')!==value)keyboardScroller.style.setProperty('--notepad-keyboard-inset',value);
+  }else scroller?.style.removeProperty('--notepad-keyboard-inset');
+}
+function updateKeyboard(){
+  keyboardFrame=0;
+  const width=keyboardWindow.innerWidth;
+  // Scale back to unzoomed screen units so pinching alone doesn't look like a keyboard.
+  const height=Math.round(keyboardViewport.height*keyboardViewport.scale);
+  if(width!==keyboardWidth){
+    keyboardWidth=width;
+    fullHeight=keyboardWindow.innerHeight;
+  }
+  fullHeight=Math.max(fullHeight,height);
+  const occlusion=fullHeight-height;
+  if(innerWidth>=650||occlusion<keyboardThreshold){
+    keyboardHeight=0;keyboardField=null;setKeyboardInset(null,0);
+    return;
+  }
+  const field=editingField();
+  const reveal=field&&(field!==keyboardField||occlusion>keyboardHeight);
+  keyboardHeight=occlusion;
+  if(!field)return;
+  keyboardField=field;
+  let offset=0;
+  for(const element of keyboardFrames)offset+=element.getBoundingClientRect().top+element.clientTop;
+  const visibleTop=keyboardViewport.offsetTop-offset;
+  const visibleBottom=visibleTop+keyboardViewport.height;
+  const scroller=field.closest('.general-notes-scroll');
+  const box=scroller?.getBoundingClientRect();
+  const top=Math.max(0,visibleTop,box?.top??0);
+  const bottom=Math.min(innerHeight,visibleBottom,box?.bottom??innerHeight);
+  setKeyboardInset(scroller,box?box.bottom-bottom:0);
+  if(!reveal||bottom<=top+caretMargin*2)return;
+  const caret=textControl(field)?(mirror&&controlRect(field))||field.getBoundingClientRect():editableRect(field);
+  if(!caret)return;
+  const delta=caret.top+caret.height>bottom-caretMargin?caret.top+caret.height-bottom+caretMargin:
+    caret.top<top+caretMargin?caret.top-top-caretMargin:0;
+  if(!delta)return;
+  if(scroller)scroller.scrollTop=Math.max(0,scroller.scrollTop+delta);
+  else field.scrollIntoView({block:'nearest',inline:'nearest'});
+}
+function scheduleKeyboard(){
+  if(!disposed&&!keyboardFrame)keyboardFrame=requestAnimationFrame(updateKeyboard);
+}
+if(keyboardViewport){
+  // Listen for keyboard/viewport changes and focus transfers. Ordinary scrolling
+  // and selection changes are left alone, even while the keyboard stays open.
+  updateKeyboard();
+  keyboardViewport.addEventListener('resize',scheduleKeyboard);
+  keyboardWindow.addEventListener('resize',scheduleKeyboard);
+  document.addEventListener('focusin',scheduleKeyboard);
+}
 function hide(){
   if(overlay)overlay.hidden=true;
   if(mirror?.firstChild)mirror.replaceChildren();
@@ -138,7 +206,7 @@ function compositionStart(){composing=true;hide();}
 function compositionEnd(){composing=false;schedule();}
 function visibilityChanged(){clock();schedule();}
 function pageHide(event){if(event.persisted){clearTimeout(blinkTimer);hide();}else destroy();}
-function pageShow(){if(!disposed){clock();schedule();}}
+function pageShow(){if(!disposed){clock();schedule();if(keyboardViewport)scheduleKeyboard();}}
 const resizeObserver=overlay&&typeof ResizeObserver==='function'?new ResizeObserver(schedule):null;
 const observer=overlay&&typeof MutationObserver==='function'?new MutationObserver(schedule):null;
 observer?.observe(document.getElementById('layout-body')||document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['class','style','contenteditable']});
@@ -158,6 +226,12 @@ function destroy(){
   document.removeEventListener('visibilitychange',visibilityChanged);motion?.removeEventListener?.('change',clock);
   window.removeEventListener('resize',schedule);window.removeEventListener('blur',hide);window.removeEventListener('focus',schedule);
   window.visualViewport?.removeEventListener('resize',schedule);window.visualViewport?.removeEventListener('scroll',schedule);
+  if(keyboardViewport){
+    cancelAnimationFrame(keyboardFrame);setKeyboardInset(null,0);
+    keyboardViewport.removeEventListener('resize',scheduleKeyboard);
+    keyboardWindow.removeEventListener('resize',scheduleKeyboard);
+    document.removeEventListener('focusin',scheduleKeyboard);
+  }
   window.removeEventListener('pagehide',pageHide);window.removeEventListener('pageshow',pageShow);overlay?.remove();mirror?.remove();
   delete root.dataset.notepadCaret;delete root.dataset.notepadCaretOverlay;delete root.dataset.notepadBlinkOn;
   root.style.removeProperty('--notepad-blink-opacity');
