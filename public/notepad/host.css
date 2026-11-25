@@ -167,3 +167,14 @@ body{margin:0}
   .layout-1 select option:is(:hover,:focus-visible,:checked){background:rgba(var(--cmpri-action-rgb),.13)}
   .layout-1 select option:focus-visible{outline:0;background:rgba(var(--cmpri-action-rgb),.28)}
 }
+
+.window-wrap:not(.is-mobile) .layout-1 .note-metadata{display:grid;grid-template-columns:minmax(0,1fr) auto}
+.window-wrap:not(.is-mobile) .layout-1 .note-attribution{display:flex;align-items:baseline;justify-content:flex-end;gap:4px}
+.window-wrap:not(.is-mobile) .layout-1 .notepad-formatting :is(.fmt-font,.fmt-size){text-align:center;text-align-last:center}
+.window-wrap:not(.is-mobile) .layout-1 .general-notes-dock > [data-notepad-camera-trigger]{display:none}
+.window-wrap:not(.is-mobile) .layout-1 .general-notes-body{position:static;isolation:auto;overflow:visible}
+.window-wrap:not(.is-mobile) .layout-1 .general-notes-tools{z-index:5;pointer-events:none}
+.window-wrap:not(.is-mobile) .layout-1 .general-notes-dock{pointer-events:auto}
+.window-wrap:not(.is-mobile) .note-giphy-picker .staff-gif-grid{padding-bottom:48px}
+.window-wrap:not(.is-mobile) .attachment-giphy-dialog.note-giphy-picker{inset:auto 7px 0 auto;height:min(440px,calc(100% - 7px));max-height:calc(100% - 7px)}
+.window-wrap:not(.is-mobile) .note-giphy-picker .staff-giphy-credit{bottom:35px}

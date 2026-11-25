@@ -214,11 +214,12 @@
       const dockWidth = container.getBoundingClientRect().width;
       if (dockWidth > 0) node.style.setProperty('--notepad-gif-dock-width', dockWidth + 'px');
       const rect = anchor.isConnected ? anchor.getBoundingClientRect() : origin;
-      const transform = node.style.transform;
-      node.style.transform = 'none';
-      const panel = node.getBoundingClientRect();
-      node.style.transformOrigin = (rect.left + rect.width / 2 - panel.left) + 'px ' + (rect.top + rect.height / 2 - panel.top) + 'px';
-      node.style.transform = transform;
+      const parent = node.offsetParent;
+      if (!parent) return;
+      const panel = parent.getBoundingClientRect();
+      const left = panel.left + parent.clientLeft + node.offsetLeft;
+      const top = panel.top + parent.clientTop + node.offsetTop;
+      node.style.transformOrigin = (rect.left + rect.width / 2 - left) + 'px ' + (rect.top + rect.height / 2 - top) + 'px';
     }
     function openGif(anchor, note) {
       if (gif || destroyed || !pickerRoot?.isConnected || !anchor.isConnected || !sameNote(note)) return;
@@ -467,6 +468,7 @@
       const target = currentNote();
       if (!target) return;
       closeViewer(false);
+      const inline = opener?.hasAttribute('data-open-inline-attachment');
       let tab = null;
       if (attachment.kind === 'file' && attachment.type === 'application/pdf') {
         // Reserve the PDF tab while the browser still has the user's click.
@@ -499,7 +501,7 @@
       try {
         let url = '', type = attachment.type || 'application/octet-stream';
         if (attachment.kind === 'gif') {
-          if (opener?.hasAttribute('data-open-inline-attachment')) {
+          if (inline) {
             const verified = await send('attachment', { noteId: target.id, id: attachment.id });
             if (verified?.kind !== 'gif' || verified.gifId !== attachment.gifId) throw Error('This attachment is no longer available to your account.');
           }
@@ -545,7 +547,11 @@
           const link = originalLink(attachment, url, 'Open original');
           body.append(link);
           // The signed link delivers non-previewable files through the browser's downloader.
-          if (type !== 'application/pdf') link.click();
+          if (inline && new URL(url).searchParams.has('download')) {
+            link.removeAttribute('target');
+            link.click();
+            link.target = '_blank';
+          } else if (!inline && type !== 'application/pdf') link.click();
         }
       } catch (error) {
         if (!destroyed && viewer === session && version === viewerVersion) {

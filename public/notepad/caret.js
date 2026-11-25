@@ -151,7 +151,7 @@ function updateKeyboard(){
   const field=editingField();
   const reveal=field&&(field!==keyboardField||occlusion>keyboardHeight);
   keyboardHeight=occlusion;
-  if(!field)return;
+  if(!field){keyboardField=null;return;}
   keyboardField=field;
   let offset=0;
   for(const element of keyboardFrames)offset+=element.getBoundingClientRect().top+element.clientTop;

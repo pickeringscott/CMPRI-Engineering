@@ -74,7 +74,7 @@ test('a saved acknowledgement during the closing animation cannot cancel opening
     assert.equal(s.document.querySelector('#note-title').value,'Second note');
     assert.equal(s.document.querySelector(`[data-note="${id(11)}"]`).getAttribute('aria-current'),'true');
     s.window.matchMedia=()=>({matches:true});s.document.querySelector(`[data-note="${id(10)}"]`).click();await settle();
-    assert.equal(s.document.querySelector('.note-creator').textContent,'Avery from server','The deferred acknowledgement is retained when returning to the old note');
+    assert.equal(s.document.querySelector('.note-creator').dataset.fullName,'Avery from server','The deferred acknowledgement is retained when returning to the old note');
     assert.equal(s.document.querySelector('.task-label').textContent,'Existing task');
   }finally{s.close();}
 });

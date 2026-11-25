@@ -385,7 +385,7 @@ test('urgent images remain in the title and priority and attribution share one m
     assert.equal(s.find('.title-actions').nextElementSibling, metadata);
     assert.equal(details.nextElementSibling, s.find('.note-attribution'));
     assert.equal(s.find('.note-attribution').firstElementChild, s.find('.note-creator'));
-    assert.equal(s.find('.note-creator').textContent, user.name);
+    assert.equal(s.find('.note-creator').textContent, user.short);
     assert.equal(s.find('.note-creator').nextElementSibling, s.find('.note-attribution time'));
     assert.equal(s.find('.note-attribution time').getAttribute('datetime'),s.bootstrap.notes[0].createdAt);
     assert.equal(s.find('.note-attribution time').textContent,'11/23 14:30');
@@ -582,7 +582,7 @@ test('new notes default to Just me, and Engineering and All Roles serialize cano
     s.click('[data-action=share]');
     const engineering = s.find('[data-recipient=engineering]'); engineering.checked = true; s.event(engineering, 'change');
     s.event(s.find('#recipient-form'), 'submit');
-    assert.deepEqual(s.latestSave().document.audience, {all: false, roles: ['engineer', 'technician', 'system_admin'], people: []});
+    assert.deepEqual(s.latestSave().document.audience, {all: false, roles: ['engineer', 'technician'], people: []});
     s.click('[data-action=share]');
     const all = s.find('[data-recipient=all]'); all.checked = true; s.event(all, 'change');
     s.event(s.find('#recipient-form'), 'submit');
@@ -701,12 +701,11 @@ test('sharing telescopes from and back to the control that opened it', async () 
   }finally{s.cleanup();}
 });
 
-test('recipient backdrop cancels changes and the Create Note button shares the Just Me row', () => {
-  const s=setup();
-  try {
-    for(const action of ['new','share']){
-      const origin=s.find('[data-action='+action+']');
-      origin.click();
+test('recipient backdrop saves multiple selections and the Create Note button shares the Just Me row', () => {
+  for(const action of ['new','share']){
+    const s=setup();
+    try {
+      s.click('[data-action='+action+']');
       const dialog=s.find('.recipient-dialog'),privateChoice=s.find('[data-recipient=private]').closest('label'),submit=s.find('#recipient-form button[type=submit]');
       assert.equal(privateChoice.textContent,'Just Me');
       assert.equal(dialog.querySelectorAll('[data-action=cancel-recipients]').length,1);
@@ -721,6 +720,8 @@ test('recipient backdrop cancels changes and the Create Note button shares the J
       dialog.getBoundingClientRect=()=>({left:20,right:420,top:30,bottom:330});
       const saveCount=s.saves().length;
       s.click('[data-recipient=person][value="'+colleague.id+'"]');
+      s.click('[data-recipient=person][value="'+user.id+'"]');
+      assert.equal(dialog.querySelector('[data-recipient=role][value=system_admin]'),null);
       assert.equal(s.find('[data-recipient=private]').checked,false);
       const pointerAt=(event,x)=>dialog.dispatchEvent(new s.window.MouseEvent(event,{bubbles:true,clientX:x,clientY:32}));
       pointerAt('pointerdown',22);pointerAt('click',22);
@@ -729,12 +730,11 @@ test('recipient backdrop cancels changes and the Create Note button shares the J
       assert.equal(dialog.isConnected,true,'Dragging off the dialog does not dismiss it');
       pointerAt('pointerdown',12);pointerAt('click',12);
       assert.equal(dialog.isConnected,false);
-      assert.equal(s.document.activeElement,origin);
-      assert.equal(s.saves().length,saveCount);
-      assert.equal(s.document.querySelectorAll('.note-row').length,1);
-      assert.equal(s.find('.audience-meta').textContent,'Just me');
-    }
-  }finally{s.cleanup();}
+      assert.equal(s.saves().length,saveCount+1);
+      assert.deepEqual(s.latestSave().document.audience.people.sort(),[user.id,colleague.id].sort());
+      assert.equal(s.document.querySelectorAll('.note-row').length,action==='new'?2:1);
+    }finally{s.cleanup();}
+  }
 });
 
 test('Create Note waits for the dialog to collapse, creates once, and expands the new note from its center', async () => {
@@ -1089,7 +1089,7 @@ test('imported creator and reply attribution uses the stored name after an accou
   const itemId = uuid(20), replyId = uuid(40);
   const s = setup({notes: [makeNote({authorId: uuid(300), authorName: 'Previous Chief', audience: {all: true, roles: [], people: []}, itemThreads: {[itemId]: [{id: replyId, authorId: uuid(301), authorName: 'Previous Technician', at: '2026-11-23T20:42:00.000Z', text: 'Imported reply', replies: []}]}})]});
   try {
-    assert.equal(s.find('.note-creator').textContent, 'Previous Chief');
+    assert.equal(s.find('.note-creator').textContent, 'Previous');
     s.click(`[data-item-reply="${itemId}"]`);
     assert.equal(s.find('.reply-meta strong').textContent, 'Previous Technician');
     s.click(`[data-parent-reply="${replyId}"]`);

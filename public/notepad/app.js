@@ -39,7 +39,7 @@ function titleFontFamily(n) {
 }
 const urgentMark = n => '<span class="note-urgent" aria-hidden="true"'+(n.priority==='Urgent'?'':' hidden')+'><span class="note-urgent-crop"><img src="/notepad/urgent-button.jpg" width="2048" height="1143" alt="" draggable="false"></span></span>';
 const privateAudience = () => ({all:false,roles:[],people:[]});
-const engineeringAudience = () => ({all:false,roles:['engineer','technician','system_admin'],people:[]});
+const engineeringRoles = ['engineer','technician'];
 let VIEW_STORE = '';
 const bridgeToken = new URLSearchParams(location.search).get('bridge');
 let initialized=false, suppressSave=false, accountGeneration=0;
@@ -363,14 +363,15 @@ function tools() {
 }
 function editor() {
   const n=note();if(!n)return '<div class="editor-empty"><strong>Your Notepad</strong><p>Use + in the search bar to create a note.</p></div>';
-  const author=n.authorName?{name:n.authorName,short:n.authorName}:personById(n.authorId);
+  const person=personById(n.authorId),authorName=n.authorName||person.name;
+  const creator=authorName===person.name?person.short:authorName.trim().split(/\s+/)[0];
   return '<article class="general-notes-editor">'+
     '<div class="title-row">'+
       '<div class="note-heading">'+urgentMark(n)+'<textarea id="note-title" rows="1" wrap="soft" aria-label="Note title" title="'+(canEditTitle(n)?'Edit title · Choose its font in the toolbar':'Only the note’s creator can edit its title.')+'"'+(canEditTitle(n)?'':' readonly')+' placeholder="Untitled" maxlength="120" style="font-family:'+escape(titleFontFamily(n))+'">'+escape(n.title)+'</textarea></div>'+
       '<div class="title-actions"><button class="scope-button" data-action="share" aria-label="Shared with…" title="Shared with…">'+icon('group')+'<span>Shared with…</span></button><button class="title-tool" data-action="delete" aria-label="Delete note" title="'+(n.authorId===currentPerson?'Delete note':'Only the note’s creator can delete it.')+'" aria-disabled="'+(n.authorId!==currentPerson)+'">'+icon('trash')+'</button></div>'+
       '<div class="note-metadata">'+
         '<div class="priority-row note-details"><label for="note-priority">Priority</label><select id="note-priority" aria-label="Priority">'+priorityNames.map(p=>'<option value="'+p+'" '+(n.priority===p?'selected':'')+'>'+priorityLabel(p)+'</option>').join('')+'</select></div>'+
-        '<div class="note-attribution"><span class="note-creator" title="Created by '+escape(author.name)+'">'+escape(author.name)+'</span>'+timestamp(n.createdAt)+'<button type="button" class="note-history-link" data-action="open-history" aria-controls="note-history" aria-expanded="false">Edit History</button></div>'+
+        '<div class="note-attribution"><span class="note-creator" data-full-name="'+escape(authorName)+'" data-short-name="'+escape(creator)+'" title="Created by '+escape(authorName)+'">'+escape(device==='desktop'?creator:authorName)+'</span>'+timestamp(n.createdAt)+'<button type="button" class="note-history-link" data-action="open-history" aria-controls="note-history" aria-expanded="false">Edit History</button></div>'+
       '</div></div>'+
     window.NotepadFormatting.html(mobileFormattingExpanded)+
     '<div class="general-notes-workspace"><div class="general-notes-body"><div class="general-notes-scroll"><div class="general-notes-paper '+(mode!=='text'?'is-drawing':'')+'"><div class="note-content" style="font-size:'+(n.fontSize||16)+'px;font-family:&quot;'+escape(n.fontFamily||'Comic Sans MS')+'&quot;,&quot;Comic Sans MS&quot;,cursive" role="textbox" aria-label="Notepad writing area" aria-multiline="true" contenteditable="'+(mode==='text')+'" spellcheck="true" data-placeholder="Write a note, add a checklist, or type @…">'+n.content+'</div><svg class="note-ink" xmlns="http://www.w3.org/2000/svg" aria-label="Handwriting canvas"></svg></div></div></div>'+
@@ -525,7 +526,7 @@ function recipientForm(a,purpose) {
   const create=purpose==='new'?'<button class="recipient-submit recipient-create" type="submit">Create Note</button>':'';
   return '<div class="recipient-private-choice">'+pill('private','Just Me','',isPrivate)+create+'</div>'+
     '<section class="recipient-section" aria-labelledby="recipient-people-heading"><h3 id="recipient-people-heading">Individual Names</h3><div class="recipient-options">'+people.filter(isSelectableRecipient).map(p=>pill('person',p.name+' ('+roleLabel(p)+')',p.id)).join('')+'</div></section>'+
-    '<section class="recipient-section" aria-labelledby="recipient-roles-heading"><h3 id="recipient-roles-heading">Roles and Departments</h3><div class="recipient-options">'+pill('all','All Roles','',a.all)+pill('engineering','Engineering')+roles.map(r=>pill('role',r.label,r.id)).join('')+'</div></section>'+
+    '<section class="recipient-section" aria-labelledby="recipient-roles-heading"><h3 id="recipient-roles-heading">Roles and Departments</h3><div class="recipient-options">'+pill('all','All Roles','',a.all)+pill('engineering','Engineering')+roles.filter(r=>r.id!=='system_admin').map(r=>pill('role',r.label,r.id)).join('')+'</div></section>'+
     (purpose==='share'?'<div class="recipient-footer"><button class="recipient-submit" type="submit">Save recipients</button></div>':'');
 }
 function animateRecipientDialog(session,opening,done=()=>{}) {
@@ -573,7 +574,10 @@ function openRecipients(purpose='new',origin) {
   dialog.addEventListener('click',e=>{
     const dismiss=pressedBackdrop&&onBackdrop(e);
     pressedBackdrop=false;
-    if(dismiss)closeRecipients();
+    if(!dismiss)return;
+    if(purpose==='share'&&note()?.authorId===currentPerson)finishRecipients();
+    else if(purpose==='new'&&(recipientDraft.all||recipientDraft.roles.length||recipientDraft.people.length))finishRecipients();
+    else closeRecipients();
   });
   document.body.append(dialog);updateRecipientChecks();if(purpose==='share'&&note().authorId!==currentPerson){$$('input,button[type=submit]',dialog).forEach(control=>control.disabled=true);}dialog.showModal();$('[data-recipient=private]',dialog).focus();animateRecipientDialog(recipientSession,true);
 }
@@ -597,8 +601,8 @@ function updateRecipientChecks() {
   const dialog=$('.recipient-dialog'),a=recipientDraft;if(!dialog||!a)return;
   $('[data-recipient=private]',dialog).checked=!a.all&&!a.roles.length&&!a.people.length;
   $('[data-recipient=all]',dialog).checked=a.all;
-  const eng=$('[data-recipient=engineering]',dialog),n=['engineer','technician','system_admin'].filter(r=>a.roles.includes(r)).length;
-  eng.checked=n===3;eng.indeterminate=n>0&&n<3;
+  const eng=$('[data-recipient=engineering]',dialog),n=engineeringRoles.filter(r=>a.roles.includes(r)).length;
+  eng.checked=n===engineeringRoles.length;eng.indeterminate=n>0&&!eng.checked;
   $$('[data-recipient=role]',dialog).forEach(el=>el.checked=a.roles.includes(el.value));
   $$('[data-recipient=person]',dialog).forEach(el=>el.checked=a.people.includes(el.value));
 }
@@ -609,7 +613,7 @@ function changeRecipient(box) {
   else {
     if(a.all&&kind!=='person') {a.all=false;a.roles=[];}
     const set=(array,value,checked)=>checked?(array.includes(value)?array:array.concat(value)):array.filter(v=>v!==value);
-    if(kind==='engineering')for(const id of ['engineer','technician','system_admin'])a.roles=set(a.roles,id,box.checked);
+    if(kind==='engineering')for(const id of engineeringRoles)a.roles=set(a.roles,id,box.checked);
     if(kind==='role')a.roles=set(a.roles,box.value,box.checked);
     if(kind==='person')a.people=set(a.people,box.value,box.checked);
   }
@@ -1205,7 +1209,11 @@ document.addEventListener('selectionchange',()=>{rememberSelection();if(mentionS
 window.addEventListener('resize',()=>{
   const previousDevice=device;
   device=innerWidth<650?'mobile':'desktop';$('#window-wrap').classList.toggle('is-mobile',device==='mobile');
-  if(device!==previousDevice)refreshAttachmentViews();
+  if(device!==previousDevice){
+    const creator=$('.note-creator');
+    if(creator)creator.textContent=device==='desktop'?creator.dataset.shortName:creator.dataset.fullName;
+    refreshAttachmentViews();
+  }
   closePopover();closeMentions();applyPaneWidth();
 });
 window.addEventListener('beforeunload',()=>{finishTitleEdit();if(recipientSession?.closing&&recipientSession.onClose)closeRecipients({immediate:true,restoreFocus:false});inkController?.destroy();syncEditor();sendHost('flush');});

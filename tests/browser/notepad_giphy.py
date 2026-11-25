@@ -1,13 +1,26 @@
 import asyncio
 import os
+from base64 import b64decode
 from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import async_playwright, expect
 
-from cmpri_fixture import BASE, HOTEL, OUT, UID, install
+from cmpri_fixture import BASE, GIF, HOTEL, OUT, UID, install
 
 NOTE = "00000000-0000-4000-8000-000000000081"
 OTHER = "00000000-0000-4000-8000-000000000082"
+# Three frames of a 16 × 16 solid-color WebM.
+VIDEO = b64decode(
+    "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAItEU2bdLpNu4tTq4QVSalmU6yBoU27i1Or"
+    "hBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggIX7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrX"
+    "sYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAXgAAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WIYrzPpL6O"
+    "7BqcgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QCYloA4JCwgRC6gRCagQJVsIRVuYEBElTDZ/tzc59jwIBnyJlFo4dFTkNP"
+    "REVSRIeMTGF2ZjYxLjcuMTAzc3PWY8CLY8WIYrzPpL6O7BpnyKFFo4dFTkNPREVSRIeUTGF2YzYxLjE5LjEwMSBsaWJ2cHhn"
+    "yKFFo4hEVVJBVElPTkSHkzAwOjAwOjAwLjEyMDAwMDAwMAAfQ7Z17+eBAKO8gQAAgPACAJ0BKhAAEAAARwiFhYiFhIgCAgJ1"
+    "qgP4A/oCDU0YAP79bvP/4rWHWcX/it//02TxV4z/6YsAo5WBACgAsQEABRCsABgAGFgv9AAIAACjlYEAUACxAQAFEKwAGAAY"
+    "WC/0AAgAABxTu2uRu4+zgQC3iveBAfGCAaPwgQM="
+)
 SIZES = [(1440, 900, 6), (1024, 330, 6), (768, 620, 6), (600, 620, 5), (420, 630, 3), (320, 440, 3)]
 
 
@@ -30,6 +43,8 @@ def note(note_id, title):
 async def main():
     notes = [note(NOTE, "Pump checklist"), note(OTHER, "Valve checklist")]
     saves, provider_queries, failures = [], [], []
+    uploads = {}
+    original_text = b"Fixture attachment contents"
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(executable_path=os.environ.get("CHROMIUM_PATH"))
         context = await browser.new_context(
@@ -45,6 +60,9 @@ async def main():
                 saves.append(save)
                 target = next(entry for entry in notes if entry["id"] == save["id"])
                 target.update(save["document"])
+                for attachment in target["attachments"]:
+                    if attachment["id"] in uploads:
+                        attachment["url"] = uploads[attachment["id"]]["url"]
                 target["revision"] += 1
                 return await route.fulfill(json={"note": target, "revision": target["revision"]})
             return await route.fulfill(json={
@@ -87,7 +105,32 @@ async def main():
             )
             await route.fulfill(content_type="image/svg+xml", body=svg)
 
+        async def upload(route):
+            item = route.request.post_data_json
+            file_id = item["id"]
+            if route.request.method == "POST":
+                suffix = "?download=fixture.txt" if item["type"] == "text/plain" else ""
+                item["url"] = f"https://notepad-fixture.example/{file_id}{suffix}"
+                uploads[file_id] = item
+                return await route.fulfill(json={"id": file_id, "path": file_id, "token": "fixture"})
+            await route.fulfill(json={"id": file_id, "ready": True, "url": uploads[file_id]["url"]})
+
+        async def storage(route):
+            file_id = urlparse(route.request.url).path.rsplit("/", 1)[-1]
+            await route.fulfill(json={"Key": file_id})
+
+        async def original(route):
+            item = uploads[urlparse(route.request.url).path.rsplit("/", 1)[-1]]
+            if item["type"] in ("image/gif", "video/webm"):
+                return await route.fulfill(content_type=item["type"],
+                                           body=GIF if item["type"] == "image/gif" else VIDEO)
+            await route.fulfill(content_type=item["type"], body=original_text,
+                                headers={"Content-Disposition": 'attachment; filename="fixture.txt"'})
+
         await context.route("**/api/notepad", notepad)
+        await context.route("**/api/notepad/uploads", upload)
+        await context.route("**/storage/v1/object/upload/sign/**", storage)
+        await context.route("https://notepad-fixture.example/**", original)
         await context.route("https://api.giphy.com/**", giphy)
         await context.route("https://media.giphy.com/**", image)
         page = await context.new_page()
@@ -112,8 +155,32 @@ async def main():
             await expect(picker).to_be_visible()
 
         await expect(toolbar).to_be_visible(timeout=60_000)
+        await expect(toolbar.get_by_role("button", name="Take a photo")).to_be_hidden()
+        await expect(editor.locator(".note-creator")).to_have_text("Alex")
+        await expect(editor.get_by_label("Font", exact=True)).to_have_css("text-align-last", "center")
+        await expect(editor.get_by_label("Font Size", exact=True)).to_have_css("text-align-last", "center")
         assert not provider_queries, provider_queries
+        await page.emulate_media(reduced_motion="no-preference")
+        await trigger.evaluate("""button => {
+            const animate = Element.prototype.animate;
+            Element.prototype.animate = function(frames, options) {
+                if (this.matches('.note-giphy-picker')) {
+                    const rect = button.getBoundingClientRect();
+                    const parent = this.offsetParent.getBoundingClientRect();
+                    const [originX, originY] = this.style.transformOrigin.split(' ').map(parseFloat);
+                    this.dataset.openedFromButton = String(
+                        Math.abs(parent.left + this.offsetLeft + originX - rect.left - rect.width / 2) < 1
+                        && Math.abs(parent.top + this.offsetTop + originY - rect.top - rect.height / 2) < 1
+                        && frames[0].opacity === '0' && frames[1].opacity === '1'
+                    );
+                }
+                return animate.call(this, frames, options);
+            };
+        }""")
         await open_picker()
+        await expect(picker).to_have_attribute("data-opened-from-button", "true")
+        await picker.evaluate("element => Promise.all(element.getAnimations().map(animation => animation.finished))")
+        await page.emulate_media(reduced_motion="reduce")
         await expect(first).to_be_visible()
         await expect(badge).to_be_visible()
         await expect(search).to_be_focused()
@@ -134,14 +201,17 @@ async def main():
             badge_box = await badge.bounding_box()
             assert bounds["x"] >= writing["x"] + 6.9 and bounds["y"] >= writing["y"] + 6.9, (width, bounds, writing)
             assert abs(bounds["x"] + bounds["width"] - (writing["x"] + writing["width"] - 7)) <= .1
-            assert bounds["y"] + bounds["height"] <= writing["y"] + writing["height"] - 6.9
             if columns == 6:
-                assert abs(bounds["y"] - writing["y"] - 7) <= .1, (height, bounds, writing)
-                assert abs(bounds["height"] - min(440, writing["height"] - 14)) <= .1, (height, bounds, writing)
+                assert bounds["y"] + bounds["height"] >= dock["y"] + dock["height"]
+                assert await trigger.evaluate("""button => {
+                    const rect = button.getBoundingClientRect();
+                    return button.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2));
+                }"""), (width, bounds, dock)
             else:
+                assert bounds["y"] + bounds["height"] <= writing["y"] + writing["height"] - 6.9
                 assert bounds["width"] <= dock["width"] + .02, (width, bounds, dock)
             assert abs(badge_box["x"] + badge_box["width"] - bounds["x"] - bounds["width"]) <= 1
-            assert abs(badge_box["y"] + badge_box["height"] - bounds["y"] - bounds["height"]) <= 1
+            assert abs(badge_box["y"] + badge_box["height"] - bounds["y"] - bounds["height"] + (35 if columns == 6 else 0)) <= 1
             assert await search.evaluate("element => getComputedStyle(element).borderRadius") == "9999px"
             geometry = await picker.locator(".staff-gif-results").evaluate("""results => {
                 const css = getComputedStyle(results);
@@ -183,6 +253,7 @@ async def main():
         await expect(picker.locator("[data-attachment-gif-preview]")).to_have_count(0)
         assert provider_queries == [("", 0)], provider_queries
         await page.set_viewport_size({"width": 420, "height": 630})
+        await expect(toolbar.get_by_role("button", name="Take a photo")).to_be_visible()
         narrower = int((await picker.bounding_box())["width"]) - 28
         await toolbar.evaluate("(dock, width) => { dock.style.maxWidth = width + 'px'; }", narrower)
         await expect(picker).to_have_css("width", f"{narrower}px")
@@ -245,6 +316,48 @@ async def main():
         viewer = editor.get_by_role("dialog", name="Fixture pump-0")
         await expect(viewer.locator("img")).to_have_attribute("src", "https://media.giphy.com/pump-0-full.gif")
         await viewer.get_by_role("button", name="Close attachment").click()
+
+        await editor.locator(".note-content").evaluate("""body => {
+            body.focus();
+            const range = document.createRange();
+            range.setStart(body.firstElementChild.firstChild, 3);
+            range.collapse(true);
+            getSelection().removeAllRanges();
+            getSelection().addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+        }""")
+        async with page.expect_file_chooser() as choosing:
+            await toolbar.get_by_role("button", name="Add attachment").click()
+        await (await choosing.value).set_files([
+            {"name": "photo.gif", "mimeType": "image/gif", "buffer": GIF},
+            {"name": "clip.webm", "mimeType": "video/webm", "buffer": VIDEO},
+            {"name": "fixture.txt", "mimeType": "text/plain", "buffer": original_text},
+        ])
+        photo = editor.get_by_role("button", name="Open photo.gif", exact=True)
+        file_button = editor.get_by_role("button", name="Open fixture.txt", exact=True)
+        await expect(photo).to_be_visible()
+        await expect(file_button).to_be_visible()
+        assert await editor.locator(".note-content p").first.evaluate("""p => {
+            const files = [...p.querySelectorAll('[data-open-inline-attachment]')];
+            return p.firstChild.textContent === 'Rev' && files[0].title === 'photo.gif'
+                && files[1].title === 'clip.webm' && files[2].title === 'fixture.txt';
+        }""")
+        await photo.click()
+        photo_viewer = editor.get_by_role("dialog", name="photo.gif")
+        await photo_viewer.locator("img").evaluate("image => image.decode()")
+        await photo_viewer.get_by_role("button", name="Close attachment").click()
+        await editor.get_by_role("button", name="Open clip.webm", exact=True).click()
+        video_viewer = editor.get_by_role("dialog", name="clip.webm")
+        await video_viewer.locator("video").evaluate("async video => { await video.play(); }")
+        assert await video_viewer.locator("video").evaluate("video => video.videoWidth") == 16
+        await video_viewer.get_by_role("button", name="Close attachment").click()
+
+        async with page.expect_download() as downloading:
+            await file_button.click()
+        download = await downloading.value
+        assert download.suggested_filename == "fixture.txt"
+        assert (await download.path()).read_bytes() == original_text
+        await editor.get_by_role("dialog", name="fixture.txt").get_by_role("button", name="Close attachment").click()
         await open_picker()
         await search.press("Escape")
         await expect(picker).to_have_count(0)
