@@ -25,7 +25,7 @@ function handlerFixture({ confirmationResult, documents, files } = {}) {
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": { NextResponse: { json: Response.json } }, zod,
-    "@/lib/server/roles": { isRecognizedChiefEngineer: () => true, profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
+    "@/lib/server/roles": { profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, mcp: false, principal: currentPrincipal }) },
     "@/lib/work-order-attribution": {},
     "@/lib/server/ask-cmpri-data": { askContextSchema, askPermittedSources: () => ["cmpri"],

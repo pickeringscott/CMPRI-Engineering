@@ -270,7 +270,7 @@ test("fresh Room Ranker, Weather and Airport questions bypass legacy planning in
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
     "../../../lib/server/ask-cmpri-response": responseHelper,
     "next/server": next, zod,
-    "@/lib/server/roles": { isRecognizedChiefEngineer: () => true, profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
+    "@/lib/server/roles": { profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, mcp: false, principal }) },
     "@/lib/work-order-attribution": {},
     "@/lib/server/ask-cmpri-data": { askContextSchema: zod.z.object({}).passthrough(), askPermittedSources: () => ["roomRank"] },
