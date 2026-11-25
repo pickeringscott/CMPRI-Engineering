@@ -363,6 +363,20 @@ export async function POST(request: NextRequest) {
     summary: language === "es" ? "Se descartó la solicitud pendiente." : "The pending request was discarded.",
     context: attest({ language }, auth.principal),
   } satisfies AskResponse, { headers });
+  // A property-clock question is deterministic and needs no model or API key.
+  // Match the whole question so work-order, checkout, and scheduled-time queries
+  // still take the authorized CMPRI search path.
+  const clockQuestion = parsed.data.question.replace(/^[¿¡]\s*|[?!.]+\s*$/g, "").trim();
+  const clockLanguage = /^(?:what time is it|what(?:'s| is) the (?:current |local )?time|(?:tell me )?the current time)(?: (?:right now|now|here|in Champaign|at (?:CMPRI|the hotel)))?$/i.test(clockQuestion) ? "en"
+    : /^(?:qu[eé] hora es|cu[aá]l es la hora actual|dime la hora)(?: (?:ahora|aqu[ií]|en Champaign))?$/i.test(clockQuestion) ? "es" : undefined;
+  if (clockLanguage && !parsed.data.files?.length && !parsed.data.attachments?.length) {
+    const time = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+    return NextResponse.json({
+      title: clockLanguage === "es" ? "Hora actual" : "Current time",
+      summary: clockLanguage === "es" ? `Son las ${time}, hora central de Champaign.` : `It is ${time} Central Time in Champaign.`,
+      context: attest(trusted && prior ? { ...prior, language: clockLanguage } : { language: clockLanguage }, auth.principal),
+    } satisfies AskResponse, { headers });
+  }
   // The reported year-end PM rate question is a deterministic CMPRI calculation.
   // It must not fail merely because the text planner omits a PM source or Gemini is unavailable.
   if (language === "en" && /\b(?:PMs?|prevent(?:ive|ative) maintenance)\b/i.test(parsed.data.question)

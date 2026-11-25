@@ -35,27 +35,6 @@ const querySchema = z.object({
 });
 const answerSchema = z.object({ title: z.string(), summary: z.string(), itemIds: z.array(z.string()), format: z.enum(["default", "brief", "bullets", "table"]) });
 
-const geminiQuotaDetails = z.object({
-  error: z.object({
-    details: z.array(z.object({
-      "@type": z.string(),
-      violations: z.array(z.object({ quotaDimensions: z.record(z.string(), z.string()).optional() })).optional(),
-    })),
-  }),
-});
-
-function canSwitchGeminiModel(error: unknown) {
-  if (!APICallError.isInstance(error)) return false;
-  if (error.statusCode === 503) return true;
-  if (error.statusCode !== 429) return false;
-  const quota = geminiQuotaDetails.safeParse(error.data);
-  if (!quota.success) return false;
-  const violations = quota.data.error.details
-    .filter(detail => detail["@type"] === "type.googleapis.com/google.rpc.QuotaFailure")
-    .flatMap(detail => detail.violations ?? []);
-  return violations.length > 0 && violations.every(violation => Boolean(violation.quotaDimensions?.model));
-}
-
 function simplifyGeminiToolSchema(schema: object) {
   for (const key of ["minItems", "maxItems", "minimum", "maximum", "minLength", "maxLength", "pattern", "format", "default"]) {
     Reflect.deleteProperty(schema, key);
@@ -541,8 +520,8 @@ export async function runNativeAsk(input: {
   const apiKey = askGeminiKey();
   if (!apiKey) throw new Error("Ask CMPRI is not configured for this environment.");
   const google = createGoogleGenerativeAI({ apiKey });
-  const primaryModel = process.env.CMPRI_GEMINI_MODEL?.trim() || "gemini-3.5-flash";
-  const models = [...new Set([primaryModel, "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.6-flash"])].slice(0, 3);
+  const primaryModel = process.env.CMPRI_GEMINI_MODEL?.trim() || "gemini-3.6-flash";
+  const fallbackModel = ["gemini-3.5-flash", "gemini-3.6-flash"].includes(primaryModel) ? "gemini-3.5-flash-lite" : undefined;
   const createAgent = (model: string) => new ToolLoopAgent({
     model: wrapLanguageModel({
       model: google(model),
@@ -581,23 +560,24 @@ For an explicitly requested change, first resolve current targets and revisions 
       files: [...files.entries()].map(([fileId, file]) => ({ fileId, name: file.name, type: file.type, size: file.size, sha256: file.sha256 })),
       filePreviews: input.files?.map(file => ({ name: file.name, text: file.text, coverage: "Preview only; inspect the selected original for complete source content." })),
     });
-    for (const [index, model] of models.entries()) {
-      let startedSteps = 0;
-      let toolStarted = false;
-      try {
-        const result = await createAgent(model).generate({
-          abortSignal: input.signal, prompt,
-          onStepStart: () => { startedSteps++; },
-          onToolExecutionStart: () => { toolStarted = true; },
-        });
-        if (!proposal) rendered = result.output;
-        break;
-      } catch (error) {
-        // A fresh model can replay only the initial, tool-free request.
-        if (index === models.length - 1 || startedSteps !== 1 || toolStarted
-          || input.signal.aborted || !canSwitchGeminiModel(error)) throw error;
-      }
+    let startedSteps = 0;
+    let toolStarted = false;
+    const generate = (model: string) => createAgent(model).generate({
+      abortSignal: input.signal, prompt,
+      onStepStart: () => { startedSteps++; },
+      onToolExecutionStart: () => { toolStarted = true; },
+    });
+    let result;
+    try {
+      result = await generate(primaryModel);
+    } catch (error) {
+      // A single in-request fallback is safe only before any tool execution.
+      // Never restart a later step, a proposed change, or an aborted request.
+      if (!fallbackModel || startedSteps !== 1 || toolStarted || proposal || evidence.size || input.signal.aborted
+        || !APICallError.isInstance(error) || error.statusCode !== 503) throw error;
+      result = await generate(fallbackModel);
     }
+    if (!proposal) rendered = result.output;
   } catch (error) {
     if (!proposal && !evidence.size) throw error;
     errors.push("The response stopped before the full request was completed; the sources below are the data that was read.");

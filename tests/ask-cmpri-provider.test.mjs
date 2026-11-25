@@ -113,26 +113,16 @@ for (const reason of ['INVALID_ARGUMENT', 'API_KEY_INVALID']) {
   });
 }
 
-test('model fallback starts with the primary on every request and stops after three attempts', async () => {
+test('the fallback quota error stops the request and each request starts with the primary', async () => {
   const h = fixture((_request, count) => {
-    if (count === 3) return providerResponse([{ text: JSON.stringify(answer) }]);
-    if (count === 1) return Response.json({ error: {
-      code: 503, status: 'UNAVAILABLE', message: 'Model unavailable',
-    } }, { status: 503 });
-    return Response.json({ error: {
-      code: 429, status: 'RESOURCE_EXHAUSTED', message: 'Model quota exhausted',
-      details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [
-        { quotaDimensions: { model: 'gemini-3.5-flash-lite' } },
-      ] }],
-    } }, { status: 429 });
+    const status = count % 2 ? 503 : 429;
+    return Response.json({ error: { code: status, message: 'Fixture provider rejection' } }, { status });
   });
-  assert.equal((await h.run()).summary, answer.summary);
+  for (let count = 0; count < 2; count++) await assert.rejects(h.run(), { statusCode: 429 });
   assert.deepEqual(h.requests.map(({ url }) => url.split('/').at(-1)), [
-    'gemini-3.5-flash:generateContent', 'gemini-3.5-flash-lite:generateContent', 'gemini-3.8-flash:generateContent',
+    'gemini-3.6-flash:generateContent', 'gemini-3.5-flash-lite:generateContent',
+    'gemini-3.6-flash:generateContent', 'gemini-3.5-flash-lite:generateContent',
   ]);
-  await assert.rejects(h.run(), { statusCode: 429 });
-  assert.match(h.requests[3].url, /gemini-3\.5-flash:generateContent$/);
-  assert.equal(h.requests.length, 6);
   assert.equal(h.nativeCalls.length, 0);
 });
 
