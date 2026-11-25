@@ -971,3 +971,11 @@
 .notepad-media-dialog.notepad-gif-viewer{width:max-content;max-width:calc(100% - 12px);padding:0;border:0;outline:0;background:transparent;box-shadow:none}
 .notepad-gif-viewer .notepad-attachment-body{padding:0;overflow:hidden}
 .notepad-gif-viewer .notepad-attachment-body>img{display:block}
+
+.note-content .mention[role="button"] { cursor: pointer; }
+.note-content .mention[role="button"]:focus-visible { outline: 2px solid var(--accent); }
+.tag-details { width: min(360px, calc(100vw - 24px)); max-height: 80vh; overflow: auto; padding: 12px; border: 1px solid var(--cmpri-outline); border-radius: 8px; background: var(--cmpri-modal-surface); color: var(--cmpri-modal-text); }
+.tag-details::backdrop { background: #0008; }
+.tag-details h2 { margin: 0 0 8px; font-size: 16px; }
+.tag-details ul { margin: 8px 0; padding-inline-start: 20px; }
+.tag-details button { padding: 4px 10px; border: 1px solid var(--cmpri-outline); border-radius: 4px; }

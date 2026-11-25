@@ -169,6 +169,7 @@ function syncEditor() {
   const clean=el.cloneNode(true);
   $$('.item-reply-actions,.item-thread,.task-completion,.task-stamp',clean).forEach(node=>node.remove());
   restoreTagPrefixes(clean);
+  for(const chip of $$(storedTagSelector,clean))for(const name of ['title','tabindex','role'])chip.removeAttribute(name);
   canonicalAttachmentMarkers(clean);
   n.content=clean.innerHTML;n.fontSize=parseInt(el.style.fontSize)||n.fontSize||16;
   save();
@@ -484,6 +485,7 @@ function render() {
   if(n) {
     textSize=n.fontSize||16;
     displayTagLabels($('.note-content'));
+    decorateTags($('.note-content'));
     $$('.task-label').forEach(el=>el.contentEditable=String(mode==='text'));
     inkController=window.NotepadInk.attach({paper:$('.general-notes-paper'),textLayer:$('.note-content'),svg:$('.note-ink'),getNote:note,getMode:()=>mode,getColor:()=>inkColor,getWidth:()=>penWidth,onSave:changed=>{markEdited(changed);save();},onModeChange:next=>setMode(next)});
     normalizeSharedItems();
@@ -826,6 +828,7 @@ function renderItemThread(id,force=false) {
   const targetId=replyTargets[n.id+':'+id],target=targetId?findReply(n.itemThreads[id],targetId):null;
   panel.innerHTML='<div class="thread-entries">'+threadEntries(n.itemThreads[id]||[],id)+'</div>'+(target?'<div class="reply-target">Replying to '+escape(target.authorName||personById(target.authorId).short)+'<button class="clear-reply-target" data-clear-target="'+id+'" aria-label="Cancel nested reply">×</button></div>':'')+'<form class="item-reply-form" data-thread-item="'+id+'"><textarea class="reply-input" aria-label="Reply to '+escape(itemCaption(item))+'" placeholder="Reply · @mention" spellcheck="true" maxlength="2000" rows="1" wrap="soft">'+escape(draft)+'</textarea><button class="submit-reply" aria-label="Add reply" title="Add reply">'+icon('post')+'</button></form>';
   placeThread(item,panel);
+  decorateTags(panel);
   const input=$('.reply-input',panel);
   if(tags.length)replyDraftTags.set(input,{value:draft,tags});
   sizeReplyInput(input);
@@ -918,30 +921,135 @@ function completeTask(box) {
   normalizeSharedItems();updateTaskAccessibleLabel(row);syncEditor();
 }
 
-let mentionChoices=[];
+let mentionChoices=[], tagDirectory=[], mentionTimer;
+const workOrderTags=new Map();
+const workOrderTagLabel=value=>{
+  const match=String(value).trim().match(/^(?:workorder_|WO\s*[#-]?\s*)?(\d+)$/i);
+  return match?'WO#'+match[1]:'';
+};
 function refreshMentionChoices() {
   mentionChoices=[
     ...people.filter(isSelectableRecipient).map(p=>({id:p.id,label:p.name,kind:'person',detail:p.displayRole||p.role})),
     {id:'engineering',label:'Engineering',kind:'department',detail:'Chief Engineer + technician'},
     {id:'all',label:'All Roles',kind:'role',detail:'Everyone'},
     ...roles.map(r=>({id:r.id,label:r.label,kind:'role',detail:'Role'})),
+    ...tagDirectory,
   ];
 }
-function closeMentions(){mentionSession=null;$('#mention-layer').innerHTML='';$('.note-content')?.removeAttribute('aria-activedescendant');}
+function loadTagDirectory() {
+  const generation=accountGeneration;
+  void hostRequest('tag-directory',{}).then(targets=>{
+    if(generation!==accountGeneration)return;
+    tagDirectory=targets.map(target=>({...target,detail:target.kind==='location'
+      ? target.description||'Location' : 'Front Desk name'}));
+    refreshMentionChoices();
+    decorateTags($('.note-content'));
+    const input=mentionSession?.input;
+    if(mentionSession){closeMentions();if(input)detectReplyMention(input);else detectMention();}
+  }).catch(()=>{});
+}
+function ticketTag(row) {
+  const label=workOrderTagLabel(row.display_id);
+  return label?{id:row.id,kind:'work_order',label,detail:row.issue||'Work order'}:null;
+}
+function resolveWorkOrderTag(id) {
+  if(workOrderTags.has(id))return workOrderTags.get(id);
+  const generation=accountGeneration;
+  const pending=hostRequest('tag-work-orders',{id}).then(rows=>{
+    const row=rows.find(row=>row.id===id);
+    return generation===accountGeneration&&row?ticketTag(row):null;
+  }).catch(()=>null);
+  workOrderTags.set(id,pending);
+  return pending;
+}
+function tagRecord(chip) {
+  const {mentionKind:kind,mentionId:id}=chip.dataset;
+  return mentionChoices.find(choice=>choice.kind===kind&&choice.id===id);
+}
+function setTagTitle(chip,record) {
+  const kind={person:'Person',role:'Role',department:'Engineering department',front_desk_name:'Front Desk name',location:'Location',work_order:'Work order'}[record.kind];
+  chip.title=kind+' · '+(record.kind==='person'||record.kind==='front_desk_name'?record.label:record.detail==='Role'?record.label:record.detail);
+  chip.tabIndex=0;
+  chip.setAttribute('role','button');
+}
+function decorateTags(root) {
+  if(!root)return;
+  for(const chip of $$(storedTagSelector,root)){
+    const record=tagRecord(chip);
+    if(record)setTagTitle(chip,record);
+    else if(chip.dataset.mentionKind==='work_order'&&attachmentUUID.test(chip.dataset.mentionId)){
+      void resolveWorkOrderTag(chip.dataset.mentionId).then(target=>{if(chip.isConnected&&target)setTagTitle(chip,target);});
+    }
+  }
+}
+function openTag(chip) {
+  if(chip.dataset.mentionKind==='work_order'){sendHost('openWorkOrder',{id:chip.dataset.mentionId});return;}
+  const record=tagRecord(chip);
+  if(!record)return;
+  const group=record.kind==='role'||record.kind==='department';
+  const recipients=group?people.filter(person=>person.active&&(record.id==='all'
+    || (record.kind==='department'?person.roles.some(role=>role==='engineer'||role==='technician'):person.roles.includes(record.id)))):[];
+  const dialog=document.createElement('dialog');
+  dialog.className='tag-details';dialog.setAttribute('aria-label',record.label);
+  const title=document.createElement('h2');title.textContent=record.label;
+  const description=document.createElement('p');description.textContent=record.detail;
+  const close=document.createElement('button');close.type='button';close.textContent='Close';
+  close.addEventListener('click',()=>dialog.close());
+  dialog.append(title,description,close);
+  if(group){
+    const list=document.createElement('ul');list.setAttribute('aria-label','Recipients');
+    for(const person of recipients){const item=document.createElement('li');item.textContent=person.name;list.append(item);}
+    if(!recipients.length){const item=document.createElement('li');item.textContent='No recipients to display.';list.append(item);}
+    dialog.insertBefore(list,close);
+  }
+  dialog.addEventListener('close',()=>{dialog.remove();if(chip.isConnected)chip.focus();},{once:true});
+  document.body.append(dialog);dialog.showModal();
+}
+function closeMentions(){clearTimeout(mentionTimer);mentionSession=null;$('#mention-layer').innerHTML='';$('.note-content')?.removeAttribute('aria-activedescendant');}
+function matchTagQuery(before) {
+  const at=before.match(/(?:^|[\s\u00a0])@([^@\n]{0,200})$/);
+  if(at)return {term:at[1],length:at[1].length+1,explicit:false};
+  const explicit=before.match(/(?:^|\s)(WO#\d{1,30})$/i);
+  return explicit?{term:explicit[1],length:explicit[1].length,explicit:true}:null;
+}
+function startMention(session,query) {
+  const current=mentionSession;
+  if(current?.term===query.term&&current.explicit===query.explicit&&current.input===session.input
+    &&(session.input?current.start===session.start:current.range.startContainer===session.range.startContainer&&current.range.startOffset===session.range.startOffset))return;
+  closeMentions();
+  const term=query.term.toLowerCase();
+  const choices=query.explicit?[]:mentionChoices.filter(c=>(c.label+' '+c.detail).toLowerCase().includes(term)).slice(0,8);
+  const active={...session,...query,choices,index:0};
+  mentionSession=active;
+  if(choices.length)renderMentions();
+  if(!term.trim())return;
+  mentionTimer=setTimeout(()=>{
+    void hostRequest('tag-work-orders',{query:query.term,exact:query.explicit}).then(rows=>{
+      if(mentionSession!==active)return;
+      const tickets=rows.map(ticketTag).filter(Boolean);
+      if(query.explicit) {
+        const number=query.term.toUpperCase();
+        active.choices=tickets.filter(ticket=>ticket.label===number).slice(0,8);
+      } else {
+        active.choices=[...choices.slice(0,tickets.length?5:8),...tickets].slice(0,8);
+      }
+      for(const ticket of active.choices)if(ticket.kind==='work_order')workOrderTags.set(ticket.id,Promise.resolve(ticket));
+      if(active.choices.length)renderMentions();
+    }).catch(()=>{});
+  },120);
+}
 function detectMention() {
   if(isComposing)return;
   const sel=getSelection(),content=$('.note-content');
   if(mode!=='text'||!sel?.rangeCount||!sel.isCollapsed||!content?.contains(sel.anchorNode)||sel.anchorNode.nodeType!==Node.TEXT_NODE){closeMentions();return;}
-  const before=sel.anchorNode.textContent.slice(0,sel.anchorOffset),match=before.match(/(?:^|[\s\u00a0])@([^@\n]{0,45})$/);
-  if(!match){closeMentions();return;}
-  const term=match[1].toLowerCase(),choices=mentionChoices.filter(c=>(c.label+' '+c.detail).toLowerCase().includes(term)).slice(0,8);
-  if(!choices.length){closeMentions();return;}
-  const start=sel.anchorOffset-term.length-1,range=sel.getRangeAt(0).cloneRange();range.setStart(sel.anchorNode,start);
-  mentionSession={range,choices,index:0};renderMentions();
+  const query=matchTagQuery(sel.anchorNode.textContent.slice(0,sel.anchorOffset));
+  if(!query){closeMentions();return;}
+  const range=sel.getRangeAt(0).cloneRange();range.setStart(sel.anchorNode,sel.anchorOffset-query.length);
+  startMention({range},query);
 }
 function renderMentions() {
   const s=mentionSession;if(!s)return;
-  $('#mention-layer').innerHTML='<div class="mention-popover" role="listbox" aria-label="Mention a person or role">'+s.choices.map((c,i)=>'<button class="mention-option" id="mention-option-'+i+'" data-mention-choice="'+i+'" role="option" aria-selected="'+(i===s.index)+'"><strong>'+escape(c.label)+'</strong><small>'+escape(c.detail)+'</small></button>').join('')+'</div>';
+  $('#mention-layer').innerHTML='<div class="mention-popover" role="listbox" aria-label="Tag a person, group, location, or work order">'+s.choices.map((c,i)=>'<button class="mention-option" id="mention-option-'+i+'" data-mention-choice="'+i+'" role="option" aria-selected="'+(i===s.index)+'"><strong>'+escape(c.label)+'</strong><small>'+escape(c.detail)+'</small></button>').join('')+'</div>';
   const el=$('.mention-popover'),rect=s.input?s.input.getBoundingClientRect():s.range.getBoundingClientRect(),area=$('.note-content').getBoundingClientRect();
   const left=rect.width||rect.height?rect.left:area.left+4,top=rect.height?rect.bottom:area.top+22;
   el.style.left=Math.max(5,Math.min(innerWidth-el.offsetWidth-5,left))+'px';el.style.top=Math.max(5,Math.min(innerHeight-el.offsetHeight-5,top+2))+'px';
@@ -959,7 +1067,7 @@ function insertMention(index) {
     input.focus();input.setSelectionRange(s.start+value.length,s.start+value.length);sizeReplyInput(input);closeMentions();return;
   }
   markEdited();
-  const range=s.range;range.deleteContents();const chip=document.createElement('span');chip.className='mention';chip.setAttribute('contenteditable','false');chip.dataset.mentionId=c.id;chip.dataset.mentionKind=c.kind;chip.dataset.npTagPrefix='';chip.textContent=c.label;range.insertNode(chip);
+  const range=s.range;range.deleteContents();const chip=document.createElement('span');chip.className='mention';chip.setAttribute('contenteditable','false');chip.dataset.mentionId=c.id;chip.dataset.mentionKind=c.kind;if(c.kind!=='location')chip.dataset.npTagPrefix='';chip.textContent=c.label;setTagTitle(chip,c);range.insertNode(chip);
   const space=document.createTextNode('\u00a0');chip.after(space);range.setStartAfter(space);range.collapse(true);const sel=getSelection();sel.removeAllRanges();sel.addRange(range);selectionRange=range.cloneRange();closeMentions();normalizeSharedItems();syncEditor();
 }
 function moveNote(id,targetId,after=false) {
@@ -994,11 +1102,9 @@ function replyText({text,mentions}) {
 }
 
 function detectReplyMention(input) {
-  const before=input.value.slice(0,input.selectionStart),match=before.match(/(?:^|\s)@([^@\n]{0,45})$/);
-  if(!match){closeMentions();return;}
-  const term=match[1].toLowerCase(),choices=mentionChoices.filter(c=>(c.label+' '+c.detail).toLowerCase().includes(term)).slice(0,8);
-  if(!choices.length){closeMentions();return;}
-  mentionSession={input,start:input.selectionStart-term.length-1,end:input.selectionStart,choices,index:0};renderMentions();
+  const query=matchTagQuery(input.value.slice(0,input.selectionStart));
+  if(!query){closeMentions();return;}
+  startMention({input,start:input.selectionStart-query.length,end:input.selectionStart},query);
 }
 function closeDelete({restoreFocus=true}={}) {
   const session=deleteSession;if(!session)return;
@@ -1203,6 +1309,8 @@ document.addEventListener('dragover',e=>{if(!draggedNote)return;const row=e.targ
 document.addEventListener('drop',e=>{if(!draggedNote)return;const row=e.target.closest('.note-row');if(row){e.preventDefault();moveNote(draggedNote,row.dataset.row,row.dataset.dropPosition==='after');}draggedNote=null;clearDragMarks();});
 document.addEventListener('dragend',()=>{draggedNote=null;clearDragMarks();});
 document.addEventListener('click',e=>{
+  const tag=e.target.closest('.note-content '+storedTagSelector+'[role="button"]');
+  if(tag){e.preventDefault();openTag(tag);return;}
   const attachment=e.target.closest('[data-open-inline-attachment]');
   if(attachment){
     e.preventDefault();closeAttachmentPreview();
@@ -1281,7 +1389,9 @@ document.addEventListener('keydown',e=>{
     }
     save();return;
   }
-  if(mentionSession&&['ArrowDown','ArrowUp','Enter','Tab','Escape'].includes(e.key)) {
+  const tag=e.target.closest('.note-content '+storedTagSelector+'[role="button"]');
+  if(tag&&['Enter',' '].includes(e.key)){e.preventDefault();openTag(tag);return;}
+  if(mentionSession?.choices.length&&['ArrowDown','ArrowUp','Enter','Tab','Escape'].includes(e.key)) {
     e.preventDefault();if(e.key==='Escape'){closeMentions();return;}
     if(e.key==='Enter'||e.key==='Tab'){insertMention(mentionSession.index);return;}
     const s=mentionSession;s.index=(s.index+(e.key==='ArrowDown'?1:-1)+s.choices.length)%s.choices.length;renderMentions();return;
@@ -1350,6 +1460,7 @@ window.addEventListener('message',event=>{
     const pending=requests.get(payload.requestId);if(!pending)return;requests.delete(payload.requestId);
     if(payload.error)pending.reject(Error(payload.error));else pending.resolve(payload.result);return;
   }
+  if(data.type==='tag-unavailable'){toast(payload.message);return;}
   if(data.type==='palette'){applyPalette(payload);return;}
   if(data.type==='clear'){
     titleEdit=null;
@@ -1357,7 +1468,7 @@ window.addEventListener('message',event=>{
     inkController?.destroy();formattingController?.destroy();attachmentController?.destroy();inkController=null;formattingController=null;attachmentController=null;
     titleResizeObserver?.disconnect();titleResizeObserver=null;
     paperResizeObserver?.disconnect();paperResizeObserver=null;
-    notes=[];people=[];roles=[];mentionChoices=[];historyController=null;currentPerson='';activeNote='';query='';mode='text';orders={};VIEW_STORE='';lastOrder='';legacyAliases={};bridgeScope='';timeFormat='12h';
+    notes=[];people=[];roles=[];mentionChoices=[];tagDirectory=[];workOrderTags.clear();$$('.tag-details').forEach(dialog=>dialog.remove());historyController=null;currentPerson='';activeNote='';query='';mode='text';orders={};VIEW_STORE='';lastOrder='';legacyAliases={};bridgeScope='';timeFormat='12h';
     mobileSidebarCollapsed=false;mobileFormattingExpanded=false;
     selectionRange=null;draggedNote=null;pointerDrag=null;resizeGesture=null;blankLineGesture=null;recipientDraft=null;isComposing=false;suppressNoteClick=false;
     Object.keys(replyTargets).forEach(key=>delete replyTargets[key]);pendingInlineUploads.clear();dirtyNotes.clear();sentDocuments.clear();sequences.clear();deferredNotes.clear();baseRevisions.clear();baseLegacyVersions.clear();confirmedDeletions.clear();
@@ -1376,7 +1487,7 @@ window.addEventListener('message',event=>{
     legacyAliases=payload.legacyAliases||{};const requested=payload.targetNoteId||view.activeNote;activeNote=legacyAliases[requested]||requested||notes[0]?.id||'';
     for(const n of notes){sentDocuments.set(n.id,JSON.stringify(documentFor(n)));baseRevisions.set(n.id,n.revision??null);baseLegacyVersions.set(n.id,n.legacyVersion||null);}
     for(const [id,sequence]of Object.entries(payload.sequences||{})){sequences.set(id,sequence);dirtyNotes.add(id);if(!sentDocuments.has(id))sentDocuments.set(id,'null');}
-    refreshMentionChoices();updateTimeFormat(payload.timeFormat);
+    refreshMentionChoices();loadTagDirectory();updateTimeFormat(payload.timeFormat);
     applyPalette(payload.palette);initialized=true;suppressSave=true;render();suppressSave=false;return;
   }
   if(!initialized)return;

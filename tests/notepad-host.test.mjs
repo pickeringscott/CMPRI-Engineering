@@ -33,8 +33,9 @@ async function fixture({ holdInitial = false, count = 1 } = {}) {
     channel: () => { const channel = { on: () => channel, subscribe: () => channel }; return channel; }, removeChannel: async () => {},
     storage: { from: () => ({ uploadToSignedUrl: async () => { if (state.uploadGate) await state.uploadGate.promise; return { error: null }; } }) },
   };
+  const router = {push() {}};
   const Component = loadTs("src/components/Notepad.tsx", {
-    react: React, "react/jsx-runtime": jsx, "./notepad/notepad-host.css": {},
+    react: React, "react/jsx-runtime": jsx, "next/navigation": { useRouter: () => router }, "./notepad/notepad-host.css": {},
     "@/lib/supabase/client": { createClient: () => client, getValidSession: async () => state.userId ? { access_token: `session:${state.userId}`, user: { id: state.userId } } : null },
     "@/lib/general-notes-session": { isNotesSessionRestart: async () => false }, "@/lib/giphy": {}, "@/lib/staff-note-media": { STAFF_FILE_BUCKET: "staff-note-files", staffFileInput: value => value },
     "@/lib/notepad-sync": syncModule, "@/lib/ui/notepad-close": closeModule, "@/lib/notepad": notepadModule,

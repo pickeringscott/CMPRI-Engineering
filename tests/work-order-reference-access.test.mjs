@@ -17,15 +17,17 @@ function fixture(p, rows=[target], fail=false) {
  const admin={from(table) {
   assert.equal(table,'work_orders');queried++;
   const filters=[];let limit=Infinity;
-  const query={select(){return query;},eq(k,v){filters.push(r=>r[k]===v);return query;},in(k,v){filters.push(r=>v.includes(r[k]));return query;},gte(k,v){filters.push(r=>r[k]>=v);return query;},lte(k,v){filters.push(r=>r[k]<=v);return query;},limit(n){limit=n;return query;},then(resolve,reject){return Promise.resolve({data:rows.filter(r=>filters.every(f=>f(r))).slice(0,limit),error:fail?{message:'offline'}:null}).then(resolve,reject);}};
+  const parseOr=expression=>Array.from(expression.matchAll(/(issue|display_id)\.ilike\.("(?:[^"\\]|\\.)*")/g),match=>[match[1],JSON.parse(match[2]).slice(1,-1).toLowerCase()]);
+  const query={select(){return query;},order(){return query;},or(expression){const clauses=parseOr(expression);filters.push(r=>clauses.some(([key,value])=>String(r[key]||'').toLowerCase().includes(value)));return query;},eq(k,v){filters.push(r=>r[k]===v);return query;},in(k,v){filters.push(r=>v.includes(r[k]));return query;},gte(k,v){filters.push(r=>r[k]>=v);return query;},lte(k,v){filters.push(r=>r[k]<=v);return query;},limit(n){limit=n;return query;},then(resolve,reject){return Promise.resolve({data:rows.filter(r=>filters.every(f=>f(r))).slice(0,limit),error:fail?{message:'offline'}:null}).then(resolve,reject);}};
   return query;
  }};
  const route=loadTs('src/app/api/work-orders/references/route.ts',{
   'next/server':{NextResponse:{json:(body,init={})=>({body,status:init.status||200,headers:init.headers})}},
+  '@/lib/work-order-reference.js':references,
   '@/lib/server/auth':{requireUser:async()=>p?{principal:p,admin}:null},
   '@/lib/server/work-order-reader':{workOrderReader},'@/lib/work-order-read-policy':policy,
  });
- return {run:targets=>route.GET({nextUrl:new URL('https://local/api/work-orders/references?'+new URLSearchParams(targets.map(target=>['target',target])))}),queries:()=>queried};
+ return {run:(targets,q)=>route.GET({nextUrl:new URL('https://local/api/work-orders/references?'+new URLSearchParams([...targets.map(target=>['target',target]),...(q?[['q',q]]:[])]))}),queries:()=>queried};
 }
 for(const role of roles) test(`${role}: resolves another creator's older closed reference, without recent-list dependence`,async()=>{
  const rows=Array.from({length:350},(_,i)=>({...target,id:`new-${i}`,display_id:String(1000+i),status:'Open'}));
@@ -64,4 +66,16 @@ test('history target extraction preserves external URLs and distinguishes room n
  assert.match(page,/referenceTickets.filter/);
  assert.match(page,/requestTicketNavigation\(`\/work-orders\/\$\{encodeURIComponent\(ticket\.id\)\}`\)/);
  assert.match(page,/targetWorkOrderId: ticket.id/);
+});
+
+test('tag search matches number and issue within the signed-in property',async()=>{
+ const matching={...target,issue:'Leaking faucet'};
+ const f=fixture(principal('Front Desk'),[matching,{...matching,hotel_id:'other-hotel',id:'other-hotel'}]);
+ for(const query of ['123','WO#123','leaking faucet']){
+  const response=await f.run([],query);
+  assert.deepEqual(Array.from(response.body.tickets,ticket=>ticket.id),[target.id]);
+ }
+ assert.equal((await f.run([],'missing')).body.tickets.length,0);
+ assert.equal((await f.run([],'x'.repeat(201))).status,400);
+ assert.equal((await fixture(null).run([],'faucet')).status,401);
 });
