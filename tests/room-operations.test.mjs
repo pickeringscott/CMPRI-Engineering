@@ -2,6 +2,7 @@ import "./helpers/resolve-ts.mjs";
 const { projectGuestRoom } = await import("../src/lib/room-guest-reports.ts");
 import test from "node:test";
 import { makeUiTranslator, uiTitleCase } from "../src/lib/i18n/ui.ts";
+import { formatWallTime, timeFormatOptions } from "../src/lib/ui/time-format.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
@@ -844,6 +845,7 @@ test("checkout emphasis is limited to today, tomorrow and overdue dates", () => 
       exports: checkoutExports,
       hotelDate: () => "2026-10-05",
       displayDate: (value) => value,
+      formatWallTime,
     },
   );
   assert.equal(checkoutExports.daysUntilCheckout("2026-10-06", "2026-10-05"), 1);
@@ -853,6 +855,8 @@ test("checkout emphasis is limited to today, tomorrow and overdue dates", () => 
   assert.equal(checkoutExports.checkoutLabel({ checkout_date: "2026-10-07", checkout_time: "11:00 AM" }), "2026-10-07 · 11:00 AM");
   assert.equal(checkoutExports.checkoutLabel({ checkout_date: "2026-10-04", checkout_time: "9:00 AM" }), "Overdue · 2026-10-04 · 9:00 AM");
   assert.equal(checkoutExports.checkoutLabel({ checkout_date: null, checkout_time: null }), "");
+  assert.equal(checkoutExports.checkoutLabel({ checkout_date: "2026-10-05", checkout_time: "5:07:31 PM" }, "2026-10-05", "en-US", "24h"), "Checkout today · 17:07");
+  assert.equal(checkoutExports.checkoutLabel({ checkout_date: "2026-10-05", checkout_time: "00:07" }, "2026-10-05", "en-US", "12h"), "Checkout today · 12:07 AM");
   assert.equal(checkoutExports.daysUntilCheckout("2027-01-01", "2026-12-31"), 1);
   assert.match(checkoutExports.checkoutClass(0), /text-green-200/);
   assert.match(checkoutExports.checkoutClass(1), /text-yellow-200/);
@@ -884,10 +888,11 @@ test("room cards and summary modal put Bonvoy after the guest and before arrival
   ).outputText, {
     exports: components, React, useUiLanguage: () => ({ t: makeUiTranslator("en"), tt: (text, values) => uiTitleCase(makeUiTranslator("en")(text, values)), locale: "en-US" }), LoyaltyBadge:({tier})=>tier?React.createElement('span',{'data-test-loyalty':tier},tier):null, GuestGroupBadge: badgeModule.exports.default, Image: props => React.createElement("img", props),
     currentRoomGroupBadges, isRailwayCnGuestName, isBigTenGroup, hotelDate: () => "2026-10-05", displayDate: value => value,
+    formatWallTime, timeFormatOptions, useTimeFormat: () => "12h",
   });
   const html = renderToStaticMarkup(React.createElement(components.RoomDetails, { row: {
     room: "103", guest_name: "RAILWAY/CN-NJ8", group_name: "CN", loyalty_tier: "Silver", room_status: "OOO",
-    incoming_name: "Arriving Guest", incoming_loyalty_tier: "Gold",
+    incoming_name: "Arriving Guest", incoming_loyalty_tier: "Gold", arrival_time: "19:07",
     guest_arrival_date: "2026-10-01", stay_nights: 4, room_type: "Hidden type", guest_code: "Hidden code",
     checkout_date: "2026-10-07", checkout_time: "10:30 AM",
   }, today: "2026-10-05" }));
@@ -904,6 +909,7 @@ test("room cards and summary modal put Bonvoy after the guest and before arrival
   assert.equal(guest.children[1].getAttribute('alt'), 'CN');
   const incoming = [...document.querySelectorAll('div')].find(node=>node.textContent.trim().startsWith('Incoming:'));
   assert.equal(incoming.querySelector('[data-test-loyalty]').getAttribute('data-test-loyalty'), 'Gold');
+  assert.match(incoming.textContent, /7:07\s*PM/);
   assert.ok(incoming.innerHTML.indexOf('data-test-loyalty') < incoming.innerHTML.indexOf('Arriving Guest'));
   dom.window.close();
   assert.match(html, /text-sm text-slate-400/);

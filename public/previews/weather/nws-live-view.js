@@ -601,6 +601,15 @@
     return getState();
   }
   window.addEventListener('cmpri-weather-astronomy', () => { if (opened) decorateAstronomy(); });
+  window.cmpriTimeFormat?.subscribe(() => {
+    if (!initialized) return;
+    text('liveObservationTime', 'As of: ' + stamp(resource('observation').data?.properties?.timestamp) + ' · Willard (KCMI)');
+    renderForecast('hourly', byId('hourlyForecastCards') ? 'hourlyForecastCards' : 'hourlyForecast', true);
+    renderDailyForecast();
+    renderAccumulations();
+    renderAlerts();
+    resizeGraphs();
+  });
   window.addEventListener('pagehide', close);
   window.nwsLiveView = { init, open, close, refresh, refreshObservations, getState };
 }());

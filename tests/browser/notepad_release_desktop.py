@@ -1,6 +1,7 @@
 """Verify desktop placement, Ask access and profile time format against local fixtures."""
 import asyncio
 import os
+import re
 
 from cmpri_fixture import BASE, CAPS, HOTEL, OUT, UID, async_playwright, expect, install
 
@@ -18,6 +19,7 @@ async def verify(browser, role, email="fixture@example.invalid", user_id=UID, se
         "notifications": {"new_work_orders": True, "status_changes": True, "mentions": True},
     }
     writes = []
+    days = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 
     async def session(route):
         await route.fulfill(json={
@@ -34,8 +36,18 @@ async def verify(browser, role, email="fixture@example.invalid", user_id=UID, se
             "can_manage_users": role == "system_admin", "chatgpt_connection": None,
         })
 
+    async def schedule_request(route):
+        assert route.request.method == "GET", "changing the display preference must not save the schedule"
+        await route.fulfill(json={
+            "configured": True, "public_key": "", "subscribed_on_this_device": False,
+            "settings": {"timezone": "America/Chicago", "schedule": {
+                day: {"enabled": day == "monday", "start": "17:07", "end": "23:45"} for day in days
+            }},
+        })
+
     await context.route("**/api/session", session)
     await context.route("**/api/profile", profile_request)
+    await context.route("**/api/profile/phone-notifications", schedule_request)
     await context.route("**/api/weather-preview?part=dashboard", lambda route: route.fulfill(json={
         "dashboard": {"current": 46, "high": 59, "low": 38, "precipitation": 10, "wind": 13,
                       "bearing": 300, "condition": "Cloudy", "icon": None, "isDaytime": True},
@@ -89,15 +101,27 @@ async def verify(browser, role, email="fixture@example.invalid", user_id=UID, se
         current = "24h" if is_chief else "12h"
         replacement = "12h" if is_chief else "24h"
         await expect(combo).to_have_value(current, timeout=60000)
-        names = await page.get_by_role("combobox").evaluate_all("(fields) => fields.slice(0, 3).map(field => field.labels[0].firstChild.textContent.trim())")
+        preferences_section = page.get_by_role("heading", name="Personal Preferences").locator("xpath=..")
+        names = await preferences_section.get_by_role("combobox").evaluate_all("(fields) => fields.slice(0, 3).map(field => field.labels[0].firstChild.textContent.trim())")
         assert names == ["Language", "Time Format", "Appearance"], names
         language = await page.get_by_role("combobox", name="Language", exact=True).bounding_box()
         clock = await combo.bounding_box()
         appearance = await page.get_by_role("combobox", name="Appearance", exact=True).bounding_box()
         assert language["x"] < clock["x"] < appearance["x"] and clock["width"] < min(language["width"], appearance["width"])
+        first_start = page.get_by_role("combobox", name="Start", exact=True).first
+        first_end = page.get_by_role("combobox", name="End", exact=True).first
+        if is_chief:
+            await expect(first_start.locator("option:checked")).to_have_text("17:07 (current)", timeout=60000)
+            await expect(first_end.locator("option:checked")).to_have_text("23:45")
         if role == "chief_engineer":
-            await page.screenshot(path=str(OUT / "release-personal-preferences.png"))
+            await preferences_section.screenshot(path=str(OUT / "release-personal-preferences.png"))
         await combo.select_option(replacement)
+        if is_chief:
+            await expect(first_start.locator("option:checked")).to_have_text(re.compile(r"5:07\s+PM \(current\)"))
+            await expect(first_end.locator("option:checked")).to_have_text(re.compile(r"11:45\s+PM"))
+            await expect(first_start).to_have_value("17:07")
+            await expect(first_end).to_have_value("23:45")
+            assert writes == [], "the schedule labels should preview the draft before saving"
         await page.get_by_role("button", name="Save Profile", exact=True).click()
         await expect(page.get_by_text("Profile and preferences saved.", exact=True)).to_be_visible(timeout=60000)
         assert len(writes) == 1 and writes[0]["preferences"]["time_format"] == replacement, writes

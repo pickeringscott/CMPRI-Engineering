@@ -1,6 +1,8 @@
 "use client";
 
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { subscribeResources } from "@/lib/events/browser";
 import { inventoryUnitOptions } from "@/lib/inventory";
@@ -182,6 +184,7 @@ function poolDateFromUrl() {
 
 export default function PoolLogPage() {
   const { t, locale } = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const embedded = useEmbeddedModal();
   const requestedDate = useSyncExternalStore(subscribePoolDate, poolDateFromUrl, () => null);
   const [chosenDate, setDate] = useState<string | null>(null);
@@ -715,7 +718,7 @@ export default function PoolLogPage() {
                   <td className="border border-slate-700 p-2 print:border-black">{closure}</td>
                   <td className="whitespace-pre-wrap border border-slate-700 p-2 print:border-black">{String(entry.remarks || "—")}</td>
                   <td className="border border-slate-700 p-2 print:border-black">{String(entry.completed_by_initials || "—")}</td>
-                  <td className="border border-slate-700 p-2 print:border-black">{entry.updated_at ? new Date(String(entry.updated_at)).toLocaleString(locale, { timeZone: "America/Chicago" }) : "—"}</td>
+                  <td className="border border-slate-700 p-2 print:border-black">{entry.updated_at ? new Date(String(entry.updated_at)).toLocaleString(locale, { timeZone: "America/Chicago", ...timeFormatOptions(timeFormat) }) : "—"}</td>
                 </tr>;
               })}</tbody>
             </table>

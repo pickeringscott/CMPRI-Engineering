@@ -31,7 +31,7 @@ body{margin:0}
 .layout-1 .note-content .mention[data-mention-kind="location"]{color:#7dd3fc;background:#7dd3fc14}
 .layout-1 .notepad-formatting .fmt-font{width:150px;min-width:150px}
 .layout-1 .notepad-formatting .fmt-size{width:53px;min-width:53px}
-.general-notes-editor:has(.note-history:not([hidden])) > :is(.notepad-formatting,.general-notes-body,.editor-attachments,.general-notes-tools){display:none}
+.general-notes-editor:has(.note-history:not([hidden])) > :is(.notepad-formatting,.general-notes-workspace){display:none}
 .note-history{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:0 8px 8px;font:12px/1.4 Arial,Helvetica,sans-serif}
 .note-history[hidden],.note-history [hidden]{display:none}
 .history-toolbar{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:5px 0;background:var(--cmpri-modal-base)}

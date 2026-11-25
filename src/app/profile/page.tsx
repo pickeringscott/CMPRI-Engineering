@@ -1,7 +1,7 @@
 "use client";
 
 import { useUiLanguage } from "@/components/UiLanguageProvider";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createClient, getValidSession } from "@/lib/supabase/client";
 import { accountRoleDisplayName, roleDisplayName } from "@/lib/account-display";
 import { signOutDevice } from "@/lib/supabase/client";
@@ -13,6 +13,7 @@ import { isNotificationScheduleEligibleProfile, isWebPushEligibleProfile, isStaf
 import PhoneNotificationRow from "@/components/PhoneNotificationRow";
 import { loadCmpriSession } from "@/lib/auth/client-session";
 import { resolveProfileTimeFormat, type ProfilePreferences as Preferences, type TimeFormat } from "@/lib/profile-preferences";
+import { formatWallTime } from "@/lib/ui/time-format";
 import { clearPhoneScheduleRecovery, phoneScheduleKey, readPhoneScheduleRecovery, savePhoneScheduleRecovery, type PhoneScheduleRecovery, canRestoreProfileRecovery, clearProfileRecovery, profileFieldsKey, readProfileRecovery, saveProfileRecovery, type ProfileRecovery, type ProfileScope, type ProfileSettingsDraft } from "@/lib/profile-recovery";
 
 type Profile = { id: string; email: string | null; full_name: string | null; role: string | null; secondary_roles?: string[] };
@@ -50,18 +51,8 @@ const NOTIFICATION_DAYS = [
 
 const NOTIFICATION_TIMES = Array.from({ length: 96 }, (_, index) => {
   const minutes = index * 15;
-  const hour = Math.floor(minutes / 60);
-  const minute = minutes % 60;
-  const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-  return { value, label: `${hour % 12 || 12}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}` };
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 });
-
-function notificationTimeLabel(value: string) {
-  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
-  if (!match) return value;
-  const hour = Number(match[1]);
-  return `${hour % 12 || 12}:${match[2]} ${hour < 12 ? "AM" : "PM"}`;
-}
 
 function localTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -121,7 +112,11 @@ export default function ProfilePage() {
   const isSubmitOnlyProfile = ["Front Desk", "Front Desk Manager", "Lead Housekeeper"].includes(roleDisplayName(data?.profile.role || ""));
   const canManageChatgptConnection = !isSubmitOnlyRole(data?.profile.role);
   const profileDashboardHref = landingPath(data?.profile.role) || "/engineering";
-  const { t: tx, tt } = useUiLanguage(preferences?.language);
+  const { t: tx, tt, locale } = useUiLanguage(preferences?.language);
+  const timeFormat = resolveProfileTimeFormat(preferences, data?.profile ?? { role: null });
+  const notificationTimes = useMemo(() => NOTIFICATION_TIMES.map(value => ({
+    value, label: formatWallTime(value, timeFormat, locale),
+  })), [locale, timeFormat]);
 
   function beginPhoneOperation() {
     const editor = draft.current;
@@ -559,15 +554,15 @@ export default function ProfilePage() {
                   </label>
                   {(["start", "end"] as const).map((field) => {
                     const value = phoneSettings.schedule[day][field];
-                    const customTime = value && !NOTIFICATION_TIMES.some((option) => option.value === value);
+                    const customTime = value && !NOTIFICATION_TIMES.includes(value);
                     return <label key={field} className="grid min-w-0 gap-1 text-xs text-slate-400">
                       {tx(field === "start" ? "Start" : "End", field === "start" ? "Inicio" : "Fin")}
                       <select value={value} onChange={(event) => setPhoneSettings({
                         ...phoneSettings,
                         schedule: { ...phoneSettings.schedule, [day]: { ...phoneSettings.schedule[day], [field]: event.target.value } },
                       })} className="min-h-10 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 text-sm text-white shadow-sm transition-colors focus-visible:border-sky-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/30">
-                        {customTime && <option value={value}>{notificationTimeLabel(value)} {tx("(current)")}</option>}
-                        {NOTIFICATION_TIMES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        {customTime && <option value={value}>{formatWallTime(value, timeFormat, locale)} {tx("(current)")}</option>}
+                        {notificationTimes.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                       </select>
                     </label>;
                   })}
@@ -588,7 +583,7 @@ export default function ProfilePage() {
           <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_max-content_minmax(0,1fr)]">
             <label className="grid gap-1 text-sm text-slate-300">{tx("Language", "Idioma")}<select value={preferences.language} disabled={data.profile_settings_available === false} onChange={(event) => setPreferences({ ...preferences, language: event.target.value as Preferences["language"] })} className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50"><option value="en">{tx("English")}</option><option value="es">{tx("Español")}</option></select></label>
             <label className="grid w-fit gap-1 text-sm text-slate-300">{tx("Time Format", "Formato de hora")}
-              <select value={resolveProfileTimeFormat(preferences, data.profile)} disabled={data.profile_settings_available === false}
+              <select value={timeFormat} disabled={data.profile_settings_available === false}
                 onChange={(event) => setPreferences({ ...preferences, time_format: event.target.value as TimeFormat })}
                 className="min-h-11 rounded-lg border border-slate-700 bg-slate-950 px-3 text-white disabled:opacity-50">
                 <option value="12h">{tx("12-hour", "12 horas")}</option>

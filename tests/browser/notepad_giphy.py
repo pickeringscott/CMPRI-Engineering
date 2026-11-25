@@ -81,11 +81,12 @@ async def main():
         await context.route("https://media.giphy.com/**", image)
         page = await context.new_page()
         page.on("pageerror", lambda error: failures.append(str(error)))
-        await page.goto(f"{BASE}/notepad?note={NOTE}", timeout=120_000)
+        await page.goto(f"{BASE}/notepad?note={NOTE}", wait_until="domcontentloaded", timeout=120_000)
         await page.add_style_tag(content="nextjs-portal { display: none; }")
         editor = page.frame_locator('iframe[title="Notepad"]')
         picker = editor.get_by_role("dialog", name="GIPHY picker")
         body = editor.locator(".general-notes-body")
+        workspace = editor.locator(".general-notes-workspace")
         toolbar = editor.get_by_role("toolbar", name="Notepad controls")
         heading = editor.locator(".title-row")
         sidebar = editor.get_by_role("complementary", name="Saved notes")
@@ -101,6 +102,12 @@ async def main():
         assert not provider_queries, provider_queries
         await open_picker()
         await expect(first).to_be_visible()
+        await expect(picker.locator(".staff-gif-search").get_by_role("link", name="Powered by GIPHY")).to_be_visible()
+        assert await first.evaluate("""element => {
+            const style = getComputedStyle(element);
+            return style.borderTopWidth === '0px' && style.borderRadius === '0px'
+                && style.backgroundColor === 'rgba(0, 0, 0, 0)';
+        }""")
         assert provider_queries == [("", 0)], provider_queries
         widths = []
         for width, height in SIZES:
@@ -108,11 +115,21 @@ async def main():
             await expect(picker).to_be_visible()
             bounds = await picker.bounding_box()
             writing = await body.bounding_box()
+            workspace_box = await workspace.bounding_box()
+            toolbar_box = await toolbar.bounding_box()
+            grid_box = await picker.locator(".staff-gif-grid").bounding_box()
             assert bounds and writing, (width, bounds, writing)
             assert bounds["x"] >= writing["x"] + 6, (width, bounds, writing)
             assert abs(writing["x"] + writing["width"] - bounds["x"] - bounds["width"] - 7) <= 1
             assert abs(bounds["y"] - writing["y"] - 7) <= 1
-            assert abs(writing["y"] + writing["height"] - bounds["y"] - bounds["height"] - 7) <= 1
+            assert abs(workspace_box["y"] + workspace_box["height"] - bounds["y"] - bounds["height"]) <= 1
+            assert grid_box["y"] + grid_box["height"] > toolbar_box["y"] + toolbar_box["height"] - 1
+            assert grid_box["x"] < toolbar_box["x"] + toolbar_box["width"]
+            assert await toolbar.evaluate("""dock => {
+                const box = dock.getBoundingClientRect();
+                return document.elementFromPoint(box.right - 16, box.y + box.height / 2)
+                    ?.closest('.general-notes-dock') === dock;
+            }""")
             for surrounding in (toolbar, heading, sidebar):
                 await expect(surrounding).to_be_visible()
             boxes = [await picker.locator("[data-attachment-gif]").nth(index).bounding_box() for index in range(7)]
@@ -120,7 +137,7 @@ async def main():
             assert len({round(box["y"], 1) for box in boxes[:6]}) == 1, (width, boxes)
             assert boxes[6]["y"] > boxes[0]["y"] and boxes[6]["x"] == boxes[0]["x"], (width, boxes)
             widths.append(boxes[0]["width"])
-            if width in (1440, 420):
+            if width in (1024, 420):
                 await first.locator("img").evaluate("image => image.decode()")
                 await page.screenshot(path=OUT / f"notepad-giphy-{width}.png", animations="disabled")
         assert widths[0] > widths[-1] and widths == sorted(widths, reverse=True), widths
@@ -166,7 +183,7 @@ async def main():
         await expect(picker).to_have_count(0)
         await expect(editor.locator("#note-title")).to_have_value("Valve checklist")
         assert not failures, failures
-        print(f"Six columns and 7px insets at {SIZES}. Tile widths: {widths}. No hover effects. Paging, search, selection, save, Escape and note switching passed.")
+        print(f"Six plain columns scroll behind the dock at {SIZES}. Tile widths: {widths}. No footer or hover effects. Paging, search, selection, save, Escape and note switching passed.")
         await browser.close()
 
 

@@ -1,5 +1,8 @@
 "use client";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { formatWallTime } from "@/lib/ui/time-format";
+import type { TimeFormat } from "@/lib/profile-preferences";
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { NEW_WORK, PAYROLL_ANCHOR, emptyPeriod, dayTotals, periodDates, summarizePeriod, leaveBalance, leaveConfigurationAt, validateLeaveConfiguration, type HoursDay, type DatedLeaveConfiguration, type LeaveKind } from '@/lib/hours-tracker';
 import type { HoursDocument, SavedHoursPeriod } from '@/lib/server/hours-tracker-store';
@@ -9,6 +12,7 @@ export type SavedState = { document: HoursDocument; revision: number } | null;
 const DAY = 86400000;
 const iso = (time: number) => new Date(time).toISOString().slice(0,10);
 const dateTime = (date: string) => Date.parse(date + 'T00:00:00Z');
+const clockText = (minute: number) => `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
 const displayDate = (date: string, options: Intl.DateTimeFormatOptions = { month:'short', day:'numeric' }, locale = 'en-US') => new Date(dateTime(date)).toLocaleDateString(locale, { ...options, timeZone:'UTC' });
 const hours = (minutes: number) => (minutes / 60).toFixed(2);
 const dollars = (cents: number, locale = 'en-US') => (cents / 100).toLocaleString(locale,{style:'currency',currency:'USD'});
@@ -22,7 +26,7 @@ function TimeDigits({text}:{text:string}) {
   return <>{[...text].map((digit,index)=><svg key={index} className={styles.timeDigit} viewBox="0 0 10 20" aria-hidden="true" focusable="false">{Object.entries(DIGIT_SHAPES).map(([segment,points])=><polygon key={segment} className={DIGIT_SEGMENTS[Number(digit)].includes(segment)?styles.timeLit:styles.timeDim} points={points}/>)}</svg>)}</>;
 }
 
-function TimeField({ value, onChange, label }: { value:number; onChange:(value:number)=>void; label:string }) {
+function TimeField({ value, onChange, label, timeFormat }: { value:number; onChange:(value:number)=>void; label:string; timeFormat:TimeFormat }) {
   const { t, tt } = useUiLanguage();
   const [touchEdit,setTouchEdit]=useState<{part:number;text:string}|null>(null);
   const touchRoot=useRef<HTMLSpanElement>(null);
@@ -37,11 +41,27 @@ function TimeField({ value, onChange, label }: { value:number; onChange:(value:n
   const wheelDirection=useRef(0);
   const latest=useRef({value,onChange});
   useEffect(()=>{latest.current={value,onChange};},[value,onChange]);
-  const texts=[String(Math.floor(value/60)%12||12).padStart(2,'0'),String(value%60).padStart(2,'0'),value<720?'AM':'PM'];
+  const twentyFourHour = timeFormat === '24h';
+  const hour = Math.floor(value / 60);
+  const minHour = twentyFourHour ? 0 : 1;
+  const maxHour = twentyFourHour ? 23 : 12;
+  const texts = [String(twentyFourHour ? hour : hour % 12 || 12).padStart(2, '0'), String(value % 60).padStart(2, '0')];
+  if (!twentyFourHour) texts.push(value < 720 ? 'AM' : 'PM');
   function disabled(){return !!root.current?.closest('fieldset:disabled');}
   const change=useCallback((next:number)=>{if(root.current?.closest('fieldset:disabled'))return;latest.current.value=next;latest.current.onChange(next);},[]);
-  function select(index=part.current){segments.current[index]?.focus();}
-  function step(direction:number,accelerated=false){const amount=part.current===0?60:part.current===2?720:accelerated?5:1;change((latest.current.value+direction*amount+1440)%1440);}
+  function select(index=part.current){segments.current[index < texts.length ? index : 0]?.focus();}
+  function step(direction:number,accelerated=false){
+    const amount = part.current === 1 ? (accelerated ? 5 : 1) : part.current === 2 && !twentyFourHour ? 720 : 60;
+    change((latest.current.value + direction * amount + 1440) % 1440);
+  }
+  function enterSegment(index:number, number:number) {
+    const current = latest.current.value;
+    if (index === 0 && number >= minHour && number <= maxHour) {
+      const newHour = twentyFourHour ? number : Math.floor(current / 720) * 12 + number % 12;
+      change(newHour * 60 + current % 60);
+    }
+    if (index === 1 && number < 60) change(Math.floor(current / 60) * 60 + number);
+  }
   useEffect(()=>{
     const element=touchRoot.current;
     if(!element)return;
@@ -118,14 +138,23 @@ function TimeField({ value, onChange, label }: { value:number; onChange:(value:n
   return <><span ref={root} className={styles.desktopTime}>
     {texts.map((text,index)=><span key={index} className={styles.timePart}>
       {index===1&&<span className={styles.timeColon} aria-hidden="true">:</span>}
-      <span ref={element=>{segments.current[index]=element;}} className={`${styles.timeSegment} ${index===2?styles.timeMeridiem:''}`} role="spinbutton" tabIndex={0} aria-label={t("{label} {value1}", { label: label, value1: t(['hour','minute','period'][index]) })} aria-valuemin={index===0?1:0} aria-valuemax={index===0?12:index===1?59:1} aria-valuenow={index===2?(value<720?0:1):Number(text)} aria-valuetext={text}
+      <span ref={element=>{segments.current[index]=element;}} className={`${styles.timeSegment} ${index===2?styles.timeMeridiem:''}`} role="spinbutton" tabIndex={0} aria-label={t("{label} {value1}", { label: label, value1: t(['hour','minute','period'][index]) })} aria-valuemin={index===0?minHour:0} aria-valuemax={index===0?maxHour:index===1?59:1} aria-valuenow={index===2?(value<720?0:1):Number(text)} aria-valuetext={text}
         onFocus={()=>{if(disabled()){segments.current[index]?.blur();return;}part.current=index;digits.current='';lastKey.current=0;lastWheel.current=-Infinity;wheelRun.current=0;wheelDirection.current=0;}}
         onKeyDown={event=>{
           if(disabled()||event.ctrlKey||event.metaKey||event.altKey)return;
-          if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();select((index+(event.key==='ArrowRight'?1:2))%3);}
+          if(event.key==='ArrowLeft'||event.key==='ArrowRight'){
+            event.preventDefault();
+            select((index + (event.key==='ArrowRight' ? 1 : texts.length - 1)) % texts.length);
+          }
           else if(event.key==='ArrowUp'||event.key==='ArrowDown'){event.preventDefault();digits.current='';step(event.key==='ArrowUp'?1:-1,event.repeat);}
-          else if(/^[ap]$/i.test(event.key)){event.preventDefault();change(latest.current.value%720+(event.key.toLowerCase()==='p'?720:0));select(2);}
-          else if(/^\d$/.test(event.key)&&index<2){event.preventDefault();const now=performance.now();digits.current=now-lastKey.current<900?(digits.current+event.key).slice(-2):event.key;lastKey.current=now;const number=Number(digits.current),current=latest.current.value;if(index===0&&number>=1&&number<=12)change(Math.floor(current/720)*720+number%12*60+current%60);if(index===1&&number<60)change(Math.floor(current/60)*60+number);}
+          else if(!twentyFourHour&&/^[ap]$/i.test(event.key)){event.preventDefault();change(latest.current.value%720+(event.key.toLowerCase()==='p'?720:0));select(2);}
+          else if(/^\d$/.test(event.key)&&index<2){
+            event.preventDefault();
+            const now = performance.now();
+            digits.current = now - lastKey.current < 900 ? (digits.current + event.key).slice(-2) : event.key;
+            lastKey.current = now;
+            enterSegment(index, Number(digits.current));
+          }
         }}>{index===2?text:<TimeDigits text={text}/>}</span>
     </span>)}
     <span className={styles.arrows}><button type="button" aria-label={t("Increase {label}", { label: label })} onMouseDown={event=>event.preventDefault()} onClick={()=>{select();step(1);}}>▲</button><button type="button" aria-label={t("Decrease {label}", { label: label })} onMouseDown={event=>event.preventDefault()} onClick={()=>{select();step(-1);}}>▼</button></span>
@@ -143,19 +172,20 @@ function TimeField({ value, onChange, label }: { value:number; onChange:(value:n
             const text=event.target.value;
             if(disabled()||!/^\d{0,2}$/.test(text))return;
             const number=Number(text);
-            if(text!==''&&(index===0?number>12:number>59))return;
+            if(text!==''&&(index===0?number>maxHour:number>59))return;
             setTouchEdit({part:index,text});
-            if(text!==''&&(index!==0||number>0)){const current=latest.current.value;change(index===0?Math.floor(current/720)*720+number%12*60+current%60:Math.floor(current/60)*60+number);}
+            if(text!=='') enterSegment(index, number);
           }}/>
         <span className={styles.touchDigits} aria-hidden="true"><TimeDigits text={texts[index]}/></span>
       </label>
     </span>)}
-    <button type="button" className={styles.touchPeriod} aria-label={t("{label} period, {value1}; tap to toggle", { label: label, value1: texts[2] })} onFocus={()=>{part.current=2;lastWheel.current=-Infinity;wheelRun.current=0;}} onClick={()=>change((latest.current.value+720)%1440)}>{texts[2]}</button>
+    {!twentyFourHour && <button type="button" className={styles.touchPeriod} aria-label={t("{label} period, {value1}; tap to toggle", { label: label, value1: texts[2] })} onFocus={()=>{part.current=2;lastWheel.current=-Infinity;wheelRun.current=0;}} onClick={()=>change((latest.current.value+720)%1440)}>{texts[2]}</button>}
   </span></>;
 }
 
 export default function HoursTracker({ initial, persist, onClose, requirePersonalSetup = false, today = new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'}) }: { owner:string; initial:SavedState; persist:(body:unknown)=>Promise<NonNullable<SavedState>>; onClose:()=>void; requirePersonalSetup?:boolean; today?:string }) {
   const { t, tt, locale } = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const [saved,setSaved]=useState(initial);
   const [start,setStart]=useState(()=>currentPeriod(today));
   const [draft,setDraft]=useState(()=>structuredClone(initial?.document.periods.find(p=>p.start===currentPeriod(today))||newPeriod(currentPeriod(today),requirePersonalSetup)));
@@ -241,10 +271,10 @@ export default function HoursTracker({ initial, persist, onClose, requirePersona
       <div className={styles.tabs} role="tablist" aria-label={t("Weeks")}>{[0,1].map(index=><button key={index} role="tab" aria-selected={week===index} aria-controls="hours-week" id={`hours-tab-${index}`} onClick={()=>setWeek(index)}>{t("Week")}{" "}{index+1} · {range(calendar.dates[index*7], calendar.dates[index*7+6], locale)}</button>)}</div>
       <div role="tabpanel" id="hours-week" aria-labelledby={`hours-tab-${week}`}><table><colgroup><col className={styles.dayCol}/><col className={styles.scheduleCol}/><col className={styles.startCol}/><col className={styles.endCol}/><col className={styles.leaveCol}/><col className={styles.workedCol}/></colgroup><thead><tr>{['Day','Schedule','Start','End','Leave','Worked'].map(label=><th key={label}>{t(label)}</th>)}</tr></thead><tbody>{draft.days.slice(week*7,week*7+7).map((day,offset)=>{
         const index=week*7+offset;const attendance=day.attendance;let worked:string='—';try{worked=hours(dayTotals(day).worked);}catch{}
-        return <tr key={day.date} className={attendance.state==='off'?styles.off:''}><td><button className={styles.dayButton} title={tt("Clear this day to unentered")} onClick={()=>setDecision({kind:'clear',index})}>{displayDate(day.date, {weekday:'short'}, locale)+' '+Number(day.date.slice(-2))}</button></td><td><button type="button" className={styles.pill} aria-label={t("{value0} schedule: {value1}", { value0: day.date, value1: t(attendance.state==='blank'?'Unentered':attendance.state==='work'?'Work':'Day Off') })} title={attendance.state==='blank'?tt("Unentered — click to enter Work"):tt("Click to switch Day Off / Work")} onClick={()=>toggle(index)}><span data-active={attendance.state==='off'}>{t("Day Off")}</span><span data-active={attendance.state==='work'}>{t("Work")}</span></button></td><td>{attendance.state==='work'?<TimeField label={t("{value0} Start", { value0: day.date })} value={attendance.start} onChange={value=>changeDay(index,{attendance:{...attendance,start:value}})}/>:<span className={styles.dash}>—</span>}</td><td>{attendance.state==='work'?<><TimeField label={t("{value0} End", { value0: day.date })} value={attendance.end} onChange={value=>changeDay(index,{attendance:{...attendance,end:value}})}/>{(attendance.end<=attendance.start||attendance.nextDay)&&<label className={styles.overnight}><input type="checkbox" checked={attendance.nextDay} onChange={e=>changeDay(index,{attendance:{...attendance,nextDay:e.target.checked}})}/>{" "}{t("Next day")}</label>}</>:<span className={styles.dash}>—</span>}</td><td className={styles.leaveCell}>{day.leave.map((entry,leaveIndex)=><div className={styles.leaveEntry} key={leaveIndex}><select aria-label={t("{value0} leave type {value1}", { value0: day.date, value1: leaveIndex+1 })} value={entry.kind} onChange={e=>{if(e.target.value==='remove'){changeDay(index,{leave:day.leave.filter((_,i)=>i!==leaveIndex)});return;}changeDay(index,{leave:day.leave.map((item,i)=>i===leaveIndex?{...item,kind:e.target.value as LeaveKind}:item)});}}><option value="company-pto">{t("PTO")}</option><option value="illinois-sick">{t("Sick")}</option><option value="remove">{t("Remove")}</option></select><input aria-label={t("{value0} leave hours {value1}", { value0: day.date, value1: leaveIndex+1 })} type="number" min="0.01" max="24" step="0.25" value={entry.minutes/60||''} placeholder={t("h")} onChange={e=>changeDay(index,{leave:day.leave.map((item,i)=>i===leaveIndex?{...item,minutes:Math.round(Number(e.target.value)*60)}:item)})}/></div>)}{day.leave.length<2&&<button className={styles.addLeave} aria-label={t("Add leave {value0}", { value0: day.date })} onClick={()=>changeDay(index,{leave:[...day.leave,{kind:day.leave.some(item=>item.kind==='company-pto')?'illinois-sick':'company-pto',minutes:0}]})}>{day.leave.length?'+':t("+ Leave")}</button>}</td><td>{attendance.state==='blank'&&!day.leave.length?'—':worked}</td></tr>;
+        return <tr key={day.date} className={attendance.state==='off'?styles.off:''}><td><button className={styles.dayButton} title={tt("Clear this day to unentered")} onClick={()=>setDecision({kind:'clear',index})}>{displayDate(day.date, {weekday:'short'}, locale)+' '+Number(day.date.slice(-2))}</button></td><td><button type="button" className={styles.pill} aria-label={t("{value0} schedule: {value1}", { value0: day.date, value1: t(attendance.state==='blank'?'Unentered':attendance.state==='work'?'Work':'Day Off') })} title={attendance.state==='blank'?tt("Unentered — click to enter Work"):tt("Click to switch Day Off / Work")} onClick={()=>toggle(index)}><span data-active={attendance.state==='off'}>{t("Day Off")}</span><span data-active={attendance.state==='work'}>{t("Work")}</span></button></td><td>{attendance.state==='work'?<TimeField timeFormat={timeFormat} label={t("{value0} Start", { value0: day.date })} value={attendance.start} onChange={value=>changeDay(index,{attendance:{...attendance,start:value}})}/>:<span className={styles.dash}>—</span>}</td><td>{attendance.state==='work'?<><TimeField timeFormat={timeFormat} label={t("{value0} End", { value0: day.date })} value={attendance.end} onChange={value=>changeDay(index,{attendance:{...attendance,end:value}})}/>{(attendance.end<=attendance.start||attendance.nextDay)&&<label className={styles.overnight}><input type="checkbox" checked={attendance.nextDay} onChange={e=>changeDay(index,{attendance:{...attendance,nextDay:e.target.checked}})}/>{" "}{t("Next day")}</label>}</>:<span className={styles.dash}>—</span>}</td><td className={styles.leaveCell}>{day.leave.map((entry,leaveIndex)=><div className={styles.leaveEntry} key={leaveIndex}><select aria-label={t("{value0} leave type {value1}", { value0: day.date, value1: leaveIndex+1 })} value={entry.kind} onChange={e=>{if(e.target.value==='remove'){changeDay(index,{leave:day.leave.filter((_,i)=>i!==leaveIndex)});return;}changeDay(index,{leave:day.leave.map((item,i)=>i===leaveIndex?{...item,kind:e.target.value as LeaveKind}:item)});}}><option value="company-pto">{t("PTO")}</option><option value="illinois-sick">{t("Sick")}</option><option value="remove">{t("Remove")}</option></select><input aria-label={t("{value0} leave hours {value1}", { value0: day.date, value1: leaveIndex+1 })} type="number" min="0.01" max="24" step="0.25" value={entry.minutes/60||''} placeholder={t("h")} onChange={e=>changeDay(index,{leave:day.leave.map((item,i)=>i===leaveIndex?{...item,minutes:Math.round(Number(e.target.value)*60)}:item)})}/></div>)}{day.leave.length<2&&<button className={styles.addLeave} aria-label={t("Add leave {value0}", { value0: day.date })} onClick={()=>changeDay(index,{leave:[...day.leave,{kind:day.leave.some(item=>item.kind==='company-pto')?'illinois-sick':'company-pto',minutes:0}]})}>{day.leave.length?'+':t("+ Leave")}</button>}</td><td>{attendance.state==='blank'&&!day.leave.length?'—':worked}</td></tr>;
       })}</tbody></table><p className={styles.weekTotals}>{t("Worked")}{" "}{totals?hours(totals.worked):'—'}{t("h · Leave")}{" "}{totals?hours(totals.leave):'—'}{t("h · Paid")}{" "}{totals?hours(totals.paid):'—'}{t("h")}</p></div>
     </section><aside className={styles.sidebar}>{[0,1].map(index=>{const item=summary?.weeks[index];return <section className={styles.goal} key={index}><div><strong>{t("WEEK")}{" "}{index+1}</strong><b>{item?hours(item.worked):'—'}{" "}{t("/ 40h")}</b></div><div className={styles.bar} role="progressbar" aria-label={t("Week {value0} goal", { value0: index+1 })} aria-valuenow={item?.barPercent||0} aria-valuemax={100} aria-valuetext={`${item?.percent||0}%`}><span style={{width:`${item?.barPercent||0}%`,background:item?.goalMet?'#36c985':'#f44f70'}}/></div><div><span>{item?hours(item.remaining):'—'}{t("h remaining")}</span><span>{item?Number(item.percent.toFixed(2)):'—'}%</span></div></section>;})}<div className={styles.combined}><span>{t("Combined worked")}</span><b>{summary?hours(summary.worked):'—'}{t("h")}</b></div><section className={styles.balances}><strong>{t("LEAVE BALANCES")}</strong><p>{t("As of")}{" "}{displayDate(calendar.end, {month:'short',day:'numeric',year:'numeric'}, locale)}</p>{(['company-pto','illinois-sick'] as const).map(kind=>{const baseline=leaveConfigurationAt(saved?.document.leaveConfigurations||[],kind,calendar.end);const balance=leaveBalance(kind,baseline,saved?.document.periods.flatMap(p=>p.days)||[],calendar.end);return <button key={kind} onClick={()=>openConfiguration(kind)} title={tt("Configure dated baseline and explicit accrual policy")}><span>{kind==='company-pto'?t("Company PTO"):t("Illinois Sick")}</span><span>{balance===null?t("Unconfigured"):hours(balance)+'h'}</span></button>;})}<small>{t("Dated, saved work only")}</small></section></aside></div></fieldset>
-    {(message||validation||saved?.document.clock?.open)&&<p className={styles.message} role="status">{message ? t(message) : validation ? t(validation) : saved?.document.clock?.open ? t("Clocked in {date} at {time} Chicago time. No worked hours count until clock-out.", { date: saved.document.clock.open.date, time: `${String(Math.floor(saved.document.clock.open.minute/60)).padStart(2,'0')}:${String(saved.document.clock.open.minute%60).padStart(2,'0')}` }) : ''}</p>}
+    {(message||validation||saved?.document.clock?.open)&&<p className={styles.message} role="status">{message ? t(message) : validation ? t(validation) : saved?.document.clock?.open ? t("Clocked in {date} at {time} Chicago time. No worked hours count until clock-out.", { date: saved.document.clock.open.date, time: formatWallTime(clockText(saved.document.clock.open.minute), timeFormat, locale) }) : ''}</p>}
     <footer className={styles.footer}><span>{t("≥5h: auto 30m break · Estimate, not payroll")}</span><button disabled={busy} onClick={()=>request({kind:'close'})}>{t("Cancel")}</button><button className={styles.save} disabled={busy||!!configuration||!!validation} onClick={()=>void save()}>{busy?t("Saving…"):t("Save")}</button></footer>
     {pending&&!decision&&<div className={styles.scrim}><section role="dialog" aria-modal="true" aria-label={t("Unsaved Hours Tracker changes")} className={styles.dialog}><h2>{t("Unsaved changes")}</h2><p>{t("Save both weeks, discard this draft, or keep editing.")}</p><p role="status">{t(message||validation)}</p><div><button autoFocus onClick={()=>setPending(null)}>{t("Keep editing")}</button><button disabled={busy} onClick={()=>finish(pending)}>{t("Discard")}</button><button disabled={busy||!!validation||!!configuration} onClick={()=>void save(pending)}>{t("Save and continue")}</button></div></section></div>}
     {configuration&&!pending&&!decision&&<div className={styles.scrim}><section role="dialog" aria-modal="true" aria-label={t("Dated leave configuration")} className={styles.dialog}><h2>{configuration.kind==='company-pto'?t("Company PTO"):t("Illinois Sick")}{" "}{t("baseline")}</h2><p>{t("Enter documented amounts. No employer policy is assumed. Saving replaces only this bank’s baseline on this replay date.")}</p><label>{t("Statement date")}<input type="date" value={configuration.statementDate} onInput={e=>setConfiguration({...configuration,statementDate:e.currentTarget.value})}/></label><label>{t("Work covered through")}<input type="date" value={configuration.coveredThrough} onInput={e=>{const date=e.currentTarget.value;if(date)setConfiguration({...configuration,coveredThrough:date,date:iso(dateTime(date)+DAY)});}}/></label><p>{t("Replay begins")}{" "}{configuration.date}</p><label>{t("Available hours")}<input type="number" step="0.01" value={baselineEntered?configuration.minutes/60:''} onChange={e=>{setBaselineEntered(e.target.value!=='');setConfiguration({...configuration,minutes:Number(e.target.value)*60});}}/></label><label>{t("Accrual policy")}<select value={configuration.policy} onChange={e=>setConfiguration({...configuration,policy:e.target.value as 'manual'|'unconfigured',earnedMinutesPerWorkedHour:null})}><option value="unconfigured">{t("Unconfigured")}</option><option value="manual">{t("Explicit manual rate")}</option></select></label>{configuration.policy==='manual'&&<label>{t("Minutes earned per worked hour")}<input type="number" min="0" step="any" value={configuration.earnedMinutesPerWorkedHour??''} onChange={e=>setConfiguration({...configuration,earnedMinutesPerWorkedHour:e.target.value===''?null:Number(e.target.value)})}/></label>}{(['earnedMinutes','carriedInMinutes','usedMinutes'] as const).map(key=><label key={key}>{key==='earnedMinutes'?t("Earned"):key==='carriedInMinutes'?t("Carried in"):t("Used")}{" "}{t("hours (optional)")}<input type="number" min="0" step="0.01" value={configuration.evidence[key]===null?'':configuration.evidence[key]/60} onChange={e=>setConfiguration({...configuration,evidence:{...configuration.evidence,[key]:e.target.value===''?null:Number(e.target.value)*60}})}/></label>)}<label>{t("Benefit year start (optional)")}<input type="date" value={configuration.evidence.benefitYearStart||''} onInput={e=>setConfiguration({...configuration,evidence:{...configuration.evidence,benefitYearStart:e.currentTarget.value||null}})}/></label><label>{t("Source / unresolved policy")}<textarea value={configuration.note} onChange={e=>setConfiguration({...configuration,note:e.target.value})}/></label><p role="status">{t(message)}</p><div><button disabled={busy} onClick={()=>{setConfiguration(null);setMessage('');}}>{t("Cancel")}</button><button disabled={busy} onClick={()=>void saveConfiguration()}>{t("Save baseline")}</button></div></section></div>}

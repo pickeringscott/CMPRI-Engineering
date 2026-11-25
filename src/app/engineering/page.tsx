@@ -958,7 +958,7 @@ export default function EngineeringDashboardPage() {
             const zIndex = 10 + Math.max(0, zOrder.indexOf(entry.key));
             if (entry.key === WEATHER_PREVIEW_PATH && entry.kind === "frame" && entry.src) {
               return <WeatherPreviewWindow key={entry.key} windowKey={entry.key} title={entry.title} accentClass={entry.accent} src={entry.src}
-                visible={!entry.weatherCached} use24HourTime={chiefEngineerMobileLayout} bulletinHost={weatherBulletinHost}
+                visible={!entry.weatherCached} bulletinHost={weatherBulletinHost}
                 rect={rect} bounds={bounds} zIndex={zIndex} active={activeKey === entry.key} onFocus={() => raise(entry.key)}
                 onClose={() => requestCloseWindow(entry.key)} onRectCommit={next => commitRect(entry.key, next)}
                 registerFrame={frame => { if (frame) frameRefs.current.set(entry.key, frame); }}

@@ -5,7 +5,9 @@ import { createPortal } from "react-dom";
 import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
 import type { DesktopBounds, WindowRect } from "@/lib/ui/desktop-windows";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import { armWeatherWarningSound, playWeatherWarningSound, stopWeatherWarningSound } from "@/lib/weather-warning-sound";
 import styles from "./weather-preview-window.module.css";
 
@@ -26,7 +28,7 @@ type Props = {
   onFocus: () => void; onClose: () => void; onRectCommit: (rect: WindowRect) => void;
   registerFrame: (frame: HTMLIFrameElement | null) => void;
   onOpen: (href: string, title: string) => void; onReturnToDesktop: () => void;
-  visible: boolean; use24HourTime: boolean; bulletinHost: HTMLElement | null;
+  visible: boolean; bulletinHost: HTMLElement | null;
 };
 
 const EMPTY: SafetyState = { status: "unavailable", checkedAt: null, source: null, error: "", alerts: [], notifications: [], autoOpenKeys: [] };
@@ -64,15 +66,17 @@ function parseState(input: unknown): SafetyState | null {
  * its existing frame, titlebar, notification behavior, and permissions. */
 export default function WeatherPreviewWindow(props: Props) {
   const { t } = useUiLanguage();
+  const timeFormat = useTimeFormat();
+  const [initialTimeFormat] = useState(timeFormat);
   const frameSrc = useMemo(() => {
     const url = new URL(props.src, "https://cmpri.invalid");
-    url.searchParams.set("clock", props.use24HourTime ? "24" : "12");
+    url.searchParams.set("timeFormat", initialTimeFormat);
     return url.pathname + url.search + url.hash;
-  }, [props.src, props.use24HourTime]);
+  }, [props.src, initialTimeFormat]);
   const central = useMemo(() => new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-    hourCycle: props.use24HourTime ? "h23" : "h12", timeZoneName: "short",
-  }), [props.use24HourTime]);
+    timeZone: "America/Chicago", month: "short", day: "numeric",
+    hour: timeFormat === "24h" ? "2-digit" : "numeric", minute: "2-digit", ...timeFormatOptions(timeFormat), timeZoneName: "short",
+  }), [timeFormat]);
   const stamp = (value: number | null) => value === null ? t("Unavailable") : central.format(new Date(value));
   const [safety, setSafety] = useState<SafetyState>(EMPTY);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -88,6 +92,7 @@ export default function WeatherPreviewWindow(props: Props) {
   const dialogRef = useRef<HTMLDialogElement | null>(null);
   const priorFocus = useRef<HTMLElement | null>(null);
   const visibleRef = useRef(props.visible);
+  const timeFormatRef = useRef(timeFormat);
   const token = new URL(props.src, "https://cmpri.invalid").searchParams.get("modalToken");
   useEffect(() => { registerRef.current = props.registerFrame; }, [props.registerFrame]);
 
@@ -131,6 +136,7 @@ export default function WeatherPreviewWindow(props: Props) {
     frameRef.current = frame; registerRef.current(frame);
     if (frame) {
       const request = () => {
+        frame.contentWindow?.postMessage({ type: "cmpri-time-format-updated", timeFormat: timeFormatRef.current }, window.location.origin);
         frame.contentWindow?.postMessage({ type: "cmpri-weather-view-state", visible: visibleRef.current, modalToken: token }, window.location.origin);
         frame.contentWindow?.postMessage({ type: "cmpri-weather-safety-request-state", modalToken: token }, window.location.origin);
       };
@@ -138,6 +144,11 @@ export default function WeatherPreviewWindow(props: Props) {
       frameCleanup.current = () => frame.removeEventListener("load", request);
     }
   }, [token]);
+
+  useEffect(() => {
+    timeFormatRef.current = timeFormat;
+    send("cmpri-time-format-updated", { timeFormat });
+  }, [timeFormat, send]);
 
   useEffect(() => {
     visibleRef.current = props.visible;

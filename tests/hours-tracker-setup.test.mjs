@@ -4,12 +4,18 @@ import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import * as core from '../src/lib/hours-tracker.ts';
+import { makeUiTranslator } from '../src/lib/i18n/ui.ts';
+import * as clock from '../src/lib/ui/time-format.ts';
 
 function fixture(initial=null,requirePersonalSetup=true) {
  const slots=[];let cursor=0,tree;const saves=[];
  const react={useState(initial){const i=cursor++;if(!(i in slots))slots[i]=typeof initial==='function'?initial():initial;return [slots[i],value=>{slots[i]=typeof value==='function'?value(slots[i]):value;}];},useRef(initial){const i=cursor++;return slots[i]??(slots[i]={current:initial});},useEffect(){}};
  const jsx=(type,props)=>({type,props});const exports={};
- const deps={react,'react/jsx-runtime':{jsx,jsxs:jsx},'@/lib/hours-tracker':core,'./hours.module.css':{default:{}}};
+ const t=makeUiTranslator('en');
+ const deps={react,'react/jsx-runtime':{jsx,jsxs:jsx},'@/lib/hours-tracker':core,'./hours.module.css':{default:{}},
+  '@/components/UiLanguageProvider':{useUiLanguage:()=>({t,tt:t,locale:'en-US'})},
+  '@/components/TimeFormatProvider':{useTimeFormat:()=>'12h'},
+  '@/lib/ui/time-format':clock};
  const source=readFileSync(new URL('../src/app/engineering/hours-tracker/HoursTracker.tsx',import.meta.url),'utf8');
  vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,{exports,structuredClone,require:name=>{assert.ok(name in deps,name);return deps[name];}});
  const render=()=>{cursor=0;tree=exports.default({owner:'Synthetic person',initial,requirePersonalSetup,today:'2026-10-14',onClose(){},persist:async body=>{saves.push(body);return {revision:1,document:{version:1,anchor:core.PAYROLL_ANCHOR,periods:[body.period],leaveConfigurations:[]}};}});return tree;};

@@ -1135,7 +1135,7 @@ export default function GlobalModalHost() {
         if (key === WEATHER_PATH) return (
           <WeatherPreviewWindow
             key={entry.id} windowKey={key} title={entry.title} accentClass="bg-amber-400"
-            src={entry.href} visible={!workspaceHidden && !entry.weatherCached} use24HourTime={false}
+            src={entry.href} visible={!workspaceHidden && !entry.weatherCached}
             bulletinHost={technicianDesktop.bulletinHost} rect={entry.rect} bounds={technicianDesktop.bounds}
             zIndex={zIndex} active={active} onFocus={onFocus} onClose={onClose} onRectCommit={onRectCommit}
             registerFrame={frame => registerFrame(entry.id, frame)}

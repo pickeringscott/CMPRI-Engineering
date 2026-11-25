@@ -3,8 +3,18 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
+import React, {act} from 'react';
+import * as jsx from 'react/jsx-runtime';
+import {createRoot} from 'react-dom/client';
+import {JSDOM} from 'jsdom';
 import * as recovery from '../src/lib/profile-recovery.ts';
 import {DEFAULT_PROFILE_PREFERENCES as prefs, normalizeProfilePreferences, resolveProfileTimeFormat} from '../src/lib/profile-preferences.ts';
+import * as accountDisplay from '../src/lib/account-display.ts';
+import * as notificationSchedule from '../src/lib/notifications/schedule.ts';
+import * as roles from '../src/lib/server/roles.ts';
+import * as time from '../src/lib/ui/time-format.ts';
+import {loadTs} from './helpers/load-ts.mjs';
+import {uiLanguageDependency} from './helpers/ui-language.mjs';
 const scope={hotelId:'property-a',userId:'person-a'};
 const baseline={name:'Alex',preferences:prefs};
 const changed={name:'Alex Morgan',preferences:{...prefs,appearance:'light'}};
@@ -92,6 +102,65 @@ test('time defaults respect authorized Chief assignment and preferences round-tr
  assert.equal(oldClient.status, 200);
  assert.equal(fixture.row.preferences.time_format, '12h');
  assert.equal(fixture.row.preferences.appearance, 'light');
+});
+
+test('Manage Profile previews the draft clock format without rewriting notification schedule values', async () => {
+ const dom = new JSDOM('<div id="root"></div>', {url:'https://fixture.invalid/profile'});
+ const globals = {window:dom.window, document:dom.window.document, IS_REACT_ACT_ENVIRONMENT:true};
+ const previous = Object.fromEntries(Object.keys(globals).map(key=>[key,globalThis[key]]));
+ Object.assign(globalThis, globals);
+ const root = createRoot(document.querySelector('#root'));
+ const profile = {id:scope.userId, role:'chief_engineer', full_name:baseline.name};
+ const session = {access_token:'fixture', user:{id:scope.userId}};
+ const writes = [];
+ const schedule = notificationSchedule.defaultNotificationSchedule();
+ schedule.monday = {enabled:true, start:'17:07', end:'23:45'};
+ const Profile = loadTs('src/app/profile/page.tsx', {
+   react:React, 'react/jsx-runtime':jsx, '@/components/UiLanguageProvider':uiLanguageDependency,
+   '@/lib/account-display':accountDisplay, '@/lib/server/roles':roles, '@/lib/notifications/schedule':notificationSchedule,
+   '@/lib/ui/time-format':time, '@/lib/profile-recovery':recovery, '@/lib/profile-preferences':{resolveProfileTimeFormat},
+   '@/lib/auth/client-session':{loadCmpriSession:async()=>({hotelId:scope.hotelId,user:profile})},
+   '@/lib/supabase/client':{
+     getValidSession:async()=>session, signOutDevice:async()=>{},
+     createClient:()=>({auth:{onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})}}),
+   },
+   '@/components/ModalDashboardLink':{default:()=>null}, '@/components/ModalNavigationButton':{default:()=>null},
+   '@/components/PhoneNotificationRow':{default:()=>null}, '@/components/use-embedded-modal':{default:()=>false},
+ }, {
+   ...globals, localStorage:dom.window.localStorage, navigator:dom.window.navigator,
+   fetch:async (url, init)=>{
+     if (init?.method && init.method!=='GET') writes.push({url,method:init.method});
+     if (url==='/api/profile/phone-notifications') return Response.json({
+       configured:true, public_key:'', subscribed_on_this_device:false, settings:{timezone:'America/Chicago',schedule},
+     });
+     return Response.json({profile,preferences:prefs,profile_settings_available:true,chatgpt_connection:null});
+   },
+ }).default;
+ const selectByLabel = text => [...document.querySelectorAll('label')]
+   .find(label=>label.firstChild?.textContent?.trim()===text)?.querySelector('select');
+ const selectedLabel = select => select.selectedOptions[0].textContent;
+ try {
+   await act(async()=>{root.render(React.createElement(Profile));});
+   const format=selectByLabel('Time Format'), start=selectByLabel('Start'), end=selectByLabel('End');
+   assert.equal(format.value,'24h');
+   assert.equal(selectedLabel(start),'17:07 (current)');
+   assert.equal(selectedLabel(end),'23:45');
+   await act(async()=>{
+     format.value='12h';
+     format.dispatchEvent(new window.Event('change',{bubbles:true}));
+   });
+   assert.match(selectedLabel(start), /^5:07\s+PM \(current\)$/);
+   assert.match(selectedLabel(end), /^11:45\s+PM$/);
+   assert.equal(start.value,'17:07');
+   assert.equal(end.value,'23:45');
+   assert.deepEqual(writes,[]);
+ } finally {
+   await act(async()=>{root.unmount();});
+   dom.window.close();
+   for(const [key,value] of Object.entries(previous)) {
+     if(value===undefined) delete globalThis[key]; else globalThis[key]=value;
+   }
+ }
 });
 
 const phoneSchedule={timezone:'America/Chicago',schedule:Object.fromEntries(['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(day=>[day,{enabled:false,start:'09:00',end:'17:00'}]))};

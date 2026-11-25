@@ -1,5 +1,7 @@
 'use client';
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import { useEffect, useRef, useState } from 'react';
 import { WINTER_TASKS, WINTER_TASK_IDS, WINTER_YEAR, type WinterItem, type WinterTask } from '@/lib/winter-preparedness';
 import styles from './winter.module.css';
@@ -13,6 +15,7 @@ export default function WinterChecklist({ initial, persist, reload, onClose, rea
 }) {
   const readOnly = Boolean(readOnlyMessage);
   const { t, locale } = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const [items, setItems] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -50,7 +53,7 @@ export default function WinterChecklist({ initial, persist, reload, onClose, rea
         <span className={styles.printBox} aria-hidden="true">{saved?.checked ? '✓' : ''}</span>
         <span>{t(task.text)}</span>
       </label>
-      {saved && <p className={styles.attribution}>{t("Last changed by")}{" "}{saved.changed_by_name} · <time dateTime={saved.changed_at}>{new Date(saved.changed_at).toLocaleString(locale)}</time></p>}
+      {saved && <p className={styles.attribution}>{t("Last changed by")}{" "}{saved.changed_by_name} · <time dateTime={saved.changed_at}>{new Date(saved.changed_at).toLocaleString(locale, timeFormatOptions(timeFormat))}</time></p>}
       {task.children && <ul>{task.children.map(renderTask)}</ul>}
     </li>;
   }
