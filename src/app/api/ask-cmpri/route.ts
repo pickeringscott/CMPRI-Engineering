@@ -8,6 +8,7 @@ import { validFirstName } from "@/lib/work-order-attribution";
 import { applyAskContext, askContextSchema, askPermittedSources, asksToReformat, askText, explicitAskOrders, readAskSources, validAskRoom } from "@/lib/server/ask-cmpri-data";
 import { answerAsk, askGeminiKey, canonicalAskManufacturer, knownPublicAskEquipment, planAsk, publicAskQuery, searchPublicAsk, type AskPlan } from "@/lib/server/ask-cmpri-gemini";
 import { askPhotoSchema, beginAskAction, confirmAskAction } from "@/lib/server/ask-cmpri-actions";
+import { reportAskFailure, type AskFailurePhase } from "@/lib/server/ask-cmpri-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -380,12 +381,16 @@ export async function POST(request: NextRequest) {
   const usesAttachments = !parsed.data.question && Boolean(parsed.data.attachments?.length) && previous?.pending?.needs === "photo";
   const input = { ...parsed.data, previous, question: parsed.data.question || (usesAttachments ? "" : language === "es" ? "Usa los archivos adjuntos en esta conversación." : "Use the attached files in this conversation.") };
   let es = language === "es";
+  let phase: AskFailurePhase = "legacy";
   try {
     const budget = AbortSignal.any([request.signal, AbortSignal.timeout(110_000)]);
     const nativeAnswer = async () => {
+      phase = "native-load";
       const { runNativeAsk } = await import("@/lib/server/ask-cmpri-native-agent");
       const { askJsonResponse } = await import("../../../lib/server/ask-cmpri-response");
+      phase = "native-generate";
       const result = await runNativeAsk({ request, auth, question: input.question, language, chief, previous: trusted ? previous : undefined, files: input.files, signal: budget });
+      phase = "native-response";
       return askJsonResponse(result.context ? { ...result, context: attest(result.context, auth.principal) } : result, { headers });
     };
     // New conversations use every native field/action directly. The legacy
@@ -582,7 +587,8 @@ export async function POST(request: NextRequest) {
       context: contextFor(table?.columns.map(({ label }) => label), undefined, displayItems.map(({ id }) => id)),
     };
     return NextResponse.json(result, { headers });
-  } catch {
-    return NextResponse.json({ error: es ? "Ask CMPRI no pudo completar la búsqueda. Inténtalo de nuevo." : "Ask CMPRI could not complete the request. Try again." }, { status: 502, headers });
+  } catch (error) {
+    const failure = reportAskFailure(error, { language: es ? "es" : "en", phase });
+    return NextResponse.json(failure.body, { status: failure.status, headers: { ...headers, ...failure.headers } });
   }
 }

@@ -632,6 +632,7 @@ test("the exact reported PM year-end question bypasses Gemini and returns the de
   const pmCalls = [];
   const summary = "Fixture PM plan: 39 calendar days, 29 Monday–Friday weekdays, 3 room PMs per weekday.";
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "next/server": { NextResponse: { json: Response.json } }, zod,
     "@/lib/server/roles": { isRecognizedChiefEngineer: () => true, profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, mcp: false, principal }) },
