@@ -23,7 +23,7 @@
     mode: 'live', activeLayer: 'reflectivity', frame: 0, zoom: 4,
     backgroundStyle: 'aerial', grid: false, playbackSpeed: 'normal', loopMinutes: 90, wheelZoomActive: false,
     catalogFrames: [], displayedTime: null,
-    showAlerts: true, alerts: [], alertStatus: 'Unknown · waiting for the NWS property alert response',
+    showAlerts: true, alerts: [], alertFeedStatus: null, alertStatus: 'Unknown · waiting for the NWS property alert response',
     alertSource: null, alertCheckedAt: null, alertGeometryless: 0,
     enabled: { velocity: false, ptype: false, cloudCover: false },
     center: { ...HOTEL }, opacity: 0.65, showRadar: true, roads: false, impacts: false,
@@ -652,20 +652,26 @@
     closeAlertDetails(); state.alerts = []; state.alertGeometryless = 0;
     state.alertSource = typeof envelope?.source === 'string' ? envelope.source : null;
     state.alertCheckedAt = envelope?.receivedAt || null;
-    if (!envelope || !['live', 'stale'].includes(envelope.status) || !Array.isArray(envelope.data?.features)) {
-      state.alertStatus = 'Unknown · official property alerts unavailable; no all-clear is inferred';
-    } else {
+    state.alertFeedStatus = envelope && ['live', 'stale'].includes(envelope.status) && Array.isArray(envelope.data?.features)
+      ? envelope.status : 'unavailable';
+    if (state.alertFeedStatus !== 'unavailable') {
       envelope.data.features.forEach((feature) => {
         const polygons = alertPolygons(feature.geometry);
         if (!polygons.length) state.alertGeometryless += 1;
         state.alerts.push({ id: feature.id, properties: feature.properties || {}, polygons });
       });
-      state.alertStatus = (envelope.status === 'stale' ? 'STALE response · ' : '') + (state.alerts.length
+    }
+    updateAlertStatus(); updateUI(); queueDraw(); return getState();
+  }
+  function updateAlertStatus() {
+    if (state.alertFeedStatus === null) return;
+    state.alertStatus = state.alertFeedStatus === 'unavailable'
+      ? 'Unknown · official property alerts unavailable; no all-clear is inferred'
+      : (state.alertFeedStatus === 'stale' ? 'STALE response · ' : '') + (state.alerts.length
         ? state.alerts.length + ' official alerts applying to hotel; ' + state.alertGeometryless + ' without renderable polygons remain in the official list'
         : 'No active alerts returned for the hotel at ' + formatTime(state.alertCheckedAt))
         + '. Scope is alerts applying to the hotel, not all alerts in the panned map.';
-    }
-    mark('propertyAlerts', state.alertStatus); updateUI(); queueDraw(); return getState();
+    mark('propertyAlerts', state.alertStatus);
   }
   function drawAlerts(geo) {
     if (!state.showAlerts) return;
@@ -692,9 +698,16 @@
     const close = document.createElement('button'); close.type = 'button'; close.textContent = '×'; close.setAttribute('aria-label', 'Close official alert details'); close.addEventListener('click', closeAlertDetails);
     const title = document.createElement('h3'); title.textContent = String(alert.properties.event || 'Official NWS alert');
     const scope = document.createElement('p'); scope.textContent = 'Official alert applying to Residence Inn Champaign';
-    const effective = document.createElement('p'); effective.textContent = 'Effective: ' + formatTime(alert.properties.effective || alert.properties.onset);
-    const expires = document.createElement('p'); expires.textContent = 'Expires: ' + formatTime(alert.properties.ends || alert.properties.expires);
-    panel.append(close, title, scope, effective, expires);
+    function timeLine(label, value) {
+      const row = document.createElement('p'), time = document.createElement('time');
+      time.dateTime = value || '';
+      time.textContent = formatTime(value);
+      row.append(document.createTextNode(label + ': '), time);
+      return row;
+    }
+    panel.append(close, title, scope,
+      timeLine('Effective', alert.properties.effective || alert.properties.onset),
+      timeLine('Expires', alert.properties.ends || alert.properties.expires));
     const source = [alert.properties.web, alert.properties.id, alert.id].find((value) => {
       try { const url = new URL(value); return url.protocol === 'https:' && (url.hostname === 'weather.gov' || url.hostname.endsWith('.weather.gov')); } catch { return false; }
     });
@@ -1172,6 +1185,11 @@
     });
     document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
     window.addEventListener('pagehide', close);
+    window.cmpriTimeFormat?.subscribe(() => {
+      updateAlertStatus();
+      updateUI();
+      $('mapAlertDetails')?.querySelectorAll('time').forEach((time) => { time.textContent = formatTime(time.dateTime); });
+    });
     updateUI(); return window.cmpriWeatherMap;
   }
   function beginOpenAttempt() {

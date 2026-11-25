@@ -103,6 +103,18 @@
     const parts = clockParts(value);
     return parts.year + '-' + parts.month + '-' + parts.day;
   }
+  const dialTimeLabels = new WeakMap();
+  function bindDialTimeLabel(target, format) {
+    dialTimeLabels.set(target, format);
+    target.setAttribute('data-wv-clock-label', '');
+    target.textContent = format();
+  }
+  window.cmpriTimeFormat?.subscribe(() => {
+    document.querySelectorAll('[data-wv-clock-label]').forEach((target) => {
+      const format = dialTimeLabels.get(target);
+      if (format) target.textContent = format();
+    });
+  });
   function clockLabel(time) {
     return window.cmpriWeatherClock?.time(time) || new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit', hour12: true, timeZoneName: 'short' }).format(new Date(time));
   }
@@ -237,14 +249,17 @@
       const ramp = shape(defs, 'linearGradient', { id: gradientId, gradientUnits: 'userSpaceOnUse', x1: a.x, y1: a.y, x2: b.x, y2: b.y });
       for (let stop = 0; stop <= 8; stop += 1) shape(ramp, 'stop', { offset: stop / 8, 'stop-color': colorAt(segment.fahrenheit + (endValue - segment.fahrenheit) * stop / 8) });
       const arc = shape(svg, 'path', { d: dialArc(segment.minute, segment.minuteEnd, radius), class: kind === 'observed' ? 'wv-dial-observed-segment' : 'wv-dial-segment' + (observed ? ' wv-dial-historical-observed' : ''), stroke: 'url(#' + gradientId + ')' });
-      arc.dataset.startTime = new Date(segment.start).toISOString(); arc.dataset.clockTime = clockLabel(segment.start);
+      arc.dataset.startTime = new Date(segment.start).toISOString();
       arc.dataset.airTemperature = String(segment.fahrenheit); arc.dataset.temperatureColor = startColor; arc.dataset.repeatedHour = String(segment.repeated);
       arc.dataset.kind = observed ? 'observed' : 'forecast'; arc.dataset.source = source;
       if (observed) {
         arc.dataset.sampleStart = new Date(segment.sampleStart).toISOString(); arc.dataset.sampleEnd = new Date(segment.sampleEnd).toISOString();
       }
       const title = shape(arc, 'title', {});
-      title.textContent = observed ? 'Observed temperature colors interpolated between actual KCMI reports at ' + clockLabel(segment.sampleStart) + ' and ' + clockLabel(segment.sampleEnd) + '; unknown gaps are not filled.' : clockLabel(segment.start) + ' · ' + formatNumber.format(segment.fahrenheit) + '° forecast · ' + source;
+      bindDialTimeLabel(title, () => {
+        arc.dataset.clockTime = clockLabel(segment.start);
+        return observed ? 'Observed temperature colors interpolated between actual KCMI reports at ' + clockLabel(segment.sampleStart) + ' and ' + clockLabel(segment.sampleEnd) + '; unknown gaps are not filled.' : arc.dataset.clockTime + ' · ' + formatNumber.format(segment.fahrenheit) + '° forecast · ' + source;
+      });
     }
     (day?.segments || []).forEach((segment, index, all) => paint(segment, 'forecast', segment.repeated ? 68 : 73, index, all[index + 1]));
     (observedDay?.segments || []).forEach((segment, index) => paint(segment, 'observed', segment.repeated ? 56 : 61, index));
@@ -252,12 +267,12 @@
       const p = clockParts(report.sampleTime), point = dialPoint(Number(p.hour) * 60 + Number(p.minute), 61);
       const dot = shape(svg, 'circle', { cx: point.x, cy: point.y, r: 1.6, class: 'wv-dial-report', fill: colorAt(report.fahrenheit) });
       dot.dataset.sampleTime = new Date(report.sampleTime).toISOString();
-      shape(dot, 'title', {}).textContent = clockLabel(report.sampleTime) + ' · ' + formatNumber.format(report.fahrenheit) + '° observed';
+      bindDialTimeLabel(shape(dot, 'title', {}), () => clockLabel(report.sampleTime) + ' · ' + formatNumber.format(report.fahrenheit) + '° observed');
     }
     [0, 360, 720, 1080, 1440].forEach((minute) => {
       const point = dialPoint(minute, 89);
       const label = shape(svg, 'text', { x: point.x, y: point.y + 3, 'text-anchor': 'middle', class: 'wv-dial-clock' });
-      label.textContent = window.cmpriWeatherClock?.axis(minute / 60) || String(minute / 60 % 12 || 12) + (minute / 60 % 24 < 12 ? ' AM' : ' PM');
+      bindDialTimeLabel(label, () => window.cmpriWeatherClock?.axis(minute / 60) || String(minute / 60 % 12 || 12) + (minute / 60 % 24 < 12 ? ' AM' : ' PM'));
     });
     const extrema = node('div', 'wv-dial-extrema');
     const forecastHigh = day?.high || (finite(officialHigh) ? { fahrenheit: officialHigh, sampleTime: null } : null);
@@ -279,12 +294,17 @@
           mark.dataset.extreme = kind; mark.dataset.kind = source; mark.dataset.sampleTime = new Date(sample.sampleTime).toISOString(); mark.dataset.airTemperature = String(sample.fahrenheit);
           shape(mark, 'circle', { cx: point.x, cy: point.y, r: 6.8, fill: colorAt(sample.fahrenheit) });
           const label = shape(mark, 'text', { x: point.x, y: point.y + 2.7, 'text-anchor': 'middle' }); label.textContent = prefix + kind;
-          shape(mark, 'title', {}).textContent = source + ' ' + kind + ' ' + formatNumber.format(sample.fahrenheit) + '° at ' + clockLabel(sample.sampleTime);
+          bindDialTimeLabel(shape(mark, 'title', {}), () => source + ' ' + kind + ' ' + formatNumber.format(sample.fahrenheit) + '° at ' + clockLabel(sample.sampleTime));
         }
         const value = node('strong', 'wv-dial-extreme-value', [prefix, kind, formatNumber.format(sample.fahrenheit) + '°'].filter(Boolean).join(' '));
         value.style.setProperty('--wv-temperature-color', colorAt(sample.fahrenheit));
         item.append(value);
-        if (hasTime) { const time = node('time', 'wv-dial-extreme-time', clockLabel(sample.sampleTime)); time.dateTime = new Date(sample.sampleTime).toISOString(); item.append(time); }
+        if (hasTime) {
+          const time = node('time', 'wv-dial-extreme-time');
+          bindDialTimeLabel(time, () => clockLabel(sample.sampleTime));
+          time.dateTime = new Date(sample.sampleTime).toISOString();
+          item.append(time);
+        }
         item.title = source === 'observed' ? 'Highest/lowest provided observed reading since Central midnight; missing reports may hide an earlier extreme.' : hasTime ? 'Extrema of supplied forecast hours' : 'Official NWS period value; hourly timing unavailable';
       } else item.append(node('strong', 'wv-dial-extreme-value', [current ? source === 'forecast' ? 'F' : 'O' : '', kind, '—'].filter(Boolean).join(' ')));
       extrema.append(item);

@@ -202,6 +202,7 @@
     button.addEventListener('click', openDialog);
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('pagehide', pageHide);
+    const unsubscribeClock = window.cmpriTimeFormat?.subscribe(renderDialog);
     const api = Object.freeze({
       update,
       close() { closeDialog(true); },
@@ -213,6 +214,7 @@
         button.removeEventListener('click', openDialog);
         document.removeEventListener('visibilitychange', visibility);
         window.removeEventListener('pagehide', pageHide);
+        unsubscribeClock?.();
         dialog?.remove();
         button.replaceWith(icon); controllers.delete(slot);
       }

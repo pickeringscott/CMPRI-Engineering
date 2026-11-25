@@ -1,10 +1,12 @@
 import asyncio
-from cmpri_fixture import BASE, UID, OUT, install, async_playwright, expect
+import os
+from cmpri_fixture import BASE, OUT, install, async_playwright, expect
 
 async def run(browser, width, height, touch=False):
     context = await browser.new_context(viewport={'width':width,'height':height}, has_touch=touch, is_mobile=width<701, service_workers='block')
     await install(context,'chief_engineer')
-    await context.add_init_script(f'localStorage.setItem("cmpri:beginners-guide:opened:{UID}","1"); localStorage.setItem("cmpri:ask-files-consent:v1","1");')
+    await context.route_web_socket('wss://**',lambda socket:socket.close())
+    await context.add_init_script('localStorage.setItem("cmpri:ask-files-consent:v1","1");')
     reads=[]
     async def mock(route):
         reads.append(route.request.url)
@@ -14,13 +16,29 @@ async def run(browser, width, height, touch=False):
     response=await page.goto(BASE+'/engineering',wait_until='domcontentloaded')
     await page.get_by_role('button',name='Safety & Logs',exact=True).wait_for(timeout=14000)
     dial=page.locator('[data-cmpri-weather-dial]')
+    guide=page.get_by_role('button',name='Beginner’s Guide',exact=True)
+    dialog=page.locator('dialog[data-cmpri-guide-dialog]')
+    motion=page.locator('.cmpri-animation-control')
+    await expect(dialog).to_have_count(0)
     if width < 701:
+        await expect(guide).to_be_hidden()
+        await expect(motion).to_be_visible()
+        motion_box=await motion.bounding_box()
+        assert motion_box is not None and abs(motion_box['x'])<=1,motion_box
         assert await dial.count()==0 and len(reads)==0
-        print('390px touch: dial hidden; no weather feed request',flush=True)
+        print('390px touch: Guide and dial hidden; Play/Pause at left edge; no weather feed request',flush=True)
     else:
+        await expect(guide).to_be_visible()
+        if width==1440:
+            await guide.click()
+            await expect(dialog).to_be_visible()
+            await expect(dialog.get_by_role('button',name='Start Guide')).to_be_enabled()
+            await page.reload(wait_until='domcontentloaded')
+            await expect(guide).to_be_visible(timeout=14000)
+            await expect(dialog).to_have_count(0)
         await expect(dial).to_have_attribute('aria-label','Open Weather. 46° · Cloudy. Forecast low 38° · Forecast high 59°. Precipitation chance 10% · Wind 13 mph')
         box=await dial.bounding_box()
-        assert box=={'x':min(1198,width-225),'y':min(653,height-225),'width':225,'height':225},box
+        assert box=={'x':width-225,'y':height-225,'width':225,'height':225},box
         assert box['x']>=0 and box['y']>=0 and box['x']+box['width']<=width and box['y']+box['height']<=height
         if touch: assert not await page.evaluate("matchMedia('(hover: hover)').matches")
         assert await dial.evaluate('(e)=>getComputedStyle(e).backgroundColor')=='rgba(0, 0, 0, 0)'
@@ -40,7 +58,7 @@ async def run(browser, width, height, touch=False):
         }''')
         assert layout['iconBottom'] < layout['valueTop'],layout
         assert layout['alignment'] <= 1.5,layout
-        assert abs(layout['outlinePixels']-2*96/72)<0.01,layout
+        assert abs(layout['outlinePixels']-96/72)<0.01,layout
         points=[(116,110),(116,30),(75,150),(157,174),(116,9),(213,110),(194,160),(68,191)]
         for x,y in points:
             assert await dial.evaluate('(e,p)=>document.elementFromPoint(e.getBoundingClientRect().x+p[0],e.getBoundingClientRect().y+p[1])===e',[x,y]),(width,height,x,y)
@@ -56,7 +74,7 @@ async def run(browser, width, height, touch=False):
 
 async def main():
     async with async_playwright() as p:
-        browser=await p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+        browser=await p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium'),args=['--no-sandbox'])
         await run(browser,1440,900)
         await run(browser,1920,950,touch=True)
         await run(browser,1024,600,touch=True)

@@ -552,7 +552,7 @@ export const OPERATIONS_ES: Record<string, string> = {
   "Upload Room Operations": "Cargar operaciones de habitaciones",
   "Upload Room Ops": "Cargar operaciones de habitaciones",
   "Upload RoomStatus Images (ChatGPT Auto-Import)": "Cargar imágenes de RoomStatus (importación automática con ChatGPT)",
-  "Upload today's printed Room Status Report and optional Expected Departures report. Printed dates and report ordering are verified before replacing the current view; source reports remain available for investigation. A missing checkout time defaults to 11:00 AM.": "Cargue el informe de estado de habitaciones impreso de hoy y el informe opcional de salidas previstas. Se verifican fechas impresas y orden de informes antes de reemplazar la vista actual; los originales se conservan para investigación. Si falta la hora de salida, se usa 11:00 AM.",
+  "Upload today's printed Room Status Report and optional Expected Departures report. Printed dates and report ordering are verified before replacing the current view; source reports remain available for investigation. A missing checkout time defaults to {time}.": "Cargue el informe de estado de habitaciones impreso de hoy y el informe opcional de salidas previstas. Se verifican fechas impresas y orden de informes antes de reemplazar la vista actual; los originales se conservan para investigación. Si falta la hora de salida, se usa {time}.",
   "Uploaded:": "Cargado:",
   "US | CAN: Luxury": "EE. UU. | CAN: Lujo",
   "US | CAN: Premium & Select": "EE. UU. | CAN: Premium y Select",

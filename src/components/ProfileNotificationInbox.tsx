@@ -16,7 +16,7 @@ export default function ProfileNotificationInbox() {
   const path = usePathname();
   const ownedByDashboard = ["/engineering", "/front-desk", "/technician"].includes(path);
   // Ticket and notebook views use the dashboard inbox; floating controls obscure editing.
-  const hideInbox = ownedByDashboard || path.startsWith("/work-orders/") || path === "/notes";
+  const hideInbox = ownedByDashboard || path.startsWith("/work-orders/") || ["/notepad", "/notes", "/staff-notes"].includes(path);
   const [signedIn, setSignedIn] = useState(false);
   const [items, setItems] = useState<WorkOrderNotification[]>([]);
   const [open, setOpen] = useState(false);

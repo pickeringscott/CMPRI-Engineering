@@ -335,6 +335,8 @@ export async function POST(request: NextRequest) {
   if (!auth.ok || auth.mcp) {
     return NextResponse.json({ error: "Sign in to use Ask CMPRI." }, { status: 401, headers });
   }
+  const chief = profileIsChiefEngineer(auth.principal.profile) || profileIsEstablishedHoursChief(auth.principal.profile);
+  if (!chief) return NextResponse.json({ error: "Ask CMPRI is available only to the Chief Engineer." }, { status: 403, headers });
   const parsed = requestSchema.safeParse(await requestBody(request));
   if (!parsed.success) return NextResponse.json({ error: "Send a question of up to 1,000 characters, a supported attachment, or a current confirmation." }, { status: 400, headers });
   if ("confirmationToken" in parsed.data) {
@@ -361,6 +363,20 @@ export async function POST(request: NextRequest) {
     summary: language === "es" ? "Se descartó la solicitud pendiente." : "The pending request was discarded.",
     context: attest({ language }, auth.principal),
   } satisfies AskResponse, { headers });
+  // A property-clock question is deterministic and needs no model or API key.
+  // Match the whole question so work-order, checkout, and scheduled-time queries
+  // still take the authorized CMPRI search path.
+  const clockQuestion = parsed.data.question.replace(/^[¿¡]\s*|[?!.]+\s*$/g, "").trim();
+  const clockLanguage = /^(?:what time is it|what(?:'s| is) the (?:current |local )?time|(?:tell me )?the current time)(?: (?:right now|now|here|in Champaign|at (?:CMPRI|the hotel)))?$/i.test(clockQuestion) ? "en"
+    : /^(?:qu[eé] hora es|cu[aá]l es la hora actual|dime la hora)(?: (?:ahora|aqu[ií]|en Champaign))?$/i.test(clockQuestion) ? "es" : undefined;
+  if (clockLanguage && !parsed.data.files?.length && !parsed.data.attachments?.length) {
+    const time = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+    return NextResponse.json({
+      title: clockLanguage === "es" ? "Hora actual" : "Current time",
+      summary: clockLanguage === "es" ? `Son las ${time}, hora central de Champaign.` : `It is ${time} Central Time in Champaign.`,
+      context: attest(trusted && prior ? { ...prior, language: clockLanguage } : { language: clockLanguage }, auth.principal),
+    } satisfies AskResponse, { headers });
+  }
   // The reported year-end PM rate question is a deterministic CMPRI calculation.
   // It must not fail merely because the text planner omits a PM source or Gemini is unavailable.
   if (language === "en" && /\b(?:PMs?|prevent(?:ive|ative) maintenance)\b/i.test(parsed.data.question)
@@ -378,7 +394,6 @@ export async function POST(request: NextRequest) {
   if (!askGeminiKey()) return NextResponse.json({ error: "Ask CMPRI is not configured for this environment." }, { status: 503, headers });
   const usesAttachments = !parsed.data.question && Boolean(parsed.data.attachments?.length) && previous?.pending?.needs === "photo";
   const input = { ...parsed.data, previous, question: parsed.data.question || (usesAttachments ? "" : language === "es" ? "Usa los archivos adjuntos en esta conversación." : "Use the attached files in this conversation.") };
-  const chief = profileIsChiefEngineer(auth.principal.profile) || profileIsEstablishedHoursChief(auth.principal.profile);
   let es = language === "es";
   let phase: AskFailurePhase = "legacy";
   try {

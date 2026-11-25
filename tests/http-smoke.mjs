@@ -11,10 +11,11 @@ const uiPaths = [
   '/engineering/import-work-orders', '/engineering/parts', '/engineering/pool-log',
   '/engineering/preventive-maintenance', '/engineering/winter-preparedness', '/engineering/purchasing', '/engineering/room-operations',
   '/engineering/room-ranker', '/management/equipment', '/management/rooms', '/management/users',
-  '/setup-guide', '/staff-notes', '/technician', '/work-orders', '/work-orders/test-id',
+  '/setup-guide', '/notepad', '/notes', '/staff-notes', '/technician', '/work-orders', '/work-orders/test-id',
 ];
 const retiredPaths = new Set(['/api/room-ranker', '/api/integrations/room-ranker/sync']);
 const apiPaths = [
+  '/api/notepad', '/api/notepad/uploads',
   '/api/session', '/api/profile/header-layout', '/api/staff-notes', '/api/staff-notes/names', '/api/staff-notes/uploads', '/api/room-operations/guest-reports', '/api/room-operations/guest-reports/extract', '/api/notifications/dispatch', '/api/assets', '/api/assets/documentation', '/api/corporate-pm',
   '/api/engineering/catalog', '/api/engineering/operations', '/api/enseo/assignments',
   '/api/integrations/email/scan', '/api/integrations/room-ranker/sync',
@@ -23,6 +24,7 @@ const apiPaths = [
   '/api/work-orders/test-id/activity', '/api/work-orders/drafts', '/api/work-orders/import',
 ];
 const mutationCases = [
+  ['/api/notepad', 'PUT'], ['/api/notepad', 'PATCH'], ['/api/notepad/uploads', 'POST'], ['/api/notepad/uploads', 'PUT'],
   ['/api/engineering/operations', 'PATCH'], ['/api/pool-log', 'POST'], ['/api/assets', 'POST'],
   ['/api/assets', 'PATCH'], ['/api/users', 'POST'], ['/api/users', 'PATCH'],
   ['/api/profile/header-layout', 'PUT'], ['/api/staff-notes', 'POST'], ['/api/staff-notes/names', 'POST'], ['/api/staff-notes/uploads', 'POST'], ['/api/staff-notes/uploads', 'PUT'], ['/api/room-operations/guest-reports', 'POST'], ['/api/room-operations/guest-reports/extract', 'POST'], ['/api/notifications/dispatch', 'POST'],

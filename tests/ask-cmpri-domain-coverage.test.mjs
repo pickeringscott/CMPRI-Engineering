@@ -75,6 +75,7 @@ function agentFixture(f, script) {
     "@ai-sdk/google": { createGoogleGenerativeAI: () => model => ({ model }) },
     ai: {
       tool: value => value, Output: { object: value => value }, isStepCount: value => value, hasToolCall: value => value,
+      wrapLanguageModel: ({ model }) => model,
       ToolLoopAgent: class {
         constructor(options) { this.options = options; }
         async generate() {

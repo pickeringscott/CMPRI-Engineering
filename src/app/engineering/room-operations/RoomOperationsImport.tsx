@@ -1,6 +1,8 @@
 "use client";
 
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { formatWallTime } from "@/lib/ui/time-format";
 import { useState } from "react";
 import { HOTEL_TIME_ZONE } from "@/lib/constants";
 import { authorizationHeaders } from "@/lib/auth/client-session";
@@ -384,7 +386,8 @@ export default function RoomOperationsImport({
   onDateChange: (date: string) => void;
   onCommitted: (date: string) => void;
 }) {
-  const { t } = useUiLanguage();
+  const { t, locale } = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const [statusText, setStatusText] = useState("");
   const [departuresText, setDeparturesText] = useState("");
   const [statusFileName, setStatusFileName] = useState("");
@@ -692,7 +695,7 @@ export default function RoomOperationsImport({
     <section aria-label={t("Import Daily Room Operations")} className="space-y-3 rounded-xl border border-emerald-500/35 bg-slate-900/70 p-3">
       <div>
         <h2 className="text-lg font-semibold">{t("Daily Room Ops Upload")}</h2>
-        <p className="mt-1 text-sm text-slate-400">{t("Upload today's printed Room Status Report and optional Expected Departures report. Printed dates and report ordering are verified before replacing the current view; source reports remain available for investigation. A missing checkout time defaults to 11:00 AM.")}</p>
+        <p className="mt-1 text-sm text-slate-400">{t("Upload today's printed Room Status Report and optional Expected Departures report. Printed dates and report ordering are verified before replacing the current view; source reports remain available for investigation. A missing checkout time defaults to {time}.", { time: formatWallTime("11:00", timeFormat, locale) })}</p>
       </div>
 
       <div className="rounded-xl border border-sky-500/40 bg-sky-950/25 p-3">
@@ -745,7 +748,7 @@ export default function RoomOperationsImport({
             <table className="w-full min-w-[48rem] text-left text-xs">
               <thead className="sticky top-0 bg-slate-900 text-slate-300"><tr><th className="p-2">{t("Room")}</th><th className="p-2">{t("Checkout date")}</th><th className="p-2">{t("Checkout time")}</th><th className="p-2">{t("Status")}</th><th className="p-2">{t("Guest")}</th><th className="p-2">{t("Room type")}</th><th className="p-2">{t("Reserved")}</th></tr></thead>
               <tbody className="divide-y divide-slate-800">
-                {preview.rows.map((row, index) => <tr key={`${row.room}-${index}`}><td className="p-2">{row.room}</td><td className="p-2">{row.checkout_date || "—"}</td><td className="p-2">{row.checkout_time || "—"}</td><td className="p-2">{row.room_status || "—"}</td><td className="p-2">{row.guest_name || "—"}</td><td className="p-2">{row.room_type || "—"}</td><td className="p-2">{row.reserved ? t("Yes") : t("No")}</td></tr>)}
+                {preview.rows.map((row, index) => <tr key={`${row.room}-${index}`}><td className="p-2">{row.room}</td><td className="p-2">{row.checkout_date || "—"}</td><td className="p-2">{row.checkout_time ? formatWallTime(row.checkout_time, timeFormat, locale) : "—"}</td><td className="p-2">{row.room_status || "—"}</td><td className="p-2">{row.guest_name || "—"}</td><td className="p-2">{row.room_type || "—"}</td><td className="p-2">{row.reserved ? t("Yes") : t("No")}</td></tr>)}
               </tbody>
             </table>
           </div>

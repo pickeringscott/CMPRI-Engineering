@@ -6,6 +6,7 @@ import { JSDOM, ResourceLoader } from 'jsdom';
 const source = readFileSync(new URL('../public/previews/weather/willard-airport.js', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../public/previews/weather/willard-airport.css', import.meta.url), 'utf8');
 const clockSource = readFileSync(new URL('../public/previews/weather/weather-clock.js', import.meta.url), 'utf8');
+const preferenceSource = readFileSync(new URL('../public/previews/cmpri-time-format.js', import.meta.url), 'utf8');
 const TRACKER = '/api/willard-tracker';
 const START = Date.parse('2026-11-20T20:05:00Z');
 const MINUTE = 60000;
@@ -32,10 +33,15 @@ function fixture(options = {}) {
     fetch(url) { requests.push(url); return null; }
   }
   const dom = new JSDOM('<!doctype html><details id="willardAirport"><summary>Willard Airport</summary></details>', {
-    url: 'https://preview.example/previews/cmpri-weather-preview.html' + (chief ? '?clock=24' : ''),
+    url: 'https://preview.example/previews/cmpri-weather-preview.html' + (options.timeFormat ? '?timeFormat=' + options.timeFormat : chief ? '?clock=24' : ''),
     runScripts: 'outside-only', pretendToBeVisual: true, resources: new CapturedResources(),
   });
   const { window } = dom;
+  const parent = {};
+  if (options.timeFormat) {
+    Object.defineProperty(window, 'parent', { value: parent, configurable: true });
+    window.eval(preferenceSource);
+  }
   let now = options.now ?? START, nextTimer = 0, hidden = false;
   Object.defineProperty(window.document, 'hidden', { configurable: true, get: () => hidden });
   const OriginalDate = window.Date;
@@ -65,12 +71,13 @@ function fixture(options = {}) {
     assert.equal(host.matches('[data-willard-tracker]'), true);
     assert.ok(['24', '12'].includes(trackerOptions.clockMode));
     const record = { host, options: trackerOptions, activeCalls: [], destroyCalls: 0,
-      state: { active: false, status: 'not-requested', pendingRequests: 0, destroyed: false } };
+      state: { active: false, status: 'not-requested', pendingRequests: 0, destroyed: false, clockMode: trackerOptions.clockMode } };
     trackers.push(record);
     record.api = {
       setActive(value) { record.activeCalls.push(value); record.state.active = value === true;
         record.state.status = record.state.active ? 'live' : 'inactive'; },
       getState() { return { ...record.state }; },
+      setClockMode(mode) { record.state.clockMode = mode; },
       destroy() { record.destroyCalls++; record.state.active = false; record.state.destroyed = true; },
     };
     return record.api;
@@ -101,10 +108,46 @@ function fixture(options = {}) {
     assert.deepEqual(forbidden, [], 'no polling, notification, storage or database work');
     assert.deepEqual(errors, []); dom.window.close();
   }
-  return { window, details, api, frame, trackers, disclose, visibility, advance, timers, requests, flightCalls, settle, cleanup };
+  function setFormat(timeFormat, { origin = window.location.origin, source = parent } = {}) {
+    window.dispatchEvent(new window.MessageEvent('message', { source, origin, data: { type: 'cmpri-time-format-updated', timeFormat } }));
+  }
+  return { window, details, api, frame, trackers, disclose, visibility, advance, timers, requests, flightCalls, settle, cleanup, setFormat };
 }
 
 function rows(f, kind) { return Array.from(f.details.querySelectorAll('[data-willard-'+kind+'] tbody tr[data-flight]')); }
+
+test('trusted live time preference updates the same flight board and tracker with no reads or zone changes', async () => {
+  const data = payload();
+  data.boards.departures.flights[0].status = 'Estimated 7:22 AM · Briefing 22:00 UTC';
+  const f = fixture({ timeFormat: '12h', fetch: () => Response.json(data) });
+  try {
+    f.api.setActive(true); f.disclose(true); await f.settle();
+    const published = () => rows(f, 'departures')[0].querySelector('time');
+    const status = () => rows(f, 'departures')[0].cells[3].textContent;
+    const current = () => f.details.querySelector('[data-willard-clock]').textContent;
+    assert.equal(published().textContent, '7:11 AM');
+    assert.equal(published().dateTime, '2026-11-20T07:11');
+    assert.match(current(), /2:05 PM CST/);
+    f.setFormat('24h', { origin: 'https://not-the-modal-host.invalid' });
+    f.setFormat('24h', { source: {} });
+    f.setFormat('invalid');
+    assert.equal(published().textContent, '7:11 AM');
+
+    f.setFormat('24h');
+    assert.equal(published().textContent, '07:11');
+    assert.equal(published().dateTime, '2026-11-20T07:11');
+    assert.equal(status(), 'Estimated 07:22 · Briefing 22:00 UTC');
+    assert.match(current(), /14:05 CST/);
+    assert.equal(f.api.getState().trackerState.clockMode, '24');
+    assert.equal(f.details.querySelector('[data-willard-board]').dataset.timeFormat, '24h');
+
+    f.setFormat('12h');
+    assert.equal(status(), 'Estimated 7:22 AM · Briefing 22:00 UTC');
+    assert.equal(f.api.getState().trackerState.clockMode, '12');
+    assert.equal(f.flightCalls.length, 1);
+    assert.equal(f.trackers.length, 1);
+  } finally { await f.cleanup(); }
+});
 
 test('collapsed and inactive airport do no work; expansion activates one native tracker and reads boards once', async () => {
   const f = fixture();

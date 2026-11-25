@@ -11,7 +11,7 @@ const request = () => new Request("https://cmpri.test/api/ask-cmpri/files", { he
 const files = loadTs("src/lib/ask-cmpri/files.ts"), media = loadTs("src/lib/staff-note-media.ts");
 function fixture(content = "The complete original CSV\n".repeat(1000), name = "original.csv", type = "text/csv") {
   const objects = new Map(), calls = [];
-  const state = { actor, hotel, now: Date.now(), denied: false, mcp: false, publicBucket: false };
+  const state = { actor, hotel, now: Date.now(), role: "chief_engineer", denied: false, mcp: false, publicBucket: false };
   const bytes = content instanceof Uint8Array ? content : new TextEncoder().encode(content);
   const descriptor = { id, name, type, size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
   const storage = {
@@ -21,13 +21,14 @@ function fixture(content = "The complete original CSV\n".repeat(1000), name = "o
     download: async path => { calls.push({ action: "download", path }); const stored = objects.get(path); return stored ? { data: new Blob([stored.bytes], { type: stored.type }) } : { error: { status: 404 } }; },
     remove: async paths => { paths.forEach(path => { calls.push({ action: "remove", path }); objects.delete(path); }); return { error: null }; },
   };
-  const auth = () => ({ ok: true, mcp: state.mcp, principal: { identity: { id: state.actor }, hotelId: state.hotel }, admin: { storage: {
+  const auth = () => ({ ok: true, mcp: state.mcp, principal: { identity: { id: state.actor }, hotelId: state.hotel, profile: { role: state.role } }, admin: { storage: {
     getBucket: async () => ({ data: { public: state.publicBucket, file_size_limit: files.ASK_FILE_LIMIT } }),
     from: bucket => { assert.equal(bucket, media.STAFF_FILE_BUCKET); return storage; },
   } } });
   const staging = loadTs("src/lib/server/ask-cmpri-file-staging.ts", {
     "server-only": {}, "@/lib/ask-cmpri/files": files, "@/lib/staff-note-media": media,
     "@/lib/server/auth": { requireUserAttempt: async incoming => { assert.equal(incoming.headers.get("authorization"), "Bearer native-user"); return state.denied ? { ok: false } : auth(); } },
+    "@/lib/server/roles": loadTs("src/lib/server/roles.ts"),
   }, { File, Request, Date: class extends Date { static now() { return state.now; } }, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-signing-key" } } });
   const stage = async () => {
     await staging.prepareAskFile(request(), descriptor);
@@ -87,6 +88,20 @@ test("original-file transport follows the main Ask sign-in policy and rejects MC
   await assert.rejects(f.staging.removeAskFile(request(), { token: signed.token }), /Sign in/);
   assert.throws(() => f.staging.describeAskStagedFile(f.auth(), signed.token), /Sign in/);
   assert.equal(f.calls.length, before); assert.equal(f.objects.size, 1);
+});
+
+test("original-file endpoints return 403 for non-Chief profiles before touching storage", async () => {
+  const f = fixture();
+  f.state.role = "system_admin";
+  const route = loadTs("src/app/api/ask-cmpri/files/route.ts", {
+    "next/server": { NextResponse: Response },
+    "@/lib/server/ask-cmpri-file-staging": f.staging,
+  });
+  for (const method of ["POST", "PUT", "DELETE"]) {
+    const response = await route[method](new Request(request(), { method, body: JSON.stringify(f.descriptor) }));
+    assert.equal(response.status, 403, method);
+  }
+  assert.equal(f.calls.length, 0);
 });
 
 function inspector(f, pdfResult, inspectPdf) {

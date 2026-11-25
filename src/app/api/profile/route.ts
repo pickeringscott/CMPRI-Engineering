@@ -113,29 +113,43 @@ export async function PATCH(request: NextRequest) {
     }
     update.full_name = body.full_name.trim();
   }
-  if (body.preferences !== undefined) update.preferences = preferencesForRole(auth.principal.profile.role, body.preferences);
+  const submittedPreferences = body.preferences === undefined
+    ? undefined : preferencesForRole(auth.principal.profile.role, body.preferences);
+  if (submittedPreferences) update.preferences = submittedPreferences;
   if (!Object.keys(update).length) return NextResponse.json({ error: "No profile changes were supplied." }, { status: 400 });
 
-  // Optional compare-and-set for recovered editors. The exact stored JSON is
-  // used in the UPDATE filter so a concurrent edit cannot slip past the read.
-  let query = auth.admin.from("profiles").update(update).eq("id", auth.principal.identity.id);
-  if (body.baseline !== undefined) {
-    const baseline = body.baseline && typeof body.baseline === "object" && !Array.isArray(body.baseline)
-      ? body.baseline as Record<string, unknown> : null;
-    if (!baseline || typeof baseline.name !== "string" || baseline.name.length > 200 || !baseline.preferences || typeof baseline.preferences !== "object") {
-      return NextResponse.json({ error: "A valid profile comparison is required." }, { status: 400 });
-    }
-    const current = await auth.admin.from("profiles").select("full_name, preferences").eq("id", auth.principal.identity.id).maybeSingle();
-    if (current.error || !current.data) return NextResponse.json({ error: "Profile could not be compared. Your changes were kept." }, { status: 503 });
+  const baseline = body.baseline && typeof body.baseline === "object" && !Array.isArray(body.baseline)
+    ? body.baseline as Record<string, unknown> : null;
+  if (body.baseline !== undefined && (!baseline || typeof baseline.name !== "string" || baseline.name.length > 200
+    || !baseline.preferences || typeof baseline.preferences !== "object")) {
+    return NextResponse.json({ error: "A valid profile comparison is required." }, { status: 400 });
+  }
+  const preserveTimeFormat = submittedPreferences && submittedPreferences.time_format === undefined;
+  const current = baseline || preserveTimeFormat
+    ? await auth.admin.from("profiles").select("full_name, preferences").eq("id", auth.principal.identity.id).maybeSingle()
+    : null;
+  if (current && (current.error || !current.data)) return NextResponse.json({ error: "Profile could not be compared. Your changes were kept." }, { status: 503 });
+  if (baseline && current?.data) {
     const canonical = (value: unknown) => JSON.stringify(preferencesForRole(auth.principal.profile.role, value));
     if ((current.data.full_name || "") !== baseline.name || canonical(current.data.preferences) !== canonical(baseline.preferences)) {
       return NextResponse.json({ error: "The saved profile changed. Compare it with your recovered changes before saving.", conflict: true }, { status: 409 });
     }
+  }
+  if (preserveTimeFormat) {
+    const savedTimeFormat = normalizeProfilePreferences(current?.data?.preferences).time_format;
+    if (savedTimeFormat) submittedPreferences.time_format = savedTimeFormat;
+  }
+  // Recovered editors compare both fields. For a caller that omits time format,
+  // compare the stored preferences so a concurrent explicit change is preserved.
+  let query = auth.admin.from("profiles").update(update).eq("id", auth.principal.identity.id);
+  if (baseline && current?.data) {
     query = current.data.full_name === null ? query.is("full_name", null) : query.eq("full_name", current.data.full_name);
+  }
+  if (current?.data) {
     query = current.data.preferences === null ? query.is("preferences", null) : query.eq("preferences", JSON.stringify(current.data.preferences));
   }
   const { data, error } = await query.select("id, email, full_name, role, secondary_roles, preferences").maybeSingle();
-  if (body.baseline !== undefined && (!data || error)) {
+  if (current && (!data || error)) {
     // Never enter the legacy unconditional retry after a failed comparison.
     return NextResponse.json({ error: error ? "Profile could not be saved. Your changes were kept." : "The saved profile changed. Compare it before saving.", conflict: !error }, { status: error ? 503 : 409 });
   }

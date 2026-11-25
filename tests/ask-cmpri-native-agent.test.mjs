@@ -73,6 +73,7 @@ function fixture({ operations, script, pmRead, originalFiles = {}, fileInspectio
     ai: {
       tool: options => options, Output: { object: options => options },
       isStepCount: value => ({ steps: value }), hasToolCall: value => ({ tool: value }),
+      wrapLanguageModel: ({ model }) => model,
       ToolLoopAgent: class {
         constructor(options) { this.options = options; }
         async generate(input) {
@@ -115,10 +116,11 @@ function selectedOriginals() {
     info: async path => { calls.push({ action: "info", path }); const value = objects.get(path); return value ? { data: { size: value.bytes.length, contentType: value.type } } : { error: { status: 404 } }; },
     download: async path => { calls.push({ action: "download", path }); const value = objects.get(path); return value ? { data: new Blob([value.bytes], { type: value.type }) } : { error: { status: 404 } }; },
   };
-  const current = () => ({ ok: true, mcp: state.mcp, principal: { ...principal, identity: { ...principal.identity, id: state.actor }, hotelId: state.hotel }, admin: { storage: { from: bucket => { assert.equal(bucket, selectedFileMedia.STAFF_FILE_BUCKET); return storage; } } } });
+  const current = () => ({ ok: true, mcp: state.mcp, principal: { ...principal, profile: { ...principal.profile, role: "chief_engineer" }, identity: { ...principal.identity, id: state.actor }, hotelId: state.hotel }, admin: { storage: { from: bucket => { assert.equal(bucket, selectedFileMedia.STAFF_FILE_BUCKET); return storage; } } } });
   const staging = loadTs("src/lib/server/ask-cmpri-file-staging.ts", {
     "server-only": {}, "@/lib/ask-cmpri/files": selectedFileTypes, "@/lib/staff-note-media": selectedFileMedia,
     "@/lib/server/auth": { requireUserAttempt: async incoming => { assert.equal(incoming.headers.get("authorization"), "Bearer fixture-user-session"); return state.denied ? { ok: false } : current(); } },
+    "@/lib/server/roles": loadTs("src/lib/server/roles.ts"),
   }, { File, Request, Uint8Array, Date: class extends Date { static now() { return state.now; } }, Error, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "selected-original-signing-key" } } });
   const stage = async ({ id = "00000000-0000-4000-8000-000000000004", name = "Room 101 original.png", type = "image/png", bytes = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 65, 255, 0]) } = {}) => {
     const descriptor = { id, name, type, size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
@@ -626,6 +628,35 @@ test("native file inspection rejects invented and prior-request handles and neve
   assert.equal(denied.downloads, undefined); assert.equal(denied.proposal, undefined); assert.match(denied.summary, /role does not permit/);
 });
 
+test("property clock requests answer from Central Time without calling Gemini", async () => {
+  let keyChecks = 0, authorized = true;
+  class FixedDate extends Date { constructor() { super("2026-11-24T14:21:00Z"); } }
+  const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
+    "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected clock failure") },
+    "next/server": { NextResponse: { json: Response.json } }, zod,
+    "@/lib/server/roles": { profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
+    "@/lib/server/auth": { requireUserAttempt: async () => authorized ? { ok: true, mcp: false, principal } : { ok: false } },
+    "@/lib/work-order-attribution": {},
+    "@/lib/server/ask-cmpri-data": { askContextSchema: zod.z.object({}).passthrough() },
+    "@/lib/server/ask-cmpri-gemini": { askGeminiKey: () => { keyChecks++; return null; } },
+    "@/lib/server/ask-cmpri-actions": { askPhotoSchema: zod.z.object({}) },
+  }, { TextDecoder, AbortSignal, Error, Date: FixedDate, Intl, process: { env: { SUPABASE_SERVICE_ROLE_KEY: "fixture-signing-secret" } } });
+  for (const [question, summary] of [
+    ["What time is it right now?", "It is 08:21 Central Time in Champaign."],
+    ["¿Qué hora es ahora?", "Son las 08:21, hora central de Champaign."],
+  ]) {
+    const response = await handler.POST(request({ question }));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).summary, summary);
+  }
+  assert.equal(keyChecks, 0);
+  const roomQuestion = await handler.POST(request({ question: "What time is room 420 checking out?" }));
+  assert.equal(roomQuestion.status, 503, "room checkout times must still use authorized data");
+  assert.equal(keyChecks, 1);
+  authorized = false;
+  assert.equal((await handler.POST(request({ question: "What time is it right now?" }))).status, 401);
+});
+
 test("the exact reported PM year-end question bypasses Gemini and returns the deterministic PM helper result", async () => {
   let keyChecks = 0, plannerCalls = 0;
   const pmCalls = [];
@@ -633,7 +664,7 @@ test("the exact reported PM year-end question bypasses Gemini and returns the de
   const handler = loadTs("src/app/api/ask-cmpri/route.ts", {
     "@/lib/server/ask-cmpri-error": { reportAskFailure: () => assert.fail("Unexpected Ask route failure; error paths have dedicated coverage") },
     "next/server": { NextResponse: { json: Response.json } }, zod,
-    "@/lib/server/roles": { profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
+    "@/lib/server/roles": { isRecognizedChiefEngineer: () => true, profileIsChiefEngineer: () => true, profileIsEstablishedHoursChief: () => false },
     "@/lib/server/auth": { requireUserAttempt: async () => ({ ok: true, mcp: false, principal }) },
     "@/lib/work-order-attribution": {},
     "@/lib/server/ask-cmpri-data": { askContextSchema: zod.z.object({}).passthrough() },

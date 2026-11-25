@@ -81,16 +81,19 @@ test('Weather uses the existing same-origin desktop frame route and host window 
   assert.equal(routes[path].preferred.height,action.preferred.height);
 });
 
-test('the actual weather tile mounts on a desktop-sized touch device and tracks the mobile width boundary',async()=>{
+test('the weather dial and feed only run at desktop widths without removing the other controls',async()=>{
   const dom=new JSDOM('<!doctype html><div id="root"></div>',{url:'https://fixture.invalid/engineering',pretendToBeVisual:true});
   const prior=Object.fromEntries(['window','document','HTMLElement','IS_REACT_ACT_ENVIRONMENT'].map(key=>[key,globalThis[key]]));
   Object.assign(globalThis,{window:dom.window,document:dom.window.document,HTMLElement:dom.window.HTMLElement,IS_REACT_ACT_ENVIRONMENT:true});
-  let width=1920,opened=0;
-  const queries=[],reads=[],listeners=new Set();
-  dom.window.matchMedia=value=>{
-    queries.push(value);
-    return {get matches(){return width>=Number(value.match(/min-width:\s*(\d+)px/)?.[1]||0)&&!value.includes('hover: hover');},
-      addEventListener:(_name,listener)=>listeners.add(listener),removeEventListener:(_name,listener)=>listeners.delete(listener)};
+  let opened=0;
+  const reads=[];
+  let width=390;
+  const viewport=new dom.window.EventTarget();
+  Object.defineProperty(viewport,'matches',{get:()=>width>=701});
+  dom.window.matchMedia=query=>{assert.equal(query,'(min-width: 701px)');return viewport;};
+  const resize=async nextWidth=>{
+    width=nextWidth;
+    await act(async()=>{viewport.dispatchEvent(new dom.window.Event('change'));await new Promise(resolve=>setImmediate(resolve));});
   };
   const Component=loadTs('src/components/desktop/WeatherUtilities.tsx',{
     react:React,'react/jsx-runtime':jsx,'next/script':{default:()=>null},
@@ -103,14 +106,27 @@ test('the actual weather tile mounts on a desktop-sized touch device and tracks 
   const dial=()=>dom.window.document.querySelector('[data-cmpri-weather-dial]');
   try {
     await act(async()=>{root.render(React.createElement(Component,{onOpen:()=>opened++},'Utilities'));await new Promise(resolve=>setImmediate(resolve));});
-    assert.ok(dial(),'A 1920px touch device must mount the weather dial');
+    assert.equal(dial(),null,'The initially narrow dashboard must omit the entire weather dial');
+    assert.deepEqual(reads,[]);
+    assert.equal(dom.window.document.getElementById('root').textContent,'Utilities');
+    await resize(701);
+    assert.ok(dial(),'The desktop weather dial appears at the dashboard breakpoint');
     assert.match(dial().getAttribute('aria-label'),/46° · Cloudy/);
     assert.deepEqual(reads,['/api/weather-preview?part=dashboard']);
-    assert.ok(queries.every(query=>!query.includes('hover')));
     await act(async()=>dial().click());assert.equal(opened,1);
-    await act(async()=>{width=1024;for(const listener of listeners)listener();});assert.ok(dial());
-    await act(async()=>{width=700;for(const listener of listeners)listener();});assert.equal(dial(),null);
-    await act(async()=>{width=701;for(const listener of listeners)listener();await new Promise(resolve=>setImmediate(resolve));});assert.ok(dial());
+    for (const desktopWidth of [1024,1920]) {
+      await resize(desktopWidth);
+      assert.ok(dial());
+    }
+    assert.deepEqual(reads,['/api/weather-preview?part=dashboard']);
+    for (const mobileWidth of [700,390]) {
+      await resize(mobileWidth);
+      assert.equal(dial(),null);
+    }
+    assert.equal(reads.length,1,'Removing the widget never starts a mobile feed');
+    await resize(1440);
+    assert.ok(dial());
+    assert.equal(reads.length,2);
     await act(async()=>root.render(React.createElement(Component,null,'Utilities')));assert.equal(dial(),null,'Native role/launcher denial still omits the tile');
   } finally {
     await act(async()=>root.unmount());dom.window.close();

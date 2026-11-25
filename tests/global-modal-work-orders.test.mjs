@@ -1,3 +1,4 @@
+import * as notepadNavigation from "../src/lib/ui/notepad-navigation.ts";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -27,6 +28,7 @@ const globals = {exports:{}, window, document, URL, URLSearchParams, HTMLElement
   Element:dom.window.Element, HTMLDialogElement:dom.window.HTMLDialogElement, Event:dom.window.Event, MutationObserver:dom.window.MutationObserver,
   CSS:{escape:value=>value}, crypto:{randomUUID:()=>`id-${++nextId}`},
   require(name) {
+    if (name === "@/lib/ui/notepad-navigation") return notepadNavigation;
     if (['react','react/jsx-runtime','react-dom'].includes(name)) return require(name);
     if (name === '@/components/UiLanguageProvider') return {useUiLanguage:()=>({language:'en', locale:'en-US', t:(text,values={})=>text.replace(/\{(\w+)\}/g,(token,key)=>Object.hasOwn(values,key)?String(values[key]):token), tt:text=>text})};
     if (name === 'next/navigation') return {usePathname:()=>pathname,useRouter:()=>router,useSearchParams:()=>new URLSearchParams(window.location.search)};

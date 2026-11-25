@@ -33,12 +33,12 @@ test('anonymous/unknown roles are denied and notification writes cannot touch St
 test('read-only release gate requires the atomic mention RPC before deploying the app',async()=>{
  const source=readFileSync(new URL('../scripts/check-release-schema.mjs',import.meta.url),'utf8').replace(/^#![^\n]*\n/,'');
  const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ const requiredFunctions=['cmpri_save_mentioned_work_order','cmpri_post_staff_note_with_mentions','cmpri_capture_staff_note_name','cmpri_save_notepad','cmpri_read_notepad_history'];
  for(const available of [false,true]){
   const process={env:{NEXT_PUBLIC_SUPABASE_URL:'https://fixture.invalid',SUPABASE_SERVICE_ROLE_KEY:'fixture'},exitCode:undefined};let report;
-  const schema={definitions:new Proxy({},{get:()=>({properties:new Proxy({},{get:()=>({})})})}),paths:available?Object.fromEntries(['cmpri_save_mentioned_work_order','cmpri_post_staff_note_with_mentions','cmpri_capture_staff_note_name'].map(name=>['/rpc/'+name,{post:{}}])):{}};
+  const schema={definitions:new Proxy({},{get:()=>({properties:new Proxy({},{get:()=>({})})})}),paths:available?Object.fromEntries(requiredFunctions.map(name=>['/rpc/'+name,{post:{}}])):{}};
   await new AsyncFunction('fetch','process','console','AbortSignal',source)(async()=>({ok:true,json:async()=>schema}),process,{log:value=>report=JSON.parse(value),error:message=>{throw Error(message)}},{timeout:()=>undefined});
   assert.equal(report.passed,available);assert.equal(process.exitCode,available?0:1);
-  assert.equal(report.missing.includes('Function: cmpri_save_mentioned_work_order'),!available);
-  for(const name of ['cmpri_post_staff_note_with_mentions','cmpri_capture_staff_note_name'])assert.equal(report.missing.includes('Function: '+name),!available);
+  for(const name of requiredFunctions)assert.equal(report.missing.includes('Function: '+name),!available);
  }
 });

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ASK_GEMINI_VOICES } from "@/lib/ask-cmpri/voices";
 import { askGeminiKey } from "@/lib/server/ask-cmpri-gemini";
 import { requireUserAttempt } from "@/lib/server/auth";
+import { isRecognizedChiefEngineer } from "@/lib/server/roles";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +38,7 @@ async function inputBody(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const auth = await requireUserAttempt(request);
   if (!auth.ok || auth.mcp) return NextResponse.json({ error: "Sign in to use Ask CMPRI." }, { status: 401, headers });
+  if (!isRecognizedChiefEngineer(auth.principal.profile)) return NextResponse.json({ error: "Ask CMPRI is available only to the Chief Engineer." }, { status: 403, headers });
   const input = inputSchema.safeParse(await inputBody(request));
   if (!input.success) return NextResponse.json({ error: "Send reply text and a supported Gemini voice." }, { status: 400, headers });
   const { text, voice, language } = input.data;

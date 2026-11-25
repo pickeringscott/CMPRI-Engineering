@@ -1,3 +1,4 @@
+import { isNotepadPath } from "./notepad-navigation";
 export type WindowRect = { x: number; y: number; width: number; height: number };
 export type WindowSize = { width: number; height: number };
 export type DesktopBounds = WindowSize;
@@ -124,7 +125,7 @@ export function saveDesktopLayout(storage: StorageLike, userId: string, layoutKe
 /** Reuse an exact record window, never a different record on the same screen. */
 export function desktopWindowKeyForHref(href: string, origin: string) {
   const url = new URL(href, origin);
-  const parameter = url.pathname === "/management/equipment" ? "asset" : url.pathname === "/notes" ? "note"
+  const parameter = url.pathname === "/management/equipment" ? "asset" : isNotepadPath(url.pathname) ? "note"
     : url.pathname === "/engineering/room-ranking" ? "room" : "";
   const id = parameter && url.searchParams.get(parameter);
   return id ? `${url.pathname}?${parameter}=${encodeURIComponent(id)}` : url.pathname;
@@ -135,7 +136,7 @@ export function isAskRecordRoute(href: string, origin: string) {
   const url = new URL(href, origin);
   return /^\/work-orders\/[^/]+$/.test(url.pathname)
     || (url.pathname === "/management/equipment" && Boolean(url.searchParams.get("asset")))
-    || (url.pathname === "/notes" && Boolean(url.searchParams.get("note")))
+    || (isNotepadPath(url.pathname) && Boolean(url.searchParams.get("note")))
     || url.pathname === "/engineering/room-ranker"
     || url.pathname === "/engineering/room-ranking";
 }

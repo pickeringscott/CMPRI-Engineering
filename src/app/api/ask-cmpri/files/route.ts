@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { finalizeAskFile, prepareAskFile, removeAskFile } from "@/lib/server/ask-cmpri-file-staging";
+import { AskFileAccessError, finalizeAskFile, prepareAskFile, removeAskFile } from "@/lib/server/ask-cmpri-file-staging";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ async function run(request: NextRequest, action: (request: NextRequest, input: u
   } catch (error) {
     if (request.signal.aborted) throw error;
     const message = error instanceof Error ? error.message : "The original file could not be prepared.";
-    return NextResponse.json({ error: message }, { status: /^Sign in/.test(message) ? 401 : 400, headers });
+    return NextResponse.json({ error: message }, { status: error instanceof AskFileAccessError ? error.status : 400, headers });
   }
 }
 export async function POST(request: NextRequest) { return run(request, prepareAskFile); }

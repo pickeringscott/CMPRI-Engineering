@@ -161,6 +161,41 @@ export function postAskStaffFiles(request: NextRequest): Promise<Response> {
   });
 }
 
+/** Attach verified original bytes to the same shared/private document used by Notepad. */
+export function saveAskNotepadFiles(request: NextRequest): Promise<Response> {
+  return handle(async () => {
+    const body = await input(request, ["fileTokens", "id", "changeId", "expectedRevision", "expectedLegacyVersion", "document"]);
+    if (typeof body.id !== "string" || !UUID.test(body.id) || typeof body.changeId !== "string" || !UUID.test(body.changeId)
+      || body.expectedRevision !== null && (!Number.isSafeInteger(body.expectedRevision) || Number(body.expectedRevision) < 0)
+      || !object(body.document) || !Array.isArray(body.document.attachments)
+      || !Array.isArray(body.fileTokens) || !body.fileTokens.length || body.fileTokens.length > 20 || new Set(body.fileTokens).size !== body.fileTokens.length) {
+      throw new NativeFileError("Use the current Notepad document, revision, stable changeId and one to twenty selected original files.");
+    }
+    const route = await import("@/app/api/notepad/uploads/route"), attachments = [...body.document.attachments];
+    for (const value of body.fileTokens) {
+      const original = await readAskStagedFile(request, token(value)), id = stableUploadId(body.changeId, original);
+      const descriptor = { id, name: original.descriptor.name, type: original.descriptor.type, size: original.descriptor.size };
+      const prepared = await result(await route.POST(nativeRequest(request, "/api/notepad/uploads", "POST", descriptor)));
+      const path = `${original.auth.principal.hotelId}/${original.auth.principal.identity.id}/notepad/${id}`;
+      if (prepared.id !== id || prepared.path !== path) throw new NativeFileError("The native Notepad attachment scope could not be verified.", 409);
+      const storage = original.auth.admin.storage.from(STAFF_FILE_BUCKET);
+      await storage.upload(path, original.bytes, { contentType: descriptor.type, upsert: false });
+      const saved = await storage.download(path);
+      if (saved.error || !saved.data || saved.data.size !== descriptor.size
+        || createHash("sha256").update(new Uint8Array(await saved.data.arrayBuffer())).digest("hex") !== original.descriptor.sha256) {
+        throw new NativeFileError("The native attachment copy differs from its selected original. No Notepad change was confirmed.", 409);
+      }
+      await result(await route.PUT(nativeRequest(request, "/api/notepad/uploads", "PUT", { id })));
+      if (!attachments.some(file => object(file) && file.id === id)) attachments.push({ ...descriptor, kind: "file" });
+    }
+    request.signal.throwIfAborted();
+    const notes = await import("@/app/api/notepad/route");
+    return notes.PUT(nativeRequest(request, "/api/notepad", "PUT", { id: body.id, changeId: body.changeId,
+      expectedRevision: body.expectedRevision, expectedLegacyVersion: body.expectedLegacyVersion, document: { ...body.document, attachments },
+    }));
+  });
+}
+
 export function importAskAssetFile(request: NextRequest): Promise<Response> {
   return handle(async () => {
     const body = await input(request, ["fileToken", "assetId", "verify", "revisionReason"]);

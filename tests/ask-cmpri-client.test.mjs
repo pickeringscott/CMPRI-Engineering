@@ -1,3 +1,4 @@
+import * as notepadClose from "../src/lib/ui/notepad-close.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
@@ -21,7 +22,7 @@ const deferred = () => {
   return { promise, resolve };
 };
 
-async function fixture({ actualUploads = false } = {}) {
+async function fixture({ actualUploads = false, language = "en" } = {}) {
   const container = document.createElement("div");
   document.body.append(container);
   let root = createRoot(container);
@@ -110,10 +111,10 @@ async function fixture({ actualUploads = false } = {}) {
   };
   const component = loadTs("src/components/ask-cmpri/AskCmpri.tsx", {
     react: React, "react/jsx-runtime": jsx, "next/navigation": { usePathname: () => "/engineering" },
-    "@/components/StaffNotes": { default: empty },
-    "@/components/UiLanguageProvider": { useUiLanguage: () => ({ language: "en", t: value => value }) },
+    "@/components/UiLanguageProvider": { useUiLanguage: () => ({ language, t: value => value }) },
     "@/lib/auth/client-session": { authorizationHeaders: async () => ({ Authorization: "Bearer fixture" }) },
     "@/lib/auth/session-storage": { SESSION_KEY: "fixture-session" },
+    "@/lib/server/roles": loadTs("src/lib/server/roles.ts"),
     "@/lib/data-cache/browser": { invalidateCachedResources: async topics => { invalidations.push(topics); } },
     "@/components/beginners-guide/ask-cmpri-practice": {},
     "@/lib/ui/desktop-windows": { RESIZE_EDGES: [] },
@@ -230,6 +231,11 @@ test("OpenAI picker stays attached and hides for any text until the composer is 
     const selector = picker.querySelector('select');
     assert.equal(picker.hidden, false);
     assert.equal(selector.options.length, 10);
+    assert.deepEqual([...selector.options].map(option => [option.value, option.text]), [
+      ["alloy", "alloy · Neutral"], ["ash", "ash · Male"], ["ballad", "ballad · Male"],
+      ["cedar", "cedar · Male"], ["coral", "coral · Female"], ["echo", "echo · Male"],
+      ["marin", "marin · Female"], ["sage", "sage · Female"], ["shimmer", "shimmer · Female"], ["verse", "verse · Male"],
+    ]);
     await act(async () => {
       selector.value = "cedar";
       selector.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
@@ -244,6 +250,23 @@ test("OpenAI picker stays attached and hides for any text until the composer is 
     assert.equal(picker.hidden, false);
     await h.reopen();
     assert.equal(h.container.querySelector('.ask-voice-picker select').value, "cedar");
+  } finally { await h.close(); }
+});
+
+test("voice sound labels translate without changing the saved voice key", async () => {
+  const h = await fixture({ language: "es" });
+  try {
+    const selector = h.container.querySelector('.ask-search-pill .ask-voice-picker select');
+    assert.equal(selector.querySelector('option[value="alloy"]').textContent, "alloy · Neutra");
+    assert.equal(selector.querySelector('option[value="cedar"]').textContent, "cedar · Masculina");
+    assert.equal(selector.querySelector('option[value="marin"]').textContent, "marin · Femenina");
+    await act(async () => {
+      selector.value = "marin";
+      selector.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      await flush();
+    });
+    await h.reopen();
+    assert.equal(h.container.querySelector('.ask-voice-picker select').value, "marin");
   } finally { await h.close(); }
 });
 
@@ -500,4 +523,50 @@ test("a missing document closes the pending tab and a blocked popup gives a usab
     assert.equal(h.container.querySelector('a[href="https://files.example/manual.pdf"]')?.target, "_blank");
     assert.equal(h.navigated.length, 0);
   } finally { await h.close(); }
+});
+
+test("Ask has no embedded Notepad and legacy notebook requests open the standalone note window", async () => {
+  const h = await fixture();
+  try {
+    assert.equal(h.button("Staff Notes"), undefined);
+    assert.equal(h.button("Notepad"), undefined);
+    assert.deepEqual([...h.container.querySelectorAll('[role="tab"]')].map(tab => tab.textContent), ["Search", "History", "Files"]);
+    assert.equal(h.container.querySelector(".cmpri-notepad-host,#ask-cmpri-staff-view"), null);
+    for (const tab of ["notepad", "staff"]) {
+      const noteId = tab === "notepad" ? "shared-project" : "legacy-staff-note";
+      await h.remount({ tab, noteId });
+      assert.equal(h.container.querySelector("#ask-cmpri").open, false);
+      assert.equal(h.openedModules.at(-1), "/notepad?note=" + noteId);
+    }
+    await h.remount({ tab: "notepad" });
+    assert.equal(h.openedModules.at(-1), "/notepad");
+  } finally { await h.close(); }
+});
+
+test("Ask note results open the exact standalone Notepad record while authorized search remains available", async () => {
+  const h = await fixture();
+  try {
+    for (const kind of ["staffNote", "personalNote"]) {
+      await h.remount();
+      const id = kind === "staffNote" ? "shared-project" : "private";
+      h.queue({ title: "Saved note", summary: "Your saved note", items: [{ id: "note:" + id, title: "Note title", source: "CMPRI · Notepad", sourceType: "internal", record: { kind, id, label: "Open Notepad note" } }] });
+      await h.submit("Find my note.");
+      await h.click("Open Notepad note");
+      assert.equal(h.openedModules.at(-1), "/notepad?note=" + id);
+      assert.equal(h.container.querySelector("#ask-cmpri").open, false);
+    }
+  } finally { await h.close(); }
+});
+
+test("closing Ask does not flush or close the independent Notepad window", async () => {
+  const h = await fixture();
+  const host = document.createElement("div");host.className = "cmpri-notepad-host";document.body.append(host);
+  try {
+    let flushes = 0;
+    host.addEventListener(notepadClose.NOTEPAD_CLOSE_REQUEST, event => { event.preventDefault(); flushes++; });
+    await act(async () => { h.container.querySelector('[aria-label="Close Ask CMPRI"]').click(); await flush(); });
+    assert.equal(flushes, 0);
+    assert.equal(h.container.querySelector("#ask-cmpri").open, false);
+    assert.equal(host.isConnected, true);
+  } finally { host.remove(); await h.close(); }
 });

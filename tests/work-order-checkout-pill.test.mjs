@@ -5,17 +5,24 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import {normalizePrintedTime} from '../src/lib/room-operations-reports.ts';
 import {roomStatusBadge} from '../src/lib/room-availability.ts';
+import {formatWallTime} from '../src/lib/ui/time-format.ts';
 const source=readFileSync(new URL('../src/components/desktop/WorkOrderListWindow.tsx',import.meta.url),'utf8');
 const ast=ts.createSourceFile('list.tsx',source,99,true,4);
 const fn=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='listCheckoutLabel');
 const exports={};
-vm.runInNewContext(ts.transpileModule(fn.getText(ast)+'\nexports.label=listCheckoutLabel;', {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,normalizePrintedTime,roomStatusBadge,hotelDate:()=> '2026-11-06'});
+vm.runInNewContext(ts.transpileModule(fn.getText(ast)+'\nexports.label=listCheckoutLabel;', {compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,normalizePrintedTime,roomStatusBadge,formatWallTime,hotelDate:()=> '2026-11-06'});
 const label=exports.label;
 test('today shows the checkout date and defaults absent or invalid time to 11 a.m.',()=>{
  for(const time of [null,'','invalid'])assert.equal(label('2026-11-06',time).label,'C/O Nov 6 · 11:00 a.m.');
 });
 test('report time overrides the default, including midnight, noon and afternoon',()=>{
- for(const [time,display] of [['10:30:00','10:30 a.m.'],['2:15 PM','2:15 p.m.'],['00:00:00','12:00 a.m.'],['12:00:00','12:00 p.m.']])assert.equal(label('2026-11-06',time).label,`C/O Nov 6 · ${display}`);
+ for(const [time,display] of [['10:30:45','10:30 a.m.'],['2:15 PM','2:15 p.m.'],['00:00:00','12:00 a.m.'],['12:00:00','12:00 p.m.']])assert.equal(label('2026-11-06',time).label,`C/O Nov 6 · ${display}`);
+});
+test('24-hour checkout labels show midnight and afternoon without a day period',()=>{
+ for(const [time,display] of [[null,'11:00'],['00:00:00','00:00'],['2:15 PM','14:15']]){
+  assert.equal(label('2026-11-06',time,undefined,undefined,'en-US','24h').label,`C/O Nov 6 · ${display}`);
+ }
+ assert.equal(label('2026-11-07','14:15',undefined,undefined,'en-US','24h').label,'C/O Nov 7');
 });
 test('other dates show C/O and date without a time; missing dates have no pill',()=>{
  for(const date of ['2026-11-05','2026-11-07','2027-01-02'])assert.doesNotMatch(label(date,'14:00:00').label,/a\.m\.|p\.m\./);

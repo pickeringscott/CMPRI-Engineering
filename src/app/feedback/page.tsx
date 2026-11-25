@@ -1,6 +1,9 @@
 "use client";
 
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { timeFormatOptions } from "@/lib/ui/time-format";
+import type { TimeFormat } from "@/lib/profile-preferences";
 import { roleDisplayName } from "@/lib/account-display";
 import { useCallback, useEffect, useState, type FormEvent, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
@@ -25,10 +28,10 @@ type FeedbackItem = {
 
 const STATUSES: FeedbackStatus[] = ["New", "Reviewed", "Planned", "Resolved"];
 
-function formattedDate(value: string | null) {
+function formattedDate(value: string | null, locale: string, timeFormat: TimeFormat) {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString(locale, timeFormatOptions(timeFormat));
 }
 
 function originatingRoute() {
@@ -42,7 +45,8 @@ function originatingRoute() {
 }
 
 export default function FeedbackPage() {
-  const {t: ui} = useUiLanguage();
+  const {t: ui, locale} = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const router = useRouter();
   const [session, setSession] = useState<CmpriClientSession | null>(null);
   const [feedback, setFeedback] = useState<FeedbackItem[]>([]);
@@ -224,15 +228,15 @@ export default function FeedbackPage() {
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                         <strong>{item.user_name}</strong>
                         <span className="text-slate-400">{ui(roleDisplayName(item.user_role || "Unknown"))}</span>
-                        <span className="text-slate-400">{formattedDate(item.created_at)}</span>
+                        <span className="text-slate-400">{formattedDate(item.created_at, locale, timeFormat)}</span>
                         <span className="rounded-full border border-slate-700 px-2 py-0.5 text-xs text-slate-300">{ui(item.feedback_type)}</span>
                       </div>
                       <p className="whitespace-pre-wrap break-words text-sm text-slate-200">{item.description}</p>
                       <dl className="grid gap-x-4 gap-y-1 text-xs text-slate-400 sm:grid-cols-2">
                         <div><dt className="inline font-semibold text-slate-300">{ui("Page: ")}</dt><dd className="inline break-all">{item.page_route}</dd></div>
                         <div><dt className="inline font-semibold text-slate-300">{ui("Version: ")}</dt><dd className="inline">{item.app_version}</dd></div>
-                        {item.reviewed_at && <div><dt className="inline font-semibold text-slate-300">{ui("Reviewed: ")}</dt><dd className="inline">{formattedDate(item.reviewed_at)}</dd></div>}
-                        {item.resolved_at && <div><dt className="inline font-semibold text-slate-300">{ui("Resolved: ")}</dt><dd className="inline">{formattedDate(item.resolved_at)}</dd></div>}
+                        {item.reviewed_at && <div><dt className="inline font-semibold text-slate-300">{ui("Reviewed: ")}</dt><dd className="inline">{formattedDate(item.reviewed_at, locale, timeFormat)}</dd></div>}
+                        {item.resolved_at && <div><dt className="inline font-semibold text-slate-300">{ui("Resolved: ")}</dt><dd className="inline">{formattedDate(item.resolved_at, locale, timeFormat)}</dd></div>}
                       </dl>
                     </div>
                     {canReview ? <div className="grid content-start gap-2">

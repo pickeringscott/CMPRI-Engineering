@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
 import { createRequire } from 'node:module';
+import { timeFormatDependency, timeFormatHelpers } from './ui-language.mjs';
 const nativeRequire = createRequire(import.meta.url);
 
 export function loadTs(path, dependencies = {}, globals = {}) {
@@ -14,6 +15,8 @@ export function loadTs(path, dependencies = {}, globals = {}) {
     if (name.startsWith('node:')) { const nodeModule = nativeRequire(name); return { ...nodeModule, default: nodeModule }; }
     if (name === '@/lib/server/manual-preview') return loadTs('src/lib/server/manual-preview.ts', dependencies, globals);
     if (name === '@/lib/server/work-order-parts-status') return partsStatusDependency;
+    if (name === '@/components/TimeFormatProvider') return timeFormatDependency;
+    if (name === '@/lib/ui/time-format') return timeFormatHelpers;
     if (name.startsWith('.')) return loadTs(new URL(name + '.ts', url), dependencies, globals);
     throw new Error(`Unmocked import: ${name}`);
   }});

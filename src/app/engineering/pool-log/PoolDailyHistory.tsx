@@ -1,6 +1,8 @@
 "use client";
 
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import { bromineBands, poolLocationReadings, sampleLocationLabel } from "@/lib/pool-log";
 
 export type PoolDailyEntry = {
@@ -73,12 +75,13 @@ export function poolSnapshotDescription(snapshot: Record<string, unknown>, previ
 
 export default function PoolDailyHistory({ entries, error, loading, onRetry }: { entries: PoolDailyEntry[]; error?: string; loading?: boolean; onRetry?: () => void }) {
   const { t, locale } = useUiLanguage();
+  const timeFormat = useTimeFormat();
   return <section aria-label={t("Daily pool activity")} className="rounded-lg border border-slate-700 bg-slate-900 p-2">
     <h2 className="text-sm font-bold">{t("Daily pool activity")}</h2>
     {loading ? <p role="status" className="mt-1 text-xs text-slate-400">{t("Loading pool activity…")}</p> : error ? <p role="alert" className="mt-1 text-xs text-amber-200">{t(error)}{onRetry && <> <button type="button" className="underline" onClick={onRetry}>{t("Retry activity")}</button></>}</p> : entries.length ? <div className="mt-1 max-h-48 overflow-y-auto rounded border border-slate-700 bg-slate-950">
       {entries.map(entry => {
         const instant = new Date(entry.recorded_at);
-        const time = Number.isNaN(instant.getTime()) ? t("Time unavailable") : instant.toLocaleString(locale, { timeZone: "America/Chicago", month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit" });
+        const time = Number.isNaN(instant.getTime()) ? t("Time unavailable") : instant.toLocaleString(locale, { timeZone: "America/Chicago", month: "numeric", day: "numeric", year: "2-digit", hour: "numeric", minute: "2-digit", ...timeFormatOptions(timeFormat) });
         const text = entry.kind === "reading" ? `${entry.source === "current" ? t("Current saved record") : t("Log entry")}: ${poolSnapshotDescription(entry.snapshot || {}, entry.previous_snapshot || {}, text => t(text, { context: "pool" }))}`
           : entry.kind === "close" ? `${t("Pool closed")}${entry.reason ? `: ${entry.reason}` : ""}`
           : entry.kind === "open" ? `${t("Pool opened")}${entry.reason ? `: ${entry.reason}` : ""}`

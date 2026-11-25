@@ -2,7 +2,7 @@ import { placeDashboardTitleTabs } from './dashboard-title-tabs.js';
 
 const hints = [
   'Work orders', 'Asset records', 'Equipment PDFs', 'Error codes',
-  'Troubleshoot', 'Staff Notes', 'Safety steps', 'Find supplies',
+  'Troubleshoot', 'Notepad', 'Safety steps', 'Find supplies',
   'Repair done?', 'Ticket closed?', 'Parts stock?', 'Find a manual',
   'Open tickets', 'Shift notes', 'Emergency plan', 'Who is on call?'
 ];

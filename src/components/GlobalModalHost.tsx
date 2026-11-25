@@ -68,13 +68,6 @@ function needsNonmodalDashboardShell() {
     && window.matchMedia("(min-width: 701px) and (hover: hover)").matches);
 }
 
-function openDashboardStaffNotes(href: string, opener?: HTMLElement) {
-  const url = new URL(href, window.location.origin);
-  if (url.pathname !== "/staff-notes" || !document.querySelector("header.cmpri-dashboard-titlebar [data-cmpri-ask-launcher]")) return false;
-  window.dispatchEvent(new CustomEvent("cmpri-ask-open", { detail: { tab: "staff", noteId: url.searchParams.get("note") || undefined, opener } }));
-  return true;
-}
-
 type ModalPanelStyle = CSSProperties & {
   "--cmpri-modal-width": string;
   "--cmpri-modal-height": string;
@@ -87,6 +80,7 @@ function modalHref(href: string, forceEmbedded = false) {
   const modalRoutes = new Set([
     "/staff-notes",
     "/notes",
+    "/notepad",
     "/work-orders",
     "/management/equipment",
     "/management/rooms",
@@ -187,7 +181,7 @@ function restoredModalTitle(href: string) {
   const path = new URL(href, window.location.origin).pathname;
   if (/^\/work-orders\/[^/]+$/.test(path)) return "Work Order";
   const titles: Record<string, string> = { "/work-orders": "Create Work Order", "/profile": "Manage Profile",
-    "/profile/ai-connection": "ChatGPT Connection", "/staff-notes": "Staff Notes", "/notes": "Notes",
+    "/profile/ai-connection": "ChatGPT Connection", "/staff-notes": "Notepad", "/notes": "Notepad", "/notepad": "Notepad",
     "/management/equipment": "Assets", "/management/rooms": "Manage Locations", "/management/users": "Manage Users",
     "/engineering/preventive-maintenance": "Preventative Maintenance", "/engineering/purchasing": "PO",
     "/engineering/parts": "Inventory", "/engineering/pool-log": "Pool Log", "/pool": "Pool",
@@ -896,7 +890,6 @@ export default function GlobalModalHost() {
       const desktop = technicianDesktopRef.current;
       const clickedAt = Number.isFinite(detail.clickedAt) ? detail.clickedAt : undefined;
       const opener = detail.opener instanceof HTMLElement ? detail.opener : undefined;
-      if (openDashboardStaffNotes(detail.href, opener)) return;
       if (detail.href === WORK_ORDER_LIST_PATH) {
         if (desktop?.anchor.dataset.canViewWorkOrders === "true") openWorkOrderList(clickedAt, opener);
         return;
@@ -934,7 +927,6 @@ export default function GlobalModalHost() {
           return;
         }
         event.preventDefault();
-        if (openDashboardStaffNotes(href, anchor)) return;
         openEntry({
           id: crypto.randomUUID(),
           ...modalHref(href),
@@ -958,7 +950,6 @@ export default function GlobalModalHost() {
         return;
       }
       event.preventDefault();
-      if (openDashboardStaffNotes(href, button)) return;
       openEntry({
         id: crypto.randomUUID(),
         ...modalHref(href),
@@ -1144,7 +1135,7 @@ export default function GlobalModalHost() {
         if (key === WEATHER_PATH) return (
           <WeatherPreviewWindow
             key={entry.id} windowKey={key} title={entry.title} accentClass="bg-amber-400"
-            src={entry.href} visible={!workspaceHidden && !entry.weatherCached} use24HourTime={false}
+            src={entry.href} visible={!workspaceHidden && !entry.weatherCached}
             bulletinHost={technicianDesktop.bulletinHost} rect={entry.rect} bounds={technicianDesktop.bounds}
             zIndex={zIndex} active={active} onFocus={onFocus} onClose={onClose} onRectCommit={onRectCommit}
             registerFrame={frame => registerFrame(entry.id, frame)}

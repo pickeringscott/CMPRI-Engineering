@@ -5,6 +5,7 @@ import {manualPreviewReadOnly} from './lib/server/manual-preview';
 // to preview builds; an exact list prevents future prototypes being released.
 const WEATHER_ASSETS=new Set([
   '/previews/cmpri-weather-preview.html',
+  '/previews/cmpri-time-format.js',
   '/previews/weather/weather-preview.css',
   '/previews/weather/weather-visuals.css',
   '/previews/weather/weather-graphs.css',

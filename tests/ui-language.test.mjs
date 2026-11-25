@@ -2,6 +2,86 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { SPANISH_UI } from '../src/lib/i18n/catalog.ts';
 import { makeUiTranslator, translateUiText, uiLanguage, uiLocale, uiTitleCase } from '../src/lib/i18n/ui.ts';
+import { formatWallTime, timeFormatOptions } from '../src/lib/ui/time-format.ts';
+
+test('account clock labels change format without shifting local time or losing seconds', () => {
+  assert.equal(formatWallTime('17:07', '12h'), '5:07 PM');
+  assert.equal(formatWallTime('5:07 p. m.', '24h'), '17:07');
+  assert.equal(formatWallTime('12:01 AM', '24h'), '00:01');
+  assert.equal(formatWallTime('23:45:10', '12h'), '11:45:10 PM');
+  assert.equal(formatWallTime('24:02', '12h'), '24:02');
+  assert.equal(formatWallTime('Pending', '24h'), 'Pending');
+
+  const instant = new Date('2026-11-24T05:31:00Z');
+  const options = { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' };
+  assert.equal(instant.toLocaleTimeString('en-US', { ...options, ...timeFormatOptions('24h') }), '23:31');
+  assert.equal(instant.toLocaleTimeString('en-US', { ...options, ...timeFormatOptions('12h') }), '11:31 PM');
+});
+
+test('an account preference save updates mounted views and frames using verified settings', async () => {
+  const { JSDOM } = await import('jsdom');
+  const React = await import('react');
+  const jsx = await import('react/jsx-runtime');
+  const { createRoot } = await import('react-dom/client');
+  const { loadTs } = await import('./helpers/load-ts.mjs');
+  const profiles = await import('../src/lib/profile-preferences.ts');
+  const time = await import('../src/lib/ui/time-format.ts');
+  const language = await import('../src/lib/i18n/ui.ts');
+  const { window } = new JSDOM('<main></main><iframe></iframe>', { url: 'https://cmpri.fixture' });
+  const { document } = window;
+  const frame = document.querySelector('iframe');
+  const messages = [];
+  frame.contentWindow.postMessage = (data, origin) => messages.push({ data, origin });
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const previousActSetting = globalThis.IS_REACT_ACT_ENVIRONMENT;
+  Object.assign(globalThis, { window, document, IS_REACT_ACT_ENVIRONMENT: true });
+
+  const TimeFormatContext = React.createContext('12h');
+  const account = { id: 'chief', role: 'Chief Engineer' };
+  let preferences = { language: 'en' };
+  const provider = loadTs('src/components/UiLanguageProvider.tsx', {
+    react: React,
+    'react/jsx-runtime': jsx,
+    'next/navigation': { usePathname: () => '/engineering' },
+    '@/lib/supabase/client': { getValidSession: async () => ({ user: account, access_token: 'fixture' }) },
+    '@/lib/profile-preferences': profiles,
+    '@/lib/ui/time-format': time,
+    '@/lib/i18n/ui': language,
+    './TimeFormatProvider': { TimeFormatContext },
+  }, {
+    window, document, localStorage: window.localStorage, HTMLIFrameElement: window.HTMLIFrameElement,
+    CustomEvent: window.CustomEvent, AbortController,
+    fetch: async path => {
+      assert.equal(path, '/api/profile');
+      return Response.json({ profile: account, preferences });
+    },
+  }).default;
+  const root = createRoot(document.querySelector('main'));
+  function Display() { return React.createElement('output', {}, React.useContext(TimeFormatContext)); }
+  const settle = async () => { await new Promise(resolve => setImmediate(resolve)); };
+  try {
+    await React.act(async () => { root.render(React.createElement(provider, {}, React.createElement(Display))); await settle(); });
+    assert.equal(document.querySelector('output').textContent, '24h');
+    assert.ok(messages.some(({ data }) => data.type === time.TIME_FORMAT_MESSAGE && data.timeFormat === '24h' && data.userId === 'chief'));
+
+    preferences = { language: 'en', time_format: '12h' };
+    await React.act(async () => {
+      window.dispatchEvent(new window.MessageEvent('message', { origin: window.location.origin, source: window,
+        data: { type: 'cmpri-profile-preferences-updated', preferences: { time_format: '24h' } } }));
+      await settle();
+    });
+    assert.equal(document.querySelector('output').textContent, '12h');
+    const last = messages.filter(({ data }) => data.type === time.TIME_FORMAT_MESSAGE).at(-1);
+    assert.equal(last.origin, window.location.origin);
+    assert.equal(last.data.timeFormat, '12h');
+    assert.equal(last.data.userId, 'chief');
+  } finally {
+    await React.act(async () => root.unmount());
+    Object.assign(globalThis, { window: previousWindow, document: previousDocument, IS_REACT_ACT_ENVIRONMENT: previousActSetting });
+    window.close();
+  }
+});
 
 test('one catalogue gives shared CMPRI controls the same Spanish wording', () => {
   const t = makeUiTranslator('es');

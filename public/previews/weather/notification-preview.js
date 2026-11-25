@@ -59,7 +59,7 @@
     function text(id, value) { if ($(id)) $(id).textContent = value; }
     function copy(value) { return JSON.parse(JSON.stringify(value)); }
     function date(value) { if (typeof value === 'number') return Number.isFinite(value) ? value : null; const parsed = typeof value === 'string' ? Date.parse(value) : NaN; return Number.isFinite(parsed) ? parsed : null; }
-    function stamp(value) { const parsed = date(value); return parsed === null ? 'Unavailable' : central.format(new Date(parsed)); }
+    function stamp(value) { const parsed = date(value); return parsed === null ? 'Unavailable' : window.cmpriWeatherClock?.format(parsed, { month: 'short', day: 'numeric', timeZoneName: 'short' }) || central.format(new Date(parsed)); }
     function canonical(value) { let result = String(value || ''); if (result.includes('/alerts/')) result = result.split('/alerts/').pop(); try { return decodeURIComponent(result); } catch { return result; } }
     function officialLink(value) { try { const url = new URL(value); return url.protocol === 'https:' && (url.hostname === 'weather.gov' || url.hostname.endsWith('.weather.gov')) ? url.href : null; } catch { return null; } }
     function level(value) { return /warning$/i.test(value.event) ? 'warning' : /watch$/i.test(value.event) ? 'watch' : 'advisory'; }
@@ -180,6 +180,20 @@
     document.addEventListener('cmpri:official-weather-alerts', event => receiveOfficial(event.detail || {}));
     document.addEventListener('cmpri:simulated-alert', event => receive({ ...(event.detail || {}), sourceType: 'official', applies: true, freshness: 'fresh', summary: 'Shared-check simulated official alert: ' + event.detail.event, forecastSupported: true }));
     document.addEventListener('cmpri:simulated-alert-reset', reset);
+    window.cmpriTimeFormat?.subscribe(() => {
+      if (lastSample) {
+        text('npEffective', stamp(lastSample.expected || lastSample.effective));
+        text('npExpires', stamp(lastSample.expires));
+      }
+      if (dialog.open && activeSafety) {
+        const value = active.get(activeSafety.id) || history.find(item => item.key === activeSafety.key);
+        if (value) {
+          text('npSafetyEffective', stamp(value.effective));
+          text('npSafetyExpires', stamp(value.expires));
+        }
+      }
+      render();
+    });
     window.addEventListener('message', event => { if (!embedded || event.origin !== location.origin || event.source !== window.parent || event.data?.modalToken !== token) return; if (event.data.type === 'cmpri-weather-safety-request-state') publish(); if (event.data.type === 'cmpri-weather-safety-dismissed') activeSafety = null; });
     window.addEventListener('pagehide', () => { if (expiryTimeout !== null) clearTimeout(expiryTimeout); expiryTimeout = null; });
     window.notificationPreview = { initialized: true, receive, receiveOfficial, sample, snapshot, reset, clearNotifications, closeSafety, openDetails, advanceSimulation, instructions };

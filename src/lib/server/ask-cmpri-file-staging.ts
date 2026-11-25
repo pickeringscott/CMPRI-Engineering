@@ -4,8 +4,12 @@ import type { NextRequest } from "next/server";
 import { ASK_FILE_LIMIT, type AskFileDescriptor, type AskStagedFile } from "@/lib/ask-cmpri/files";
 import { STAFF_FILE_BUCKET, staffFileInput } from "@/lib/staff-note-media";
 import { requireUserAttempt, type AuthAttempt } from "@/lib/server/auth";
+import { isRecognizedChiefEngineer } from "@/lib/server/roles";
 
 type Authorized = Extract<AuthAttempt, { ok: true }>;
+export class AskFileAccessError extends Error {
+  constructor(message: string, readonly status: 401 | 403) { super(message); }
+}
 type Token = { version: 1; actor: string; hotel: string; expiresAt: number; descriptor: AskFileDescriptor };
 const TTL = 24 * 60 * 60 * 1000;
 const PREFIX = "ask-file.";
@@ -25,7 +29,8 @@ function filePath(auth: Authorized, descriptor: AskFileDescriptor) {
 
 async function authorize(request: NextRequest): Promise<Authorized> {
   const auth = await requireUserAttempt(request);
-  if (!auth.ok || auth.mcp) throw Error("Sign in to CMPRI before using an original file.");
+  if (!auth.ok || auth.mcp) throw new AskFileAccessError("Sign in to CMPRI before using an original file.", 401);
+  if (!isRecognizedChiefEngineer(auth.principal.profile)) throw new AskFileAccessError("Ask CMPRI is available only to the Chief Engineer.", 403);
   request.signal.throwIfAborted();
   return auth;
 }

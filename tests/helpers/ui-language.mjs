@@ -1,3 +1,5 @@
+import { formatWallTime, timeFormatOptions } from '../../src/lib/ui/time-format.ts';
+
 /** English UI fixture for isolated component VMs; canonical data and values stay unchanged. */
 function interpolate(text, values = {}) {
   return text.replace(/\{(\w+)\}/g, (token, key) => Object.hasOwn(values, key) ? String(values[key] ?? '') : token);
@@ -10,3 +12,5 @@ function tt(...args) {
 }
 export const englishUiLanguage = Object.freeze({ language: 'en', locale: 'en-US', t, tt, setLanguage() {} });
 export const uiLanguageDependency = Object.freeze({ useUiLanguage: () => englishUiLanguage });
+export const timeFormatDependency = Object.freeze({ useTimeFormat: () => '12h' });
+export const timeFormatHelpers = Object.freeze({ formatWallTime, timeFormatOptions });

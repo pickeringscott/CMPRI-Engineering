@@ -14,6 +14,7 @@ function fixture(env) {
 const previewPaths=['/previews','/previews/','/previews/cmpri-weather-preview.html','/previews/nested/review.html'];
 const weatherPaths=[
   '/previews/cmpri-weather-preview.html',
+  '/previews/cmpri-time-format.js',
   ...[
     'weather-preview.css','weather-visuals.css','weather-graphs.css','weather-astronomy.css',
     'willard-airport.css','willard-tracker.css','weather-map.css','notification-preview.css',

@@ -17,9 +17,7 @@
   window.nwsLiveView.init();
   window.initNotificationPreview();
   window.initWeatherSimulation();
-  const airport = window.cmpriWillardAirport?.create(byId('willardAirport'), {
-    use24HourTime: window.cmpriWeatherClock?.hour12 === false,
-  });
+  const airport = window.cmpriWillardAirport?.create(byId('willardAirport'));
   function airportLifecycle() { airport?.setActive(opened && !document.hidden); }
 
   function lifecycle() {

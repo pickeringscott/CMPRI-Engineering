@@ -6,7 +6,7 @@ import { reportedDiagnosticCode } from "@/lib/manual-source";
 import { allows } from "@/lib/server/access";
 import { answerAsk, askGeminiKey, publicAskQuery, searchPublicAsk } from "@/lib/server/ask-cmpri-gemini";
 import { requireUserAttempt } from "@/lib/server/auth";
-import { profileIsChiefEngineer, profileIsEstablishedHoursChief, roleKey } from "@/lib/server/roles";
+import { isRecognizedChiefEngineer, roleKey } from "@/lib/server/roles";
 import { loadUploadedAssetGuide } from "@/lib/server/uploaded-asset-guide";
 import { workOrderReader } from "@/lib/server/work-order-reader";
 import { parseTicketHistory } from "@/lib/ticket-note-presentation";
@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
   const auth = await requireUserAttempt(request);
   if (!auth.ok || auth.mcp) return NextResponse.json({ error: "Sign in to use Ask CMPRI." }, { status: 401, headers });
   const { principal, admin } = auth;
+  const chief = isRecognizedChiefEngineer(principal.profile);
+  if (!chief) return NextResponse.json({ error: "Ask CMPRI is available only to the Chief Engineer." }, { status: 403, headers });
   if (!allows(principal, "view_work_orders") || !allows(principal, "view_dashboard") || !allows(principal, "view_pm")) {
     return NextResponse.json({ error: "Work-order and equipment guide access are required." }, { status: 403, headers });
   }
@@ -87,7 +89,6 @@ export async function POST(request: NextRequest) {
       `Equipment: ${asset.data.manufacturer || ""} ${asset.data.model_number || ""}`,
       `Reported symptom: ${String(order.data.issue || "").slice(0, 650)}`,
     ].join("\n");
-    const chief = profileIsChiefEngineer(principal.profile) || profileIsEstablishedHoursChief(principal.profile);
     const answer = await answerAsk({ question, language, chief, items: [...manualItems, ...webItems, ...findingsItem], missing: [], signal: budget });
     const display = [...findingsItem, ...webItems];
     return NextResponse.json({ title: answer.title, summary: answer.summary, ...(display.length ? { items: display } : {}) } satisfies AskResponse, { headers });

@@ -1,3 +1,4 @@
+import { isNotepadPath } from "./notepad-navigation";
 import type { CmpriClientSession } from "../auth/client-session";
 import { canOpenEnseo, canOpenGss, canOpenRoomOperations, canOpenWeather, isChiefMenuRole } from "../dashboard/menu-access";
 import { canReadChiefModules } from "../dashboard/chief-module-access";
@@ -33,7 +34,7 @@ export function canResumeWorkspaceView(session: CmpriClientSession, view: Worksp
   if (path === "/technician") return roleKey(session.user.role) === "technician" && has("view_work_orders");
   if (path === "/work-orders") return has("submit");
   if (/^\/work-orders\/[^/]+$/.test(path)) return has("view_work_orders");
-  if (path === "/staff-notes" || path === "/notes") return true;
+  if (isNotepadPath(path)) return true;
   if (path === "/profile" || path === "/profile/ai-connection") return has("view_profiles");
   if (path === "/engineering/room-ranking" || path === "/engineering/room-ranker") return dashboard && has("view_work_orders");
   if (path === "/engineering/preventive-maintenance") return has("view_pm");

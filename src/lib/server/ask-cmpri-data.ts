@@ -2,6 +2,7 @@ import "server-only";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import type { AskContext, AskResultItem, AskSource } from "@/lib/ask-cmpri/types";
+import type { NotepadBootstrap, NotepadReply } from "@/lib/notepad";
 import { canReadChiefModuleData } from "@/lib/dashboard/chief-module-access";
 import { canOpenRoomOperations } from "@/lib/dashboard/menu-access";
 import { roomKey, roomStatusBadge } from "@/lib/room-availability";
@@ -571,45 +572,34 @@ async function rankingSource(request: NextRequest, plan: AskPlan, ids: string[] 
   };
 }
 
-async function notesSource(auth: Authorized, plan: AskPlan, personal: boolean, ids: string[] = []): Promise<SourceResult> {
-  const { principal } = auth;
+async function notesSource(request: NextRequest, plan: AskPlan, personal: boolean, ids: string[] = []): Promise<SourceResult> {
+  const { GET } = await import("@/app/api/notepad/route");
+  const response = await GET(nativeGet(request, "/api/notepad"));
+  if (!response.ok) throw new Error("Notepad unavailable");
+  const data = await response.json() as NotepadBootstrap;
   const from = dateBound(plan.fromDate), to = dateBound(plan.toDate);
-  if (!personal) {
-    let query = auth.admin.from("cmpri_staff_notes").select("id,author_name,body,created_at").eq("hotel_id", principal.hotelId);
-    if (ids.length) query = query.in("id", ids);
-    else {
-      if (/^(?:me|myself|yo)$/i.test(plan.noteAuthor || "")) query = query.eq("author_user_id", principal.identity.id);
-      else if (plan.noteAuthor) query = query.ilike("author_name", plan.noteAuthor.replace(/[%_\\]/g, "\\$&"));
-      if (from) query = query.gte("created_at", dateEdge(from));
-      if (to) query = query.lt("created_at", dateEdge(nextDay(to)));
-      const terms = plan.terms.filter((term) => term.toLowerCase() !== plan.noteAuthor?.toLowerCase());
-      if (terms.length) query = query.or(terms.map((term) => "body.ilike." + literalPattern(term)).join(","));
-    }
-    const result = await query.order("created_at", { ascending: false }).limit(18);
-    if (result.error) throw new Error("Staff Notes unavailable");
-    return { items: (result.data || []).map((item) => ({
-      id: "staff:" + item.id, title: askText(item.author_name, 100) || "Staff Notes",
-      text: relevantExcerpt(item.body, plan.terms, 900), source: "CMPRI · Staff Notes", sourceType: "internal",
-      record: { kind: "staffNote", id: item.id, label: "Open Staff Notes" },
-      facts: [...fact("Author", item.author_name), ...fact("Created", item.created_at)],
-    })) };
-  }
-  let query = auth.admin.from("cmpri_general_notes").select("id,title,text:document->>text,updated_at")
-    .eq("hotel_id", principal.hotelId).eq("user_id", principal.identity.id).is("deleted_at", null);
-  if (ids.length) query = query.in("id", ids);
-  else {
-    if (from) query = query.gte("updated_at", dateEdge(from));
-    if (to) query = query.lt("updated_at", dateEdge(nextDay(to)));
-    if (plan.terms.length) query = query.or(plan.terms.flatMap((term) => ["title", "document->>text"].map((field) => field + ".ilike." + literalPattern(term))).join(","));
-  }
-  const result = await query.order("updated_at", { ascending: false }).limit(18);
-  if (result.error) throw new Error("Personal Notepad unavailable");
-  return { items: (result.data || []).map((item) => ({
-    id: "note:" + item.id, title: askText(item.title, 130) || "Personal note",
-    text: relevantExcerpt(item.text, plan.terms, 900), source: "CMPRI · Personal Notepad", sourceType: "internal",
-    record: { kind: "personalNote", id: item.id, label: "Open note" },
-    facts: fact("Updated", item.updated_at),
-  })) };
+  const requestedIds = ids.map(id => data.legacyAliases?.[id] || id);
+  const authorName = (note: NotepadBootstrap["notes"][number]) => note.authorName || data.people.find(person => person.id === note.authorId)?.name || "";
+  const plain = (html: string) => html.replace(/<br\s*\/?>|<\/(?:p|div|li|h[1-6]|blockquote)>/gi, "\n").replace(/<[^>]*>/g, "")
+    .replace(/&(amp|lt|gt|quot|apos|#39|nbsp);/gi, (_match, entity: string) => ({ amp: "&", lt: "<", gt: ">", quot: '\"', apos: "'", "#39": "'", nbsp: " " }[entity.toLowerCase()] || ""));
+  const replyText = (replies: NotepadReply[]): string => replies.map(reply => reply.text + "\n" + replyText(reply.replies || [])).join("\n");
+  const text = (note: NotepadBootstrap["notes"][number]) => plain(note.content) + "\n" + Object.values(note.itemThreads).map(replyText).join("\n");
+  const terms = plan.terms.filter(term => term.toLowerCase() !== plan.noteAuthor?.toLowerCase()).map(term => term.toLocaleLowerCase());
+  const notes = data.notes.filter(note => {
+    if (requestedIds.length) return requestedIds.includes(note.id);
+    const shared = note.audience.all || note.audience.roles.length > 0 || note.audience.people.length > 0;
+    if (personal ? shared || note.authorId !== data.userId : !shared) return false;
+    if (/^(?:me|myself|yo)$/i.test(plan.noteAuthor || "") && note.authorId !== data.userId) return false;
+    if (plan.noteAuthor && !/^(?:me|myself|yo)$/i.test(plan.noteAuthor) && !authorName(note).toLocaleLowerCase().includes(plan.noteAuthor.toLocaleLowerCase())) return false;
+    if (from && note.updatedAt < dateEdge(from) || to && note.updatedAt >= dateEdge(nextDay(to))) return false;
+    return !terms.length || terms.some(term => (note.title + "\n" + text(note)).toLocaleLowerCase().includes(term));
+  }).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return { items: notes.slice(0, 18).map(note => ({
+    id: (personal ? "note:" : "staff:") + note.id, title: askText(note.title, 130) || "Notepad",
+    text: relevantExcerpt(text(note), plan.terms, 900), source: "CMPRI · Notepad", sourceType: "internal",
+    record: { kind: personal ? "personalNote" : "staffNote", id: note.id, label: "Open Notepad" },
+    facts: [...fact("Author", authorName(note)), ...fact("Priority", note.priority), ...fact("Updated", note.updatedAt)],
+  })), missing: notes.length > 18 ? "Notepad results are limited. Filter by title, creator or date for more detail." : undefined };
 }
 
 export async function readAskSources(request: NextRequest, auth: Authorized, plan: AskPlan, evidence: string[] = []) {
@@ -640,7 +630,7 @@ export async function readAskSources(request: NextRequest, auth: Authorized, pla
     if (name === "inventory") return [settle(inventorySource(request, plan, ids("inventory")), "CMPRI inventory", { items: [] })];
     if (name === "rooms") return [settle(roomSource(auth, plan, locations), "CMPRI room status", { items: [] })];
     if (name === "roomRank") return [settle(rankingSource(request, plan, ids("rank")), "CMPRI Room Ranker", { items: [] })];
-    if (name === "staffNotes" || name === "personalNotes") return [settle(notesSource(auth, plan, name === "personalNotes", ids(name === "personalNotes" ? "note" : "staff")), name === "personalNotes" ? "Personal Notepad" : "Staff Notes", { items: [] })];
+    if (name === "staffNotes" || name === "personalNotes") return [settle(notesSource(request, plan, name === "personalNotes", ids(name === "personalNotes" ? "note" : "staff")), "Notepad", { items: [] })];
     return [];
   }));
   const groups = [

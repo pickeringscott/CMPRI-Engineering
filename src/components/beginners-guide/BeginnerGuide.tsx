@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { profileIsChiefEngineer, roleKey } from "@/lib/server/roles";
+import { useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { isRecognizedChiefEngineer, profileIsChiefEngineer, roleKey } from "@/lib/server/roles";
+import { SeasonalAnimationControls } from "@/components/desktop/seasonal-animation-controls";
 import GuideFlowchart, { type GuidePhase } from "./GuideFlowchart";
 import GuideWalkthrough, { type GuideAction } from "./GuideWalkthrough";
 import GuidePracticeWorkOrder from "./GuidePracticeWorkOrder";
 import { practiceWorkOrder, roomPracticePrompts, workOrderPracticeId } from "./ask-cmpri-practice";
 import "./beginners-guide.css";
 
-type GuideUser = { id: string; name: string; role: string; displayRole?: string };
+type GuideUser = { id: string; name: string; role: string; email?: string | null; secondary_roles?: string[]; displayRole?: string };
 type GuideLesson = {
   key: string;
   title: string;
@@ -27,20 +28,16 @@ type GuideRole = {
 type GuideContent = GuideRole & { askLesson: GuideLesson };
 type GuideData = { roles: Partial<Record<string, GuideRole>>; askLesson: GuideLesson };
 type Position = { stop: number; action: number };
-type LaunchReason = "First app open" | "New Front Desk session" | "Reopened from the dashboard";
 
 const WELCOME: Position = { stop: 0, action: 0 };
 const ASK_CMPRI_STOP = 1;
 const FLOWCHART_STOP = 2;
 const ROLE_LESSON_START = 3;
-const ROLLOUT_END = Date.parse("2026-11-24T23:00:00-06:00");
 const WORK_ORDER_HANDOFF = [
   ["Front Desk & Housekeeping", "Report what happened and add room access or turnover details."],
   ["Engineering", "Verify the issue, assign the work, and record the repair."],
   ["Property leadership", "Follow guest impact and help departments coordinate the next step."],
 ];
-const openedInMemory = new Set<string>();
-const sessionInMemory = new Set<string>();
 let guideData: Promise<GuideData> | undefined;
 
 function lessonAt(content: GuideContent | null, stop: number): GuideLesson | undefined {
@@ -60,19 +57,6 @@ function loadGuideData() {
       throw error;
     });
   return guideData;
-}
-
-function hasMarker(storage: "localStorage" | "sessionStorage", key: string, memory: Set<string>) {
-  try {
-    return window[storage].getItem(key) === "1" || memory.has(key);
-  } catch {
-    return memory.has(key);
-  }
-}
-
-function setMarker(storage: "localStorage" | "sessionStorage", key: string, memory: Set<string>) {
-  memory.add(key);
-  try { window[storage].setItem(key, "1"); } catch { /* Storage can be unavailable in private browsing. */ }
 }
 
 function keepLauncherClearOfScore(launcher: HTMLButtonElement) {
@@ -105,14 +89,13 @@ function keepLauncherClearOfScore(launcher: HTMLButtonElement) {
 }
 
 export default function BeginnerGuide({ user }: { user: GuideUser }) {
+  const canUseAsk = isRecognizedChiefEngineer(user);
+  const setAnimationControlHost = useContext(SeasonalAnimationControls);
   const role = user.displayRole === "Chief Engineer" || profileIsChiefEngineer({ role: user.role })
     ? "chief_engineer"
     : roleKey(user.role);
-  const openedKey = "cmpri:beginners-guide:opened:" + user.id;
-  const sessionKey = "cmpri:beginners-guide:session:" + user.id;
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<Position>(WELCOME);
-  const [launchReason, setLaunchReason] = useState<LaunchReason>("Reopened from the dashboard");
   const [content, setContent] = useState<GuideContent | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [practiceOrderId, setPracticeOrderId] = useState("");
@@ -128,34 +111,11 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
     if (launcher) return keepLauncherClearOfScore(launcher);
   }, [role]);
 
-  const openGuide = useCallback((reason: LaunchReason) => {
-    setMarker("localStorage", openedKey, openedInMemory);
-    setMarker("sessionStorage", sessionKey, sessionInMemory);
+  function openGuide() {
     setPosition(WELCOME);
-    setLaunchReason(reason);
     setLoadError(false);
     setOpen(true);
-  }, [openedKey, sessionKey]);
-
-  useEffect(() => {
-    if (role === "unknown") return;
-    const frame = requestAnimationFrame(() => {
-      const firstOpen = !hasMarker("localStorage", openedKey, openedInMemory);
-      const rolloutSession = role === "front_desk" && Date.now() < ROLLOUT_END &&
-        !hasMarker("sessionStorage", sessionKey, sessionInMemory);
-      if (firstOpen || rolloutSession) openGuide(firstOpen ? "First app open" : "New Front Desk session");
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [openGuide, openedKey, role, sessionKey]);
-
-  useEffect(() => {
-    function clearSession() {
-      sessionInMemory.delete(sessionKey);
-      try { window.sessionStorage.removeItem(sessionKey); } catch { /* Storage may be unavailable. */ }
-    }
-    window.addEventListener("cmpri-workspace-sign-out", clearSession);
-    return () => window.removeEventListener("cmpri-workspace-sign-out", clearSession);
-  }, [sessionKey]);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -299,10 +259,12 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
   </div>;
 
   return <>
-    <button ref={trigger} type="button" className="cmpri-guide-launcher"
-      onClick={() => openGuide("Reopened from the dashboard")} aria-haspopup="dialog" aria-expanded={open}>
-      Beginner’s Guide
-    </button>
+    <div ref={setAnimationControlHost} className="cmpri-guide-launchers">
+      <button ref={trigger} type="button" className="cmpri-guide-launcher"
+        onClick={openGuide} aria-haspopup="dialog" aria-expanded={open}>
+        Beginner’s Guide
+      </button>
+    </div>
     {open && <dialog
       ref={dialog}
       className="cmpri-beginners-guide"
@@ -371,14 +333,14 @@ export default function BeginnerGuide({ user }: { user: GuideUser }) {
         <GuideWalkthrough key={lesson.key} title={position.stop === ASK_CMPRI_STOP ? "Using Ask CMPRI" : lesson.title}
           purpose={lesson.purpose} when={lesson.when} action={action}
           onTry={action.target && (!lastAction || !lastStop) ? next : undefined}
-          onPracticeAsk={position.stop === ASK_CMPRI_STOP ? openPracticeAsk : undefined}
+          onPracticeAsk={canUseAsk && position.stop === ASK_CMPRI_STOP ? openPracticeAsk : undefined}
           onPracticeWorkOrder={position.stop === ASK_CMPRI_STOP ? () => setPracticeOrderId(workOrderPracticeId) : undefined}
           onPracticeImage={practiceOrderId ? () => setPracticeOrderId("") : undefined}
           practice={practiceOrderId && position.stop === ASK_CMPRI_STOP ? <GuidePracticeWorkOrder key={practiceOrderId} id={practiceOrderId} /> : undefined} />
       </div>}
       <footer className="cmpri-guide-footer">
         <div className="cmpri-guide-footer-controls">
-          <p aria-live="polite">{content && (welcome ? launchReason : phase ? "Use Next to follow the work order." :
+          <p aria-live="polite">{content && (welcome ? "Opened from the dashboard" : phase ? "Use Next to follow the work order." :
             lesson ? (position.stop === ASK_CMPRI_STOP ? lesson.title : "Tool " +
               (position.stop - FLOWCHART_STOP) + " of " + content.lessons.length) + " · Action " +
               (position.action + 1) + " of " + stepsInStop : "")}</p>

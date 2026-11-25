@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import assets from "@/lib/ui/football-assets.json";
 import { ensureFootballCache } from "@/lib/ui/football-cache";
+import { SeasonalAnimationControl } from "./seasonal-animation-controls";
 
 type ArtworkState = { paused: boolean; ready: boolean; painted: boolean };
 type ArtworkControl =
@@ -67,17 +68,19 @@ export default function FootballBackground() {
           onLoad={handleLoad}
         />
       </div>
-      <button
-        hidden={!visible}
-        disabled={!artwork.ready}
-        className="cmpri-animation-control cmpri-football-animation-control"
-        type="button"
-        aria-label={artwork.paused ? "Resume football animation" : "Pause football animation"}
-        aria-pressed={artwork.paused}
-        onClick={() => sendControl({ action: "toggle" })}
-      >
-        {artwork.paused ? "▶" : "Ⅱ"}
-      </button>
+      <SeasonalAnimationControl>
+        <button
+          hidden={!visible}
+          disabled={!artwork.ready}
+          className="cmpri-animation-control cmpri-football-animation-control"
+          type="button"
+          aria-label={artwork.paused ? "Resume football animation" : "Pause football animation"}
+          aria-pressed={artwork.paused}
+          onClick={() => sendControl({ action: "toggle" })}
+        >
+          {artwork.paused ? "▶" : "Ⅱ"}
+        </button>
+      </SeasonalAnimationControl>
     </>
   );
 }

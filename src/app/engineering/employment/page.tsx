@@ -1,5 +1,7 @@
 "use client";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
+import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { timeFormatOptions } from "@/lib/ui/time-format";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createClient, getValidSession } from "@/lib/supabase/client";
 
@@ -7,6 +9,7 @@ type Application = { id: string; created_at: string; name?: string; email?: stri
 const departmentName = (department: unknown) => department === "front" ? "Front Desk" : "Maintenance";
 export default function EmploymentReview() {
   const {t: ui, tt: tip, locale} = useUiLanguage();
+  const timeFormat = useTimeFormat();
   const [list, setList] = useState<Application[]>([]);
   const [selected, setSelected] = useState<Application | null>(null);
   const [message, setMessage] = useState("Loading private questionnaires…");
@@ -73,6 +76,6 @@ export default function EmploymentReview() {
     <button onClick={() => void load()} className="rounded border px-3 py-1">{selected ? ui("Back to questionnaires") : ui("Refresh")}</button>
     <p role="status">{ui(message)}</p>
     {selected?.resumeName && <div className="my-3"><button onClick={() => void openResume()}>{ui("View original PDF: ")}{selected.resumeName}</button>{resumeUrl && <div><button onClick={clearResume}>{ui("Close PDF")}</button><iframe title={tip("Original résumé PDF")} src={resumeUrl} style={{ width: '100%', height: '75vh' }} /></div>}</div>}
-    {selected ? <dl>{Object.entries(selected.answers || {}).map(([key, value]) => <div key={key} style={{ padding: "5px 0", borderBottom: "1px solid var(--cmpri-outline,#555)" }}><dt style={{ fontSize: 12, color: "var(--cmpri-modal-muted,#a3a3a3)" }}>{ui(labels[key] || key)}</dt><dd style={{ margin: "2px 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{key === 'department' ? ui(departmentName(value)) : display(value)}</dd></div>)}</dl> : <div>{!message && list.length === 0 && <p>{ui("No questionnaires yet.")}</p>}{list.map(item => <button key={item.id} onClick={() => void load(item.id)} style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 4px", borderBottom: "1px solid var(--cmpri-outline,#555)", overflowWrap: "anywhere" }}><small>{ui(departmentName(item.department))}</small><br /><strong>{item.name}</strong> · {item.email}<br /><small>{new Date(item.created_at).toLocaleString(locale)}</small></button>)}</div>}
+    {selected ? <dl>{Object.entries(selected.answers || {}).map(([key, value]) => <div key={key} style={{ padding: "5px 0", borderBottom: "1px solid var(--cmpri-outline,#555)" }}><dt style={{ fontSize: 12, color: "var(--cmpri-modal-muted,#a3a3a3)" }}>{ui(labels[key] || key)}</dt><dd style={{ margin: "2px 0", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{key === 'department' ? ui(departmentName(value)) : display(value)}</dd></div>)}</dl> : <div>{!message && list.length === 0 && <p>{ui("No questionnaires yet.")}</p>}{list.map(item => <button key={item.id} onClick={() => void load(item.id)} style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 4px", borderBottom: "1px solid var(--cmpri-outline,#555)", overflowWrap: "anywhere" }}><small>{ui(departmentName(item.department))}</small><br /><strong>{item.name}</strong> · {item.email}<br /><small>{new Date(item.created_at).toLocaleString(locale, timeFormatOptions(timeFormat))}</small></button>)}</div>}
   </main>;
 }

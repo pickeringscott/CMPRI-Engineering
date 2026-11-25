@@ -1,0 +1,6 @@
+.notepad-page{display:flex;flex-direction:column;min-width:0;min-height:0;height:100dvh;overflow:hidden;background:var(--cmpri-modal-base);color:var(--cmpri-modal-text)}
+.notepad-page-heading{display:flex;align-items:center;justify-content:space-between;flex:0 0 28px;gap:3px;padding:1px 3px;border-bottom:1px solid var(--cmpri-outline);font-size:13px}
+.notepad-page-heading h1{margin:0;font-size:inherit;font-weight:600}
+.notepad-page-heading>div{display:flex;align-items:center;gap:3px}
+.notepad-page-heading button{display:grid;place-items:center;min-width:24px;min-height:24px;width:24px;height:24px;padding:0;border:0;background:transparent;color:inherit;font-size:20px;line-height:1}
+.notepad-page-heading button:hover{background:rgba(var(--cmpri-action-rgb),.12)}
