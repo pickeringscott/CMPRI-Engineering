@@ -171,7 +171,8 @@ body{margin:0}
 .window-wrap:not(.is-mobile) .layout-1 .note-metadata{display:grid;grid-template-columns:minmax(0,1fr) auto}
 .window-wrap:not(.is-mobile) .layout-1 .note-attribution{display:flex;align-items:baseline;justify-content:flex-end;gap:4px}
 .window-wrap:not(.is-mobile) .layout-1 .notepad-formatting :is(.fmt-font,.fmt-size){
-  position:relative;justify-content:center;padding-inline:14px;text-align:center;text-align-last:center;
+  position:relative;width:128px;min-width:128px;justify-content:center;
+  padding-inline:4px 22px;text-align:center;text-align-last:center;
 }
 @supports selector(::picker-icon){
   .window-wrap:not(.is-mobile) .layout-1 .notepad-formatting :is(.fmt-font,.fmt-size)::picker-icon{
