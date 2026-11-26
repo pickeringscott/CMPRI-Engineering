@@ -47,13 +47,18 @@ export default function WeatherManualAlertPresentation({ alert, scope, bulletinH
     const priorDepth = header.style.getPropertyValue(property);
     const menu = header.querySelector(".cmpri-header-v23.anchored-menu");
     const measure = () => {
-      const depth = Math.ceil(bulletinHost.getBoundingClientRect().height) + "px";
+      const clearance = bulletinHost.getBoundingClientRect().bottom - header.getBoundingClientRect().bottom;
+      const depth = Math.max(0, Math.ceil(clearance)) + "px";
       if (header.style.getPropertyValue(property) === depth) return;
       header.style.setProperty(property, depth);
       menu?.dispatchEvent(new Event("cmpri-menu-placement"));
     };
     const observer = new ResizeObserver(measure);
+    observer.observe(header);
     observer.observe(bulletinHost);
+    for (let row = header.nextElementSibling; row && row !== bulletinHost; row = row.nextElementSibling) {
+      observer.observe(row);
+    }
     measure();
     return () => {
       observer.disconnect();
