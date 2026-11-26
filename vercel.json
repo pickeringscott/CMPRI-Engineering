@@ -2,7 +2,8 @@
   "git": {
     "deploymentEnabled": {
       "codex/ask-cmpri-runtime-fix": false,
-      "codex/notepad-approved-html": false
+      "codex/notepad-approved-html": false,
+      "codex/weather-alert-radar-review": false
     }
   },
   "crons": [
