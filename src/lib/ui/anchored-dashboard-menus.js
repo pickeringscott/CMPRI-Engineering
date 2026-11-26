@@ -617,7 +617,7 @@ export function mountAnchoredMenus(root, groups, onLaunch, layout, onSave, { can
       b.dataset.key = action.key;
       b.dataset.layoutKey = action.key + '::' + action.label.replace(/ \(\d+\)$/, '');
       b.dataset.control = action.label;
-      const updateButton = () => { b.textContent = translate(action.label); b.title = tooltip('Drag to reorder or move to another tab (touch: long press)'); delete b.dataset.staffNotesBaseTitle; };
+      const updateButton = () => { b.textContent = translate(action.label); b.title = action.tooltip ? translate(action.tooltip) : tooltip('Drag to reorder or move to another tab (touch: long press)'); delete b.dataset.staffNotesBaseTitle; };
       presentationLabels.push(updateButton); updateButton();
       for (const [key, value] of Object.entries(action.style || {}))
         b.style.setProperty(key, value);

@@ -177,7 +177,10 @@
 #previewAlert:active { background: #ffdc69; }
 #publishAlert { color: #fff8e6; background: #833e43; border-color: #a95c62; }
 #publishAlert:active { color: #1d0c0c; background: #ef565f; }
-.manual-alert #formMessage { color: #ffb39b; font-size: 11px; }
+#deleteAlert { margin-inline-start: auto; color: #f5f5f5; background: #000; border-color: #4d4d4d; }
+#deleteAlert:is(:hover, :active) { border-color: #aaa; }
+.manual-alert #formMessage { color: #ccc; font-size: 11px; }
+.manual-alert #formMessage[data-error] { color: #ffb39b; }
 @media (max-width: 950px) {
   .manual-alert-controls { column-gap: 7px; font-size: 11px; }
   .manual-color-swatch { inline-size: 30px; }

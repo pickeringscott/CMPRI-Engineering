@@ -111,7 +111,12 @@ export default function SignInPage() {
       const redirectTo = `${window.location.origin}/`;
       const { data, error } = await createClient().auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo },
+        options: {
+          redirectTo,
+          ...(process.env.NEXT_PUBLIC_CMPRI_PREVIEW === "1"
+            ? { queryParams: { prompt: "select_account" }, skipBrowserRedirect: true }
+            : {}),
+        },
       });
       if (error) throw error;
       if (data?.url) {

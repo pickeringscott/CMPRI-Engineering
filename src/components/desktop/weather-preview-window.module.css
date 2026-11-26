@@ -22,6 +22,30 @@
 }
 .manualTitle time { white-space: nowrap; }
 .manualTicker:hover .tickerTrack { animation-play-state: running; }
+.notepadAttention :global([data-key="/notepad"]) { position: relative; }
+.notepadAttention :global([data-key="/notepad"])::before {
+  content: "!" / "";
+  position: absolute;
+  z-index: 1;
+  inset-block-start: 1px;
+  inset-inline-end: 7px;
+  display: grid;
+  place-items: center;
+  inline-size: 12px;
+  block-size: 12px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: #111;
+  color: #ff555b;
+  font: bold 10px/1 Arial, Helvetica, sans-serif;
+  animation: notepadWeatherAttention 1.35s steps(2, jump-none) infinite;
+  pointer-events: none;
+}
+.notepadAttention[data-cmpri-weather-notepad="watch"] :global([data-key="/notepad"])::before { color: #ffd752; }
+@keyframes notepadWeatherAttention { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .notepadAttention :global([data-key="/notepad"])::before { animation: none; }
+}
 .radarWallpaper {
   position: absolute;
   inset: 0;

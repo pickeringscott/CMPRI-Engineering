@@ -59,12 +59,16 @@ function classify(data: DashboardWeather | null) {
   const snow = /snow|flurr|blizzard|sleet|ice pellets|wintry mix/.test(label);
   const rain = /rain|drizzle|\bfzra\b/.test(label) || (!snow && /showers/.test(label)) || (thunder && !snow);
   const fog = /fog|mist|haze/.test(label);
-  const strongWind = (data?.wind ?? 0) >= 35 || /windy|strong wind|dust storm/.test(label);
+  const speed = data?.wind ?? 0;
+  const severe = thunder || speed >= 35 || ((rain || snow) && /\bheavy\b/.test(label))
+    || /freezing rain|fzra|hail|sleet|blizzard|dense fog|squall|tropical storm|hurricane|dust storm|tornado/.test(label);
+  const limited = rain || snow || fog || speed >= 20 || /windy|breezy|strong wind/.test(label);
+  const foraging = severe ? "shelter" : limited ? "brief" : "roam";
   const cloudCover = thunder || snow || rain ? 1 : fog || /overcast|\bovc\b/.test(label) ? .92
     : /mostly cloudy|\bbkn\b/.test(label) ? .78 : /partly cloudy|partly sunny|\bsct\b/.test(label) ? .45
       : /mostly sunny|mostly clear|few clouds|\bfew\b/.test(label) ? .18 : /cloudy/.test(label) ? .88
         : /clear|sunny|fair|\bskc\b/.test(label) ? .06 : null;
-  return { thunder, snow, rain, fog, strongWind, cloudCover };
+  return { thunder, snow, rain, fog, foraging, cloudCover } as const;
 }
 
 function number(value: unknown) {

@@ -63,13 +63,19 @@ test('Google OAuth returns to the browser origin, including the local developmen
   const source = ts.transpileModule(`${signIn.getText(ast)}\nexports.signIn = signInWithGoogle;`, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  for (const origin of ['http://127.0.0.1:3100', 'http://localhost:3100', 'https://www.cmpri-engineering.com']) {
+  for (const [origin, preview] of [
+    ['http://127.0.0.1:3100', true],
+    ['https://cmpri-preview.example', true],
+    ['http://localhost:3100', false],
+    ['https://www.cmpri-engineering.com', false],
+  ]) {
     const exported = {};
     const requests = [];
     const navigations = [];
     const messages = [];
     vm.runInNewContext(source, {
       exports: exported,
+      process: { env: { NEXT_PUBLIC_CMPRI_PREVIEW: preview ? '1' : '0' } },
       window: { location: { origin, assign: url => navigations.push(url) }, sessionStorage: { setItem() {}, removeItem() {} } },
       OAUTH_PENDING_KEY: 'pending', rememberMe: false,
       setBusy() {}, setRememberOnDevice() {}, setRedirecting() {}, setMessage: value => messages.push(value),
@@ -81,6 +87,8 @@ test('Google OAuth returns to the browser origin, including the local developmen
     await exported.signIn();
     assert.equal(requests[0].provider, 'google');
     assert.equal(requests[0].options.redirectTo, `${origin}/`);
+    assert.equal(requests[0].options.queryParams?.prompt, preview ? 'select_account' : undefined);
+    assert.equal(requests[0].options.skipBrowserRedirect, preview ? true : undefined);
     assert.deepEqual(navigations, ['https://auth.example/authorize']);
     assert.deepEqual(messages, ['']);
   }

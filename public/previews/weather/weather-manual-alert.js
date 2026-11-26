@@ -7,6 +7,22 @@
   const modalToken = query.get('modalToken');
   if (!form || !modalToken || query.get('embedded') !== '1' || window.parent === window) return;
   let permitted = false;
+  let mutationPending = false;
+  const publish = $('publishAlert');
+  const remove = $('deleteAlert');
+  const message = $('formMessage');
+
+  function showResult(text, error = false) {
+    message.hidden = !text;
+    message.toggleAttribute('data-error', error);
+    message.textContent = text;
+  }
+
+  function setMutationPending(pending) {
+    mutationPending = pending;
+    publish.disabled = pending;
+    remove.disabled = pending;
+  }
 
   function inputValue(time) {
     const { year, month, day, hour, minute, second } = window.cmpriWeatherClock.parts(time);
@@ -273,6 +289,7 @@
   severity.addEventListener('keydown', () => requestAnimationFrame(makeRoomForSeverity));
   severity.addEventListener('change', () => {
     $('radarOverride').disabled = severity.value === 'notice';
+    $('alertNotepad').disabled = severity.value !== 'watch' && severity.value !== 'warning';
   });
   if ('popoverTargetElement' in HTMLButtonElement.prototype) {
     form.querySelectorAll('.manual-color-swatch').forEach(bindBannerColor);
@@ -296,6 +313,11 @@
     if (event.data.type === 'cmpri-weather-manual-alert-access') {
       permitted = event.data.allowed === true;
       form.hidden = !permitted;
+      if (!permitted) setMutationPending(false);
+    }
+    if (permitted && event.data.type === 'cmpri-weather-manual-alert-result') {
+      if (typeof event.data.pending === 'boolean') setMutationPending(event.data.pending);
+      if (typeof event.data.message === 'string') showResult(event.data.message, event.data.ok === false);
     }
     if (!permitted || (event.data.type === 'cmpri-weather-view-state' && event.data.visible !== true)) {
       if (CSS.supports('selector(:popover-open)')) form.querySelector('[popover]:popover-open')?.hidePopover();
@@ -307,25 +329,36 @@
     event.preventDefault();
     if (!permitted) return;
     const mode = event.submitter?.value;
-    if (mode !== 'preview' && mode !== 'publish') return;
+    if (mode !== 'preview' && mode !== 'publish' && mode !== 'delete') return;
+    if (mode !== 'preview' && mutationPending) return;
+    if (mode === 'delete') {
+      setMutationPending(true);
+      showResult('Deleting…');
+      window.parent.postMessage({ type: 'cmpri-weather-manual-alert-submit', modalToken, mode }, location.origin);
+      return;
+    }
     const custom = $('customEnabled').checked;
     const text = $('bannerText').value.trim();
     const selectedSeverity = severity.value || 'advisory';
     const override = selectedSeverity !== 'notice' && $('radarOverride').checked;
     const now = Date.now();
     const expires = utcFromCentral($('expiresAt').value);
-    const error = custom && !text ? 'Enter banner text or turn the custom banner off.'
+    const error = text.length > 2000 ? 'Use 2,000 characters or fewer for the banner.'
+      : custom && !text ? 'Enter banner text or turn the custom banner off.'
       : (custom || override) && (!Number.isFinite(expires) || expires <= now) ? 'Choose a future expiration.' : '';
-    const message = $('formMessage');
-    message.hidden = !error;
-    message.textContent = error;
+    showResult(error, Boolean(error));
     if (error) return;
+    if (mode === 'publish') {
+      setMutationPending(true);
+      showResult('Publishing…');
+    }
     window.parent.postMessage({
       type: 'cmpri-weather-manual-alert-submit', modalToken, mode,
       payload: {
         custom, text, severity: selectedSeverity, override,
         expires: Number.isFinite(expires) && expires > now ? expires : now + 3_600_000,
         color: $('bannerColor').value, textColor: $('bannerTextColor').value,
+        attention: !$('alertNotepad').disabled && $('alertNotepad').checked,
       },
     }, location.origin);
   });

@@ -6,8 +6,10 @@ import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { useWeatherManualAlert } from "@/components/WeatherManualAlertProvider";
 import type { DesktopBounds, WindowRect } from "@/lib/ui/desktop-windows";
 import { timeFormatOptions } from "@/lib/ui/time-format";
+import { parseWeatherManualAlert } from "@/lib/weather/manual-alert";
 import { armWeatherWarningSound, playWeatherWarningSound, stopWeatherWarningSound } from "@/lib/weather-warning-sound";
 import styles from "./weather-preview-window.module.css";
 
@@ -22,17 +24,6 @@ type SafetyState = {
   status: string; checkedAt: number | null; source: string | null; error: string;
   alerts: SafetyRecord[]; notifications: SafetyRecord[]; autoOpenKeys: string[];
 };
-const MANUAL_TITLES = {
-  notice: "Property weather notice",
-  advisory: "Property weather advisory",
-  watch: "Property weather watch",
-  warning: "Property weather warning",
-} as const;
-type ManualAlert = {
-  severity: keyof typeof MANUAL_TITLES;
-  custom: boolean; text: string; override: boolean;
-  color: string; textColor: string; expires: number;
-};
 type Props = {
   windowKey: string; title: string; accentClass: string; src: string;
   rect: WindowRect; bounds: DesktopBounds; zIndex: number; active: boolean;
@@ -40,7 +31,7 @@ type Props = {
   registerFrame: (frame: HTMLIFrameElement | null) => void;
   onOpen: (href: string, title: string) => void; onReturnToDesktop: () => void;
   visible: boolean; bulletinHost: HTMLElement | null;
-  canEditManualAlert?: boolean; wallpaperHost?: HTMLElement | null;
+  canEditManualAlert?: boolean;
 };
 
 const EMPTY: SafetyState = { status: "unavailable", checkedAt: null, source: null, error: "", alerts: [], notifications: [], autoOpenKeys: [] };
@@ -73,25 +64,13 @@ function parseState(input: unknown): SafetyState | null {
     alerts: records(value.alerts), notifications: records(value.notifications),
     autoOpenKeys: Array.isArray(value.autoOpenKeys) ? value.autoOpenKeys.filter((key): key is string => typeof key === "string" && key.length <= 1000).slice(0, 200) : [] };
 }
-function parseManualAlert(input: unknown): ManualAlert | null {
-  const value = object(input);
-  if (!value || typeof value.severity !== "string" || !Object.hasOwn(MANUAL_TITLES, value.severity)) return null;
-  const severity = value.severity as ManualAlert["severity"];
-  const color = string(value.color, 8), textColor = string(value.textColor, 8);
-  const hex = /^#[0-9a-f]{6}$/i;
-  const text = string(value.text, 2000).trim();
-  const custom = value.custom === true, override = value.override === true && severity !== "notice";
-  const expires = finite(value.expires);
-  if (expires === null || !Number.isFinite(new Date(expires).getTime()) || expires <= Date.now()
-    || !hex.test(color) || !hex.test(textColor) || custom && !text) return null;
-  return { severity, custom, text, override, color, textColor, expires };
-}
-
 /** Used only for the preview Weather route; every other desktop window keeps
  * its existing frame, titlebar, notification behavior, and permissions. */
 export default function WeatherPreviewWindow(props: Props) {
   const { t } = useUiLanguage();
   const timeFormat = useTimeFormat();
+  const manualAlerts = useWeatherManualAlert();
+  const manualAllowed = props.canEditManualAlert === true && manualAlerts.enabled;
   const [initialTimeFormat] = useState(timeFormat);
   const frameSrc = useMemo(() => {
     const url = new URL(props.src, "https://cmpri.invalid");
@@ -104,8 +83,6 @@ export default function WeatherPreviewWindow(props: Props) {
   }), [timeFormat]);
   const stamp = (value: number | null) => value === null ? t("Unavailable") : central.format(new Date(value));
   const [safety, setSafety] = useState<SafetyState>(EMPTY);
-  const [manualPreview, setManualPreview] = useState<ManualAlert | null>(null);
-  const [manualPublished, setManualPublished] = useState<ManualAlert | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [soundStatus, setSoundStatus] = useState<"idle" | "blocked" | "unavailable">("idle");
   const soundKey = useRef<string | null>(null);
@@ -114,8 +91,9 @@ export default function WeatherPreviewWindow(props: Props) {
   const snapshot = useRef<SafetyState>(EMPTY);
   const selected = useRef<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const wallpaperFrame = useRef<HTMLIFrameElement | null>(null);
-  const manualAccess = useRef(props.canEditManualAlert === true);
+  const manualActions = useRef(manualAlerts);
+  const manualAccess = useRef(manualAllowed);
+  const manualMutation = useRef(false);
   const returnToDesktop = useRef(props.onReturnToDesktop);
   const frameCleanup = useRef<(() => void) | null>(null);
   const registerRef = useRef(props.registerFrame);
@@ -126,6 +104,7 @@ export default function WeatherPreviewWindow(props: Props) {
   const token = new URL(props.src, "https://cmpri.invalid").searchParams.get("modalToken");
   useEffect(() => { registerRef.current = props.registerFrame; }, [props.registerFrame]);
   useEffect(() => { returnToDesktop.current = props.onReturnToDesktop; }, [props.onReturnToDesktop]);
+  useEffect(() => { manualActions.current = manualAlerts; }, [manualAlerts]);
 
   const send = useCallback((type: string, extra: Record<string, unknown> = {}) => {
     frameRef.current?.contentWindow?.postMessage({ type, modalToken: token, ...extra }, window.location.origin);
@@ -180,23 +159,12 @@ export default function WeatherPreviewWindow(props: Props) {
   useEffect(() => {
     timeFormatRef.current = timeFormat;
     send("cmpri-time-format-updated", { timeFormat });
-    wallpaperFrame.current?.contentWindow?.postMessage({ type: "cmpri-time-format-updated", timeFormat }, window.location.origin);
   }, [timeFormat, send]);
 
   useEffect(() => {
-    manualAccess.current = props.canEditManualAlert === true;
-    send("cmpri-weather-manual-alert-access", { allowed: manualAccess.current });
-  }, [props.canEditManualAlert, send]);
-
-  useEffect(() => {
-    if (!manualPreview && !manualPublished) return;
-    const timer = window.setInterval(() => {
-      const now = Date.now();
-      setManualPreview(current => current && current.expires <= now ? null : current);
-      setManualPublished(current => current && current.expires <= now ? null : current);
-    }, 500);
-    return () => window.clearInterval(timer);
-  }, [manualPreview, manualPublished]);
+    manualAccess.current = manualAllowed;
+    send("cmpri-weather-manual-alert-access", { allowed: manualAllowed });
+  }, [manualAllowed, send]);
 
   useEffect(() => {
     visibleRef.current = props.visible;
@@ -204,21 +172,56 @@ export default function WeatherPreviewWindow(props: Props) {
   }, [props.visible, send]);
 
   useEffect(() => {
+    const manualResult = (ok: boolean, message: string, pending?: boolean) =>
+      send("cmpri-weather-manual-alert-result", { ok, message, pending });
+    const manualFailure = (error: unknown, pending?: boolean) => {
+      const message = error instanceof Error ? error.message.trim() : "";
+      manualResult(false, message.slice(0, 240) || "Weather alert could not be updated.", pending);
+    };
+    const closeMobile = () => {
+      if (window.matchMedia("(max-width: 700px)").matches) returnToDesktop.current();
+    };
+    async function submitManual(mode: unknown, payload: unknown) {
+      if (!manualAccess.current || !visibleRef.current || (mode !== "preview" && mode !== "publish" && mode !== "delete")) return;
+      const alert = mode === "delete" ? null : parseWeatherManualAlert(payload);
+      if (mode !== "delete" && !alert) {
+        manualResult(false, "Review the alert settings and choose a future expiration.", mode === "publish" ? false : undefined);
+        return;
+      }
+      if (mode === "preview" && alert) {
+        try {
+          manualActions.current.showPreview(alert);
+          manualResult(true, "Private weather preview updated.");
+          closeMobile();
+        } catch (error) {
+          manualFailure(error);
+        }
+        return;
+      }
+      if (manualMutation.current) return;
+      manualMutation.current = true;
+      try {
+        if (mode === "delete") {
+          await manualActions.current.deleteAlert();
+          manualResult(true, "Weather alert deleted.", false);
+        } else if (alert) {
+          await manualActions.current.publish(alert);
+          manualResult(true, "Weather alert published.", false);
+          closeMobile();
+        }
+      } catch (error) {
+        manualFailure(error, false);
+      } finally {
+        manualMutation.current = false;
+      }
+    }
     function receive(event: MessageEvent) {
       const data = object(event.data), frame = frameRef.current;
       if (!data || !frame || !token || event.origin !== window.location.origin || event.source !== frame.contentWindow || data.modalToken !== token) return;
       if (data.type === "cmpri-weather-manual-alert-request-access") {
         send("cmpri-weather-manual-alert-access", { allowed: manualAccess.current });
       } else if (data.type === "cmpri-weather-manual-alert-submit") {
-        if (!manualAccess.current || !visibleRef.current || (data.mode !== "preview" && data.mode !== "publish")) return;
-        const alert = parseManualAlert(data.payload);
-        if (!alert) return;
-        if (data.mode === "preview") setManualPreview(alert);
-        else {
-          setManualPublished(alert.custom || alert.override ? alert : null);
-          setManualPreview(null);
-        }
-        returnToDesktop.current();
+        void submitManual(data.mode, data.payload);
       } else if (data.type === "cmpri-weather-safety-state") {
         const next = parseState(data.payload); if (!next) return;
         const previous = snapshot.current;
@@ -265,62 +268,8 @@ export default function WeatherPreviewWindow(props: Props) {
     </span>
   </button> : undefined;
 
-  const manual = props.canEditManualAlert ? manualPreview ?? manualPublished : null;
-  const manualScope = manualPreview ? "preview" : "publish";
-  const manualText = manual?.custom ? manual.text : "";
-  const manualTickerVisible = Boolean(manualText);
-  useEffect(() => {
-    const host = props.bulletinHost;
-    const header = host?.parentElement?.querySelector<HTMLElement>(":scope > header.cmpri-dashboard-titlebar");
-    if (!manualTickerVisible || !host || !header) return;
-    const property = "--cmpri-active-weather-ticker-depth";
-    const priorDepth = header.style.getPropertyValue(property);
-    const menu = header.querySelector(".cmpri-header-v23.anchored-menu");
-    const measure = () => {
-      const depth = Math.ceil(host.getBoundingClientRect().height) + "px";
-      if (header.style.getPropertyValue(property) === depth) return;
-      header.style.setProperty(property, depth);
-      menu?.dispatchEvent(new Event("cmpri-menu-placement"));
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(host);
-    measure();
-    return () => {
-      observer.disconnect();
-      if (priorDepth) header.style.setProperty(property, priorDepth);
-      else header.style.removeProperty(property);
-      menu?.dispatchEvent(new Event("cmpri-menu-placement"));
-    };
-  }, [manualTickerVisible, props.bulletinHost]);
-  const wallpaperVisible = Boolean(manual?.override && props.wallpaperHost);
-  useEffect(() => {
-    if (!wallpaperVisible) return;
-    const notify = () => window.dispatchEvent(new Event("cmpri-weather-wallpaper-change"));
-    notify();
-    return () => { notify(); };
-  }, [wallpaperVisible]);
-
   return <>
-    {props.bulletinHost && (ticker || manualText) ? createPortal(<>
-      {ticker}
-      {manual && manualText ? <section data-weather-alert-ticker data-weather-manual-alert-ticker={manualScope} role="status"
-        className={styles.manualBulletin} style={{ background: manual.color, color: manual.textColor }}>
-        <header className={styles.manualTitle}>
-          <strong>{t(MANUAL_TITLES[manual.severity])}</strong>
-          <span>{t(manualPreview ? "Private preview" : "Simulated publish")}</span>
-          <time dateTime={new Date(manual.expires).toISOString()}>{t("Until")} {stamp(manual.expires)}</time>
-        </header>
-        <div className={`${styles.ticker} ${styles.manualTicker}`}>
-          <span className={styles.tickerTrack} style={{ animationDuration: Math.max(16, manualText.length * .075) + "s" }}>{manualText}</span>
-        </div>
-      </section> : null}
-    </>, props.bulletinHost) : null}
-    {props.wallpaperHost && wallpaperVisible ? createPortal(<iframe ref={wallpaperFrame}
-      className={styles.radarWallpaper} data-cmpri-weather-wallpaper title={t("Live radar desktop wallpaper")} allowFullScreen
-      src={`/previews/cmpri-weather-preview.html?radarOnly=wallpaper&timeFormat=${initialTimeFormat}`}
-      onLoad={() => wallpaperFrame.current?.contentWindow?.postMessage({
-        type: "cmpri-time-format-updated", timeFormat: timeFormatRef.current,
-      }, window.location.origin)} />, props.wallpaperHost) : null}
+    {props.bulletinHost && ticker ? createPortal(ticker, props.bulletinHost) : null}
     <div hidden={!props.visible} data-weather-cached-window data-weather-visible={props.visible ? "true" : "false"} style={{ display: props.visible ? "contents" : "none" }}>
     <DesktopWindow windowKey={props.windowKey} title={t(props.title)} accentClass={props.accentClass} rect={props.rect} bounds={props.bounds} zIndex={props.zIndex} active={props.active} onFocus={props.onFocus} onClose={props.onClose} onRectCommit={props.onRectCommit}>
       <DesktopFrame src={frameSrc} title={t(props.title)} registerFrame={attachFrame} onFocus={props.onFocus} onOpen={props.onOpen} onReturnToDesktop={props.onReturnToDesktop} />

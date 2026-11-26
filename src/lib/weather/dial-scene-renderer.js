@@ -1,6 +1,6 @@
 // Decorative, pointer-free weather dial art on the shared 100-unit artboard.
 
-const squirrelNest = { x: 26.7, y: 33.7 };
+const squirrelNest = { x: 26.7, y: 33.7, scale: .77 };
 
 function createDialSquirrels() {
   const base = { x: 28, y: 77 };
@@ -26,7 +26,12 @@ function createDialSquirrels() {
   ].map((animal, index) => ({
     ...animal,
     coat: coats[index],
-    nest: { x: squirrelNest.x + (index - 1) * 6.1, y: squirrelNest.y + (index === 1 ? -.4 : .1), tree: true, insideNest: true },
+    nest: {
+      x: squirrelNest.x + (index - 1) * 6.1 * squirrelNest.scale,
+      y: squirrelNest.y + (index === 1 ? -.4 : .1) * squirrelNest.scale,
+      tree: true,
+      insideNest: true,
+    },
     phase: range(0, 2 * Math.PI),
     wait: range(0.15, 0.48) + 0.15 * index,
     speed: range(10, 14),
@@ -37,6 +42,9 @@ function createDialSquirrels() {
   const treePoint = (point) => ({ ...point, tree: true });
   const approach = top.slice(0, -1).map(treePoint);
   const fork = treePoint({ x: 28.5, y: 42.6 });
+  const nearbyBranches = [treePoint({ x: 23, y: 40 }), treePoint({ x: 32.2, y: 41.6 }), treePoint({ x: 35.5, y: 45.1 })];
+  const nesting = mode => mode === 'sleep' || mode === 'shelter';
+  const restBetweenTrips = () => range(6, 12);
   let climber = animals[0];
   let snow = 0;
   let mode;
@@ -54,11 +62,13 @@ function createDialSquirrels() {
     if (!previous) {
       if (mode !== 'roam') {
         climber = null;
-        animals.forEach(animal => Object.assign(animal, animal.nest, { waypoints: [] }));
+        animals.forEach((animal, index) => Object.assign(animal, animal.nest, {
+          waypoints: [], wait: range(2.5, 5) + index * 1.3,
+        }));
       }
       return;
     }
-    if (previous !== 'roam' && mode !== 'roam') return;
+    if (nesting(previous) && nesting(mode)) return;
     climber = null;
     animals.forEach((animal, index) => {
       const onTree = animal.tree || Boolean(animal.destination?.tree);
@@ -68,6 +78,9 @@ function createDialSquirrels() {
         animal.waypoints = animal.insideNest ? [fork, ...descent] : descent;
         animal.wait = animal.insideNest ? range(.12, .4) + index * .68 : 0;
         animal.stops = Math.floor(range(2, 5));
+      } else if (animal.insideNest) {
+        animal.waypoints = [];
+        animal.wait = range(2.5, 5) + index * 1.3;
       } else {
         const ascent = onTree ? approach.slice(branchIndex) : [base, ...approach];
         animal.waypoints = [...ascent, fork, animal.nest];
@@ -94,6 +107,18 @@ function createDialSquirrels() {
 
   function nextDestination(animal) {
     if (animal.waypoints.length) return animal.waypoints.shift();
+    if (mode === 'brief') {
+      // In unsettled weather, mostly forage on nearby branches. Ground trips
+      // stay near the base of the tree and end at the nest between outings.
+      if (Math.random() < .75) {
+        const branch = nearbyBranches[Math.floor(range(0, nearbyBranches.length))];
+        animal.waypoints = [{ ...branch, perch: true }, fork, animal.nest];
+      } else {
+        const nearbyGround = { x: range(31, 40), y: range(77, 81), perch: true };
+        animal.waypoints = [...approach.slice().reverse(), base, nearbyGround, base, ...approach, fork, animal.nest];
+      }
+      return fork;
+    }
     if (climber === animal) {
       climber = null;
       animal.stops = Math.floor(range(2, 5));
@@ -123,15 +148,14 @@ function createDialSquirrels() {
   function step(delta, scene) {
     const dt = Math.max(0, Math.min(0.075, Number(delta) || 0));
     snow = scene.snowCover ? 1 : 0;
-    const inclement = scene.rain || scene.snow || scene.thunder || scene.fog || scene.strongWind;
-    setMode(!scene.isDay ? 'sleep' : inclement ? 'shelter' : 'roam');
+    setMode(scene.isDay ? scene.foraging : 'sleep');
     for (let index = tracks.length - 1; index >= 0; index--) {
       const track = tracks[index];
       track.life -= dt * (snow > 0.2 ? 1 : 6);
       if (track.life <= 0) tracks.splice(index, 1);
     }
     for (const animal of animals) {
-      if (animal.insideNest && mode !== 'roam') {
+      if (animal.insideNest && nesting(mode)) {
         animal.phase += dt * 1.6;
         continue;
       }
@@ -147,7 +171,7 @@ function createDialSquirrels() {
       const dy = target.y - animal.y;
       const distance = Math.hypot(dx, dy);
       const climbing = animal.tree || Boolean(target.tree);
-      const travel = Math.min(distance, animal.speed * (climbing ? 0.81 : 1) * (mode === 'roam' ? 1 : 1.37) * dt);
+      const travel = Math.min(distance, animal.speed * (climbing ? 0.81 : 1) * (nesting(mode) ? 1.37 : 1) * dt);
       if (distance > 0.001) {
         animal.x += travel * dx / distance;
         animal.y += travel * dy / distance;
@@ -162,7 +186,8 @@ function createDialSquirrels() {
         animal.tree = Boolean(target.tree);
         animal.insideNest = Boolean(target.insideNest);
         animal.destination = null;
-        animal.wait = target.perch ? range(0.7, 1.4) : animal.waypoints.length ? 0 : range(0.22, 0.75);
+        animal.wait = target.insideNest && mode === 'brief' ? restBetweenTrips()
+          : target.perch ? range(0.7, 1.4) : animal.waypoints.length ? 0 : range(0.22, 0.75);
       }
     }
   }
@@ -291,7 +316,7 @@ function createDialSquirrels() {
       if (animal.insideNest) {
         const sleeping = mode === 'sleep';
         const height = sleeping ? .54 + .025 * Math.sin(animal.phase) : .8;
-        ctx.scale(.72, height);
+        ctx.scale(.72 * squirrelNest.scale, height * squirrelNest.scale);
         profile(ctx, animal.coat, animal.phase, false, sleeping);
         ctx.restore();
         continue;
@@ -322,7 +347,7 @@ function createDialSquirrels() {
  * @typedef {{ time: number, isDay: boolean, sunAltitude: number, season: string,
  *   leafCover: number, cloudCover: number | null, moonPhase: number | null,
  *   moonAltitude: number, rain: boolean, snow: boolean, thunder: boolean, fog: boolean,
- *   strongWind: boolean, snowCover: boolean, treeSnow: boolean }} DialScene
+ *   foraging: 'roam' | 'brief' | 'shelter', snowCover: boolean, treeSnow: boolean }} DialScene
  */
 
 /** @param {HTMLCanvasElement} canvas @param {() => DialScene} readScene */
@@ -559,6 +584,7 @@ export function mountDialScene(canvas, readScene) {
     const shade = color(blend([52, 42, 49], [108, 65, 37], daylight));
     target.save();
     target.translate(squirrelNest.x, squirrelNest.y);
+    target.scale(squirrelNest.scale, squirrelNest.scale);
     target.lineCap = 'round';
     target.lineJoin = 'round';
     target.strokeStyle = fiber;
@@ -723,7 +749,7 @@ export function mountDialScene(canvas, readScene) {
     if (!scene.thunder && current.thunder) strikeAt = elapsed + .6;
     scene = current;
     if (reducedMotion.matches) {
-      const mode = scene.isDay ? Boolean(scene.rain || scene.snow || scene.thunder || scene.fog || scene.strongWind) : 'night';
+      const mode = scene.isDay ? scene.foraging : 'sleep';
       if (mode !== pausedMode) squirrels = createDialSquirrels();
       pausedMode = mode;
     } else {

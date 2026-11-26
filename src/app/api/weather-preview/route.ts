@@ -1,11 +1,10 @@
 import { dashboardWeather } from '../../../lib/weather/dashboard-weather';
+import { NWS_WEATHER_API as API, readPropertyWeatherAlerts } from '../../../lib/weather/property-alerts';
 
 /** Foreground Weather reads from fixed official NWS sources; no application data. */
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-const API = 'https://api.weather.gov';
-const POINT = '40.138080,-88.251416';
 const OBSERVATION_STATION_ID = 'KCMI';
 const OBSERVATION_SOURCE = API + '/stations/' + OBSERVATION_STATION_ID + '/observations/latest';
 const HISTORY_PATH = '/stations/' + OBSERVATION_STATION_ID + '/observations';
@@ -55,9 +54,6 @@ function officialUrl(value: unknown): URL | null {
   try {
     const url = new URL(value);
     if (url.origin !== API || url.username || url.password || url.hash) return null;
-    if (url.pathname === '/alerts/active') {
-      return url.searchParams.get('point') === POINT && Array.from(url.searchParams.keys()).length === 1 ? url : null;
-    }
     if (url.pathname === HISTORY_PATH) {
       const keys = Array.from(url.searchParams.keys());
       if (keys.length !== 3 || keys.some(key => !['start', 'end', 'limit'].includes(key))
@@ -111,7 +107,7 @@ async function read(source: unknown, signal: AbortSignal): Promise<Resource> {
     if (!data) throw new Error('NWS returned an invalid JSON document.');
     if (url.pathname === HISTORY_PATH) {
       if (data.type !== 'FeatureCollection' || !Array.isArray(data.features) || data.features.length > HISTORY_LIMIT) throw new Error('NWS returned no bounded observation feature collection.');
-    } else if (url.pathname === '/alerts/active' || url.pathname.endsWith('/stations')) {
+    } else if (url.pathname.endsWith('/stations')) {
       if (!Array.isArray(data.features)) throw new Error('NWS returned no verifiable feature collection.');
     } else {
       const properties = object(data.properties);
@@ -235,7 +231,7 @@ export async function GET(request: Request) {
       resources: { history: history.resource } }, { headers });
   }
   if (part === 'alerts') {
-    const alerts = await read(API + '/alerts/active?point=' + POINT, request.signal);
+    const alerts = await readPropertyWeatherAlerts(request.signal);
     return Response.json({ location: LOCATION, checkedAt: new Date().toISOString(), resources: { alerts } }, { headers });
   }
   if (part === 'forecast') {
@@ -245,7 +241,7 @@ export async function GET(request: Request) {
   const [property, observation, alerts] = await Promise.all([
     propertyResources(request.signal, true),
     observationResource(request.signal),
-    read(API + '/alerts/active?point=' + POINT, request.signal),
+    readPropertyWeatherAlerts(request.signal),
   ]);
   // Preserve the legacy complete envelope and its more precise station-list
   // metadata, while fetching the observation exactly once and independently.

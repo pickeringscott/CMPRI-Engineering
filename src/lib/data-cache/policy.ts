@@ -1,9 +1,12 @@
 export type CachePolicy = { topics: string[]; ttl: number; durable: boolean };
 const second = 1000;
+const WEATHER_MANUAL_ALERT = '/api/weather-preview/manual-alert';
 /** App-local JSON only. Authentication, secrets, signed URLs and private files stay on the network. */
 export function dataCachePolicy(path: string, search?: URLSearchParams): CachePolicy | null {
   // Private notebook revisions are revalidated by its own local outbox and Realtime channel.
   if (path === '/api/notes') return null;
+  // Alert delivery polls on a revision and must see updates from other devices immediately.
+  if (path === WEATHER_MANUAL_ALERT) return null;
   // Notepad resolves tag details and suggestions against current record permissions.
   if (search?.get('notepad') === '1' && (path === '/api/notes/targets' || path === '/api/work-orders/references')) return null;
   // Checklist permissions, revisions and attached-source bytes are authoritative reads.
@@ -32,6 +35,7 @@ export function dataCachePolicy(path: string, search?: URLSearchParams): CachePo
 export function mutationTopics(path: string, method?: string): string[] | undefined {
   // Ask uses POST for searches and speech. Its confirmation client invalidates after an actual save attempt.
   if (/^\/api\/ask-cmpri(?:\/|$)/.test(path)) return [];
+  if (path === WEATHER_MANUAL_ALERT) return [];
   if (path === '/api/work-orders/drafts' && method === 'PUT') return []; // Starting an inactivity clock saves no data.
   if (path === '/api/notes') return []; // Never refresh work orders/rooms for a private autosave.
   if (/\/(extract|preview|parse|export|suggestions)(\/|$)/.test(path) || /\/staff-notes\/uploads$/.test(path)) return [];

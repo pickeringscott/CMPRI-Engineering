@@ -60,6 +60,9 @@ test('user, property, permission signature, route filters and transient response
   assert.equal(dataCachePolicy('/api/maintenance-reference').durable,true,'ordinary reference lists retain their cache policy');
   assert.equal(dataCachePolicy('/api/staff-notes').durable,false);
   assert.deepEqual(mutationTopics('/api/profile/header-layout'),[]);
+  assert.equal(dataCachePolicy('/api/weather-preview/manual-alert',new URLSearchParams('revision=none:clear')),null);
+  assert.deepEqual(mutationTopics('/api/weather-preview/manual-alert','POST'),[]);
+  assert.deepEqual(mutationTopics('/api/weather-preview/manual-alert','DELETE'),[]);
 });
 
 test('Notepad tag suggestions and exact work-order lookups bypass the shared device cache',()=>{

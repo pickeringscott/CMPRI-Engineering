@@ -88,6 +88,11 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
     { label: "L", position: onArc(LOW_ANGLE), color: arc.lowColor },
   ];
   const temperature = (value: number | null) => value === null ? "—" : `${Math.round(value)}°`;
+  const currentTemperature = temperature(current);
+  const extremeReadings = [
+    { label: `H: ${temperature(high)}`, color: arc.highColor, x: 41.7, name: "high" },
+    { label: `L: ${temperature(low)}`, color: arc.lowColor, x: 61.5, name: "low" },
+  ];
   const precipitation = data?.precipitation == null ? "—" : `${Math.round(data.precipitation)}%`;
   const precipitationWidth = precipitation.length === 1 ? 5.5 : 4.6 + 3.5 * (precipitation.length - 1);
   const wind = data?.wind == null ? "—" : String(Math.round(data.wind));
@@ -123,8 +128,8 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
           </g>)}
           <circle cx={bead.x} cy={bead.y} r="3.5" className={styles.currentBead} />
           <g filter={outline} data-cmpri-weather-light-ink="">
-            <text x={CENTER_X} y="39.5" data-cmpri-current-temperature="" className={styles.temperature} textLength={temperature(current).length > 3 ? 33 : undefined} lengthAdjust="spacingAndGlyphs">{temperature(current)}</text>
-            <g className={styles.secondary}>
+            <text x={CENTER_X} y="39.5" data-cmpri-current-temperature="" className={styles.temperature} textLength={currentTemperature.length > 3 ? 36 : undefined} lengthAdjust="spacingAndGlyphs">{currentTemperature}</text>
+            <g>
               <g className={styles.drops} transform={`translate(${50 - precipitationWidth - 3.6} 57.8) scale(.43) translate(-20.5 -57.25)`} data-cmpri-precipitation-icon="">
                 <path d="M18.2 53.9c1.5 2 2.6 3.5 2.6 5a2.6 2.6 0 0 1-5.2 0c0-1.5 1.1-3 2.6-5Z" />
                 <path d="M23.9 51.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
@@ -140,11 +145,14 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
               </g>
             </g>
           </g>
-          <g className={styles.secondary}>
-            <rect x="38" y="64" width="12" height="6" rx="3" fill={arc.lowColor} data-cmpri-low-temperature="" />
-            <rect x="53.2" y="64" width="12" height="6" rx="3" fill={arc.highColor} data-cmpri-high-temperature="" />
-            <text x="44" y="67" textLength={temperature(low).length > 3 ? 10.5 : undefined} lengthAdjust="spacingAndGlyphs" fill={temperatureInk(arc.lowColor)} filter={temperatureInk(arc.lowColor) === "#fff" ? outline : undefined} className={styles.extreme}>{temperature(low)}</text>
-            <text x="59.2" y="67" textLength={temperature(high).length > 3 ? 10.5 : undefined} lengthAdjust="spacingAndGlyphs" fill={temperatureInk(arc.highColor)} filter={temperatureInk(arc.highColor) === "#fff" ? outline : undefined} className={styles.extreme}>{temperature(high)}</text>
+          <g>
+            {extremeReadings.map(({ label, color, x, name }) => <g key={name} data-cmpri-extreme={name}>
+              <rect x={x - 8.6} y="64" width="17.2" height="6" rx="3" fill={color}
+                data-cmpri-high-temperature={name === "high" ? "" : undefined}
+                data-cmpri-low-temperature={name === "low" ? "" : undefined} />
+              <text x={x} y="67" textLength={label.length > 6 ? 14.8 : undefined} lengthAdjust="spacingAndGlyphs"
+                fill={temperatureInk(color)} filter={temperatureInk(color) === "#fff" ? outline : undefined} className={styles.extreme}>{label}</text>
+            </g>)}
           </g>
         </svg>
       </button>

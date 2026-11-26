@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
 	env: {
 		// Keep the existing launcher flag enabled for the released Weather view.
 		NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW: "1",
+		NEXT_PUBLIC_CMPRI_PREVIEW: process.env.VERCEL_ENV === "preview" ? "1" : "0",
 	},
 	// PDF.js uses createRequire(import.meta.url) for its native canvas runtime
 	// and resolves its worker relative to the package. Preserve that boundary.

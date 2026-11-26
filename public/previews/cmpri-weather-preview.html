@@ -38,7 +38,7 @@
     </section>
 
    <form class="panel manual-alert" id="alertPanel" autocomplete="off" aria-labelledby="alertPanelTitle" hidden>
-    <header class="manual-alert-heading"><h2 id="alertPanelTitle">Chief Engineer alert controls</h2><span class="small muted">Simulation only</span></header>
+    <header class="manual-alert-heading"><h2 id="alertPanelTitle">Property alert controls</h2><span class="small muted">Preview deployment only</span></header>
     <div class="manual-alert-controls">
       <label class="manual-alert-check"><input type="checkbox" id="customEnabled" checked> Custom Banner</label>
       <label class="manual-alert-check"><input type="checkbox" id="radarOverride" checked> Use Live Radar as Desktop Wallpaper</label>
@@ -91,13 +91,15 @@
       </div>
     </div>
     <label class="manual-alert-text">Scrolling banner text
-      <textarea id="bannerText" rows="3" maxlength="2000">Rain followed by freezing temperatures may leave sidewalks and parking areas slippery. Please use caution around entrances and walkways.</textarea>
+      <textarea id="bannerText" rows="3" title="Use your device’s emoji keyboard to insert emoji">Rain followed by freezing temperatures may leave sidewalks and parking areas slippery. Please use caution around entrances and walkways.</textarea>
     </label>
+    <label class="manual-alert-check"><input type="checkbox" id="alertNotepad" disabled> Blink Notepad for watches and warnings</label>
     <div class="manual-alert-actions">
       <button type="submit" value="preview" id="previewAlert">Preview</button>
       <button type="submit" value="publish" id="publishAlert">Publish</button>
+      <button type="submit" value="delete" id="deleteAlert">Delete</button>
     </div>
-    <p id="formMessage" role="alert" hidden></p>
+    <p id="formMessage" role="status" hidden></p>
    </form>
 
    <section class="panel forecast-panel"><div class="section-label"><div><h2>Hourly forecast</h2><p class="small muted">Published NWS forecast</p></div><div class="row forecast-controls"><span class="badge neutral">NWS forecast</span><button data-scroll-target="hourlyForecast" data-direction="-1" aria-label="Scroll hourly forecast left">‹</button><button data-scroll-target="hourlyForecast" data-direction="1" aria-label="Scroll hourly forecast right">›</button></div></div><div class="hourly-forecast-scroll" id="hourlyForecast" tabindex="0" role="region" aria-label="Official hourly forecast and aligned graphs; scroll horizontally"><div class="hourly-forecast-content"><div class="forecast-strip hourly-forecast-cards" id="hourlyForecastCards"></div><div id="hourlyForecastGraphs" class="hourly-forecast-graphs"></div></div></div></section>

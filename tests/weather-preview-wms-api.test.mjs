@@ -74,6 +74,26 @@ test('fixed products/operations and bounded map parameters reject arbitrary inpu
  assert.equal(calls,0);
 });
 
+test('station and regional mosaic selection use the NOAA allowlist and fixed upstream paths', async () => {
+  const calls = [];
+  const api = fixture(async (url) => { calls.push(new URL(url).pathname); return xmlResponse(); });
+  const catalog = await api.GET(request({ product: 'station', op: 'stations' }));
+  assert.equal(catalog.status, 200);
+  const { stations } = await catalog.json();
+  assert.ok(stations.some(({ id, lat, lon }) => id === 'KDVN' && lat === 41.61166 && lon === -90.58083));
+  for (const params of [
+    { product: 'station', op: 'capabilities', station: 'https://example.com' },
+    { product: 'station', op: 'capabilities', station: 'KZZZ' },
+    { product: 'station', op: 'capabilities', station: 'KDVN', region: 'alaska' },
+    { product: 'velocity', op: 'capabilities', region: 'alaska' },
+    { product: 'reflectivity', op: 'capabilities', region: 'unknown' },
+  ]) assert.equal((await api.GET(request(params))).status, 400);
+  assert.deepEqual(calls, []);
+  assert.equal((await api.GET(request({ product: 'station', station: 'KDVN', op: 'capabilities' }))).status, 200);
+  assert.equal((await api.GET(request({ product: 'reflectivity', region: 'alaska', op: 'capabilities' }))).status, 200);
+  assert.deepEqual(calls, ['/geoserver/kdvn/ows', '/geoserver/alaska/alaska_bref_qcd/ows']);
+});
+
 test('capabilities preserve source XML and exact advertised names, inherited CRS/time/styles',async()=>{
  const calls=[];
  const api=fixture(async(url,options)=>{

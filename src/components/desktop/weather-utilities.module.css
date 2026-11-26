@@ -62,7 +62,7 @@
 .currentBead { fill: #fff; stroke: #101016; stroke-width: 1.1; }
 
 .temperature, .precipitation, .wind, .extreme { dominant-baseline: central; font-weight: 650; }
-.temperature { fill: #fff; font-size: calc(11.75px + 5pt); }
+.temperature { fill: #fff; font-size: 22px; }
 .drops { fill: none; stroke: #a9d6ff; stroke-width: 1.05; stroke-linecap: round; stroke-linejoin: round; }
 .precipitation { fill: #a9d6ff; text-anchor: end; font-size: 5.5px; }
 .wind { fill: #fff; text-anchor: start; font-size: 5.5px; }
@@ -71,8 +71,3 @@
 .windArrow { fill: none; stroke: #fff; stroke-width: .7; stroke-linecap: round; stroke-linejoin: round; }
 .calm { fill: #fff; }
 .extreme { font-size: 4.8px; }
-
-:global(body:has([data-cmpri-weather-wallpaper])) .dial :is(.secondary, .ring, .currentBead, .marker, .markerOutline),
-:global(body:has([data-cmpri-weather-wallpaper])) .dial :is(canvas, .artboard > circle) {
-  display: none;
-}

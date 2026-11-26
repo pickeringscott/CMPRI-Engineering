@@ -36,6 +36,19 @@
 
 .cmpri-guide-launcher:hover { background: var(--guide-raised); }
 
+/* The wallpaper player starts at 20% of the desktop width. Keep the
+   stationary guide and animation buttons in the space to its left. */
+body:has([data-cmpri-weather-wallpaper]) .cmpri-guide-launchers {
+  max-inline-size: calc(20vw - max(.75rem, env(safe-area-inset-left)) - .375rem);
+  flex-wrap: wrap;
+}
+
+body:has([data-cmpri-weather-wallpaper]) .cmpri-guide-launcher {
+  max-inline-size: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 @media (width < 701px) {
   .cmpri-guide-launchers { left: env(safe-area-inset-left, 0px); }
   .cmpri-guide-launcher { display: none; }

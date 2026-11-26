@@ -6,15 +6,24 @@
   const HOTEL = Object.freeze({ lat: 40.138080, lon: -88.251416 });
   const REFLECTIVITY = Object.freeze({ product: 'reflectivity', layer: 'conus_bref_qcd', style: 'radar_reflectivity',
     source: 'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows' });
+  const MOSAIC_BOUNDS = [
+    ['conus', -130, 20, -60, 55], ['alaska', -176, 50, -126, 72],
+    ['carib', -90, 10, -60, 25], ['hawaii', -164, 15, -151, 26], ['guam', 140, 9, 150, 18],
+  ];
+  const MOSAIC_LAYERS = { reflectivity: 'bref_qcd', ptype: 'pcpn_typ', composite: 'cref_qcd', echoTops: 'neet_v18' };
+  const LOCAL_LAYERS = { reflectivity: 'sr_bref', velocity: 'sr_bvel', kilxReflectivity: 'sr_bref',
+    dualPolType: 'bdhc', hourlyRain: 'boha', stormTotal: 'bdsa' };
   const WSSI = 'https://mapservices.weather.noaa.gov/vector/rest/services/outlooks/wpc_wssi/MapServer';
   const CENTRAL = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Chicago', month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', timeZoneName: 'short', hour12: new URLSearchParams(location.search).get('clock') !== '24'
   });
   const RADIUS = 6378137;
+  const MIN_MAP_ZOOM = 0.075;
   const REFRESH_INTERVAL = 5 * 60 * 1000;
   const IMAGE_CACHE_LIMIT = 64;
   const PLAYBACK_SPEEDS = Object.freeze(['slow', 'normal', 'fast']);
+  const PLAYBACK_MULTIPLIERS = Object.freeze({ slow: 0.5, normal: 1, fast: 2 });
   const ADDITIONAL_RADAR_LAYERS = Object.freeze([
     ['composite', 'Composite'], ['echoTops', 'Echo tops'], ['kilxReflectivity', 'KILX radar'],
     ['dualPolType', 'Dual-pol type'], ['hourlyRain', '1-hr rain'], ['stormTotal', 'Storm total'],
@@ -130,7 +139,7 @@
   const $ = (id) => document.getElementById(id);
   const state = {
     initialized: false, opened: false, active: false, mapReady: false,
-    mode: 'live', activeLayer: 'reflectivity', frame: 0, zoom: 4,
+    mode: 'live', activeLayer: 'reflectivity', frame: 0, zoom: 4, radarRegion: 'conus', radarStation: null,
     backgroundStyle: 'aerial', grid: false, playbackSpeed: 'normal', loopMinutes: 90, wheelZoomActive: false,
     catalogFrames: [], displayedTime: null,
     showAlerts: true, alerts: [], alertFeedStatus: null, alertStatus: 'Unknown · waiting for the NWS property alert response',
@@ -164,6 +173,8 @@
   const failedImages = new Set();
   const verified = new Map();
   const reportCells = new Map();
+  let stationHost, radarStations = [], stationListLoading = false, stationListRetryAt = 0;
+  const stationMarkers = new Map();
   const temperatureCache = new Map();
   const temperatureRequests = new Map();
   const temperaturePins = new Map();
@@ -264,8 +275,125 @@
   function viewport(geo) {
     const halfWidth = geo.width * geo.resolution / 2;
     const halfHeight = geo.height * geo.resolution / 2;
-    return { xmin: geo.center.x - halfWidth, ymin: geo.center.y - halfHeight,
-      xmax: geo.center.x + halfWidth, ymax: geo.center.y + halfHeight };
+    const edge = 20037508.34;
+    return { xmin: Math.max(-edge, geo.center.x - halfWidth), ymin: Math.max(-edge, geo.center.y - halfHeight),
+      xmax: Math.min(edge, geo.center.x + halfWidth), ymax: Math.min(edge, geo.center.y + halfHeight) };
+  }
+  function mosaicRegion(geo) {
+    const { xmin, ymin, xmax, ymax } = viewport(geo);
+    const sw = unproject(xmin, ymin), ne = unproject(xmax, ymax), center = state.center;
+    const contained = MOSAIC_BOUNDS.find(([, west, south, east, north]) => center.lon >= west && center.lon <= east
+      && center.lat >= south && center.lat <= north);
+    if (contained) return contained[0];
+    let region = null, largestOverlap = 0;
+    for (const [name, west, south, east, north] of MOSAIC_BOUNDS) {
+      const overlap = Math.max(0, Math.min(ne.lon, east) - Math.max(sw.lon, west))
+        * Math.max(0, Math.min(ne.lat, north) - Math.max(sw.lat, south));
+      if (overlap > largestOverlap) { largestOverlap = overlap; region = name; }
+    }
+    return region;
+  }
+  function productAtLocation(name) {
+    const product = name === 'reflectivity' ? REFLECTIVITY : WMS_PRODUCTS[name];
+    if (state.radarStation && LOCAL_LAYERS[name]) {
+      const site = state.radarStation.id.toLowerCase();
+      return { ...product, product: 'station', station: state.radarStation.id, layer: site + '_' + LOCAL_LAYERS[name],
+        source: 'https://opengeo.ncep.noaa.gov/geoserver/' + site + '/ows' };
+    }
+    if (!MOSAIC_LAYERS[name] || state.radarRegion === 'conus') return product;
+    if (!state.radarRegion) return null;
+    const region = state.radarRegion, layer = region + '_' + MOSAIC_LAYERS[name];
+    return { ...product, region, layer, source: 'https://opengeo.ncep.noaa.gov/geoserver/' + region + '/' + layer + '/ows' };
+  }
+  function productParameters(product) {
+    return { product: product.product, ...(product.station && { station: product.station }),
+      ...(product.region && { region: product.region }) };
+  }
+  function wmsLayerTitle(name) {
+    const title = WMS_PRODUCTS[name].title;
+    return state.radarStation && LOCAL_LAYERS[name] ? title.replace('KILX', state.radarStation.id) : title;
+  }
+  function changeRadarCoverage(region, station) {
+    if (region === state.radarRegion && station?.id === state.radarStation?.id) return false;
+    const layers = ['reflectivity', ...Object.keys(wmsLayers)];
+    const previous = new Map(layers.map((name) => [name, productAtLocation(name)?.layer]));
+    state.radarRegion = region; state.radarStation = station;
+    stopPlayback(); cancelRequests();
+    for (const name of layers) {
+      const product = productAtLocation(name);
+      if (previous.get(name) === product?.layer) continue;
+      if (name === 'reflectivity') {
+        const bitmaps = new Set([...images.values(), displayedRaster].filter(Boolean).map(({ bitmap }) => bitmap));
+        bitmaps.forEach((bitmap) => bitmap.close?.()); images.clear(); displayedRaster = null;
+        state.frames = []; state.catalogFrames = []; state.displayedTime = null; state.catalogFetchedAt = null;
+        state.frame = 0; followLatest = true; frameViewport = ''; failedImages.clear();
+        if (reflectivityLegendUrl) URL.revokeObjectURL(reflectivityLegendUrl);
+        reflectivityLegendUrl = null;
+        Object.assign(reflectivity, product || REFLECTIVITY, { region: product?.region || null, station: product?.station || null,
+          legendSource: null, legendStatus: 'Not loaded' });
+      } else {
+        const record = wmsLayers[name]; record.raster?.bitmap.close?.();
+        if (record.legendUrl) URL.revokeObjectURL(record.legendUrl);
+        Object.assign(record, { raster: null, metadata: null, legendUrl: null });
+        Object.assign(record.state, { product: product?.product || WMS_PRODUCTS[name].product, time: null,
+          layer: null, style: null, sourceTime: null, displayedTime: null, mapSource: null, legendSource: null,
+          source: product?.source || productInfo[name][2], status: 'Not loaded', legendStatus: 'Not loaded' });
+      }
+    }
+    return true;
+  }
+  function selectRadarStation(station) {
+    state.center = { lat: station.lat, lon: station.lon };
+    state.zoom = 4; state.showRadar = true; state.viewportRevision += 1;
+    closeAlertDetails(); const changed = changeRadarCoverage(mosaicRegion(geometry()), station);
+    mark('radarStations', 'Selected official ' + station.id + ' WSR-88D station');
+    $('mapLayerKilxReflectivity').querySelector('.cmpri-map-layer-label').textContent = station.id + ' radar';
+    $('mapLayerRadar').title = station.name + ' (' + station.id + ') observed radar';
+    updateUI(); queueDraw(); if (changed) void tryLive(); else scheduleViewportImage();
+  }
+  async function loadRadarStations() {
+    if (stationListLoading || Date.now() < stationListRetryAt) return;
+    const ticket = generation;
+    stationListLoading = true; stationListRetryAt = Date.now() + REFRESH_INTERVAL;
+    try {
+      const catalog = await foregroundRead('/api/weather-preview/wms?product=station&op=stations', false, ticket);
+      if (ticket !== generation || !Array.isArray(catalog.stations)) return;
+      radarStations = catalog.stations.filter(({ id, name, lat, lon }) => /^[A-Z][A-Z0-9]{3}$/.test(id)
+        && typeof name === 'string' && Number.isFinite(lat) && Math.abs(lat) <= 75 && Number.isFinite(lon) && Math.abs(lon) <= 180)
+        .sort((a, b) => Number(b.id === 'KDVN') - Number(a.id === 'KDVN'));
+      queueDraw();
+    } catch (error) {
+      if (error.name === 'AbortError') stationListRetryAt = 0;
+    } finally { stationListLoading = false; }
+  }
+  function drawRadarStations(geo) {
+    if (!stationHost || document.documentElement.classList.contains('cmpri-weather-radar-widget')) return;
+    const selected = state.radarStation;
+    const farEnough = geo.width * geo.resolution >= 245_000;
+    if (farEnough && !radarStations.length) void loadRadarStations();
+    const visible = new Set(), positions = [];
+    const stations = farEnough ? radarStations : [];
+    for (const station of selected ? [selected, ...stations.filter(({ id }) => id !== selected.id)] : stations) {
+      const point = project(station.lat, station.lon, geo);
+      if (point.x < 28 || point.x > geo.width - 28 || point.y < 26 || point.y > geo.height - 24
+        || positions.some(({ x, y }) => Math.abs(x - point.x) < 44 && Math.abs(y - point.y) < 22)) continue;
+      positions.push(point); visible.add(station.id);
+      let marker = stationMarkers.get(station.id);
+      if (!marker) {
+        marker = document.createElement('button'); marker.type = 'button'; marker.className = 'cmpri-map-radar-station';
+        marker.dataset.station = station.id; marker.textContent = station.id;
+        marker.title = station.name + ' (' + station.id + ') · View station radar';
+        marker.setAttribute('aria-label', marker.title);
+        marker.addEventListener('click', () => selectRadarStation(station));
+        stationMarkers.set(station.id, marker); stationHost.append(marker);
+      }
+      marker.style.left = point.x + 'px'; marker.style.top = point.y + 'px';
+      marker.setAttribute('aria-pressed', String(station.id === selected?.id));
+    }
+    for (const [id, marker] of stationMarkers) {
+      if (!visible.has(id)) { marker.remove(); stationMarkers.delete(id); }
+    }
+    stationHost.hidden = !visible.size;
   }
   function temperatureInView({ x, y }, geo) {
     return x >= 24 && x <= geo.width - 24 && y >= 27 && y < geo.height;
@@ -415,8 +543,8 @@
       stale: ageMinutes !== null && product.staleAfterMinutes !== undefined && ageMinutes > product.staleAfterMinutes };
   }
   async function loadWmsView(name) {
-    const record = wmsLayers[name], product = WMS_PRODUCTS[name];
-    if (!record || !state.opened || !state.active || document.hidden || !state.enabled[name] || !record.metadata) return;
+    const record = wmsLayers[name], product = productAtLocation(name);
+    if (!record || !product || !state.opened || !state.active || document.hidden || !state.enabled[name] || !record.metadata) return;
     const geo = geometry(); if (!geo.width || !geo.height) return;
     const key = wmsKey(name, geo);
     if (record.raster?.key === key) { if (!record.state.status.startsWith('Unavailable')) record.state.status = wmsLoadedStatus(name); return true; }
@@ -426,7 +554,7 @@
     const width = Math.max(1, Math.min(1500, Math.round(geo.width))), height = Math.max(1, Math.min(1500, Math.round(geo.height)));
     record.state.status = product.forecast ? 'Loading NDFD forecast cloud-cover image' : 'Loading observed WMS image'; updateUI();
     try {
-      const image = await wmsRequest({ product: product.product, op: 'map', layer: record.state.layer, style: record.state.style,
+      const image = await wmsRequest({ ...productParameters(product), op: 'map', layer: record.state.layer, style: record.state.style,
         time: record.state.sourceTime || time, bbox: [extent.xmin, extent.ymin, extent.xmax, extent.ymax].join(','), width: String(width), height: String(height) }, true, ticket, record);
       const bitmap = await createImageBitmap(image.blob);
       if (ticket !== generation || selection !== record.selection || !state.opened || !state.active || !state.enabled[name] || key !== wmsKey(name, geometry())) { bitmap.close?.(); return false; }
@@ -449,11 +577,11 @@
     }
   }
   async function loadWmsLegend(name, selection, ticket) {
-    const record = wmsLayers[name], product = WMS_PRODUCTS[name];
-    if (!record.metadata || !record.metadata.metadata.legendSupported || record.legendLoading) return;
+    const record = wmsLayers[name], product = productAtLocation(name);
+    if (!product || !record.metadata || !record.metadata.metadata.legendSupported || record.legendLoading) return;
     record.legendLoading = true; record.state.legendStatus = 'Loading official PNG legend';
     try {
-      const image = await wmsRequest({ product: product.product, op: 'legend', layer: record.state.layer, style: record.state.style }, true, ticket, record);
+      const image = await wmsRequest({ ...productParameters(product), op: 'legend', layer: record.state.layer, style: record.state.style }, true, ticket, record);
       const bitmap = await createImageBitmap(image.blob);
       const dimensionsMatch = bitmap.width === 500 && bitmap.height === 30; bitmap.close?.();
       if (!dimensionsMatch) throw new Error('Official legend layout changed; compact source key unavailable');
@@ -466,8 +594,9 @@
     } finally { if (selection === record.selection && ticket === generation) record.legendLoading = false; }
   }
   async function loadWmsProduct(name, refresh = false) {
-    const record = wmsLayers[name], product = WMS_PRODUCTS[name];
+    const record = wmsLayers[name], product = productAtLocation(name);
     if (!record || !state.opened || !state.active || !state.enabled[name]) return;
+    if (!product) { record.state.status = 'Unavailable · outside the published NOAA coverage'; updateUI(); return; }
     if (record.metadataLoading) return;
     if (!refresh && record.metadata) {
       await Promise.allSettled([loadWmsView(name), record.legendUrl ? Promise.resolve() : loadWmsLegend(name, record.selection, generation)]); return;
@@ -476,7 +605,7 @@
     const ticket = generation, selection = record.selection;
     record.state.status = 'Loading official WMS capabilities'; updateUI();
     try {
-      const metadata = await wmsRequest({ product: product.product, op: 'capabilities' }, false, ticket, record);
+      const metadata = await wmsRequest({ ...productParameters(product), op: 'capabilities' }, false, ticket, record);
       if (ticket !== generation || selection !== record.selection || !state.opened || !state.active || !state.enabled[name]) return;
       const layer = metadata.layers?.find((candidate) => candidate.name === product.layer);
       const style = product.forecast && metadata.version === '1.1.1' ? { name: '', title: 'Official source default style' }
@@ -487,7 +616,8 @@
       const time = product.forecast ? valid?.time : latestAdvertisedTime(layer.time);
       if (!time) throw new Error(product.forecast ? 'No current or next NDFD forecast valid time was advertised' : 'No concrete past observation time was advertised');
       record.metadata = { layer, style, metadata }; record.metadataLoading = false;
-      Object.assign(record.state, { layer: layer.name, style: style.name, time, sourceTime: valid?.sourceTime || null, source: metadata.source || productInfo[name][2] });
+      Object.assign(record.state, { product: product.product, layer: layer.name, style: style.name, time,
+        sourceTime: valid?.sourceTime || null, source: metadata.source || product.source || productInfo[name][2] });
       if (product.forecast && !metadata.legendSupported) record.state.legendStatus = 'Source does not advertise an official PNG color key';
       await Promise.allSettled([loadWmsView(name), metadata.legendSupported && !record.legendUrl ? loadWmsLegend(name, selection, ticket) : Promise.resolve()]);
     } catch (error) {
@@ -660,8 +790,9 @@
     pumpFrames(); updateUI();
   }
   async function loadFrame(index) {
+    const product = productAtLocation('reflectivity');
     if (state.mode !== 'live' || !state.opened || !state.active || !state.showRadar
-      || !state.frames[index]) return;
+      || !product || !state.frames[index]) return;
     const geo = geometry();
     if (!geo.width || !geo.height) return;
     const key = imageKey(index, geo);
@@ -684,7 +815,7 @@
         const width = Math.max(1, Math.min(1500, Math.round(geo.width)));
         const height = Math.max(1, Math.min(1500, Math.round(geo.height)));
         const result = await foregroundRead('/api/weather-preview/wms?' + new URLSearchParams({
-          product: REFLECTIVITY.product, op: 'map', layer: REFLECTIVITY.layer, style: REFLECTIVITY.style,
+          ...productParameters(product), op: 'map', layer: product.layer, style: product.style,
           time: raster.advertisedTime, bbox: [extent.xmin, extent.ymin, extent.xmax, extent.ymax].join(','),
           width: String(width), height: String(height)
         }), true, ticket, 'reflectivity');
@@ -696,7 +827,7 @@
         images.set(key, { key, bitmap, extent, time: raster.time });
         trimImages(geometry());
         state.radarStatus = 'Observed image loaded';
-        mark('radar', 'Actual NOAA BREFQCD PNG loaded · explicit advertised scan time and matching map extent');
+        mark('radar', 'Actual NOAA ' + product.layer + ' PNG loaded · explicit advertised scan time and matching map extent');
         updateUI(); queueDraw();
         return true;
       } catch (error) {
@@ -721,18 +852,19 @@
     return task;
   }
   async function loadReflectivityLegend(ticket) {
-    if (reflectivityLegendUrl || reflectivityLegendLoading || !state.opened || !state.active) return;
+    const product = productAtLocation('reflectivity');
+    if (!product || reflectivityLegendUrl || reflectivityLegendLoading || !state.opened || !state.active) return;
     reflectivityLegendLoading = true;
     try {
       const result = await foregroundRead('/api/weather-preview/wms?' + new URLSearchParams({
-        product: REFLECTIVITY.product, op: 'legend', layer: REFLECTIVITY.layer, style: REFLECTIVITY.style
+        ...productParameters(product), op: 'legend', layer: product.layer, style: product.style
       }), true, ticket, 'reflectivity');
       const bitmap = await createImageBitmap(result.blob); bitmap.close?.();
       if (ticket !== generation || !state.opened || !state.active) return;
       reflectivityLegendUrl = URL.createObjectURL(result.blob);
-      reflectivity.legendSource = result.source || REFLECTIVITY.source;
+      reflectivity.legendSource = result.source || product.source;
       reflectivity.legendStatus = 'Official NOAA reflectivity PNG legend loaded';
-      mark('legend', 'Actual NOAA radar_reflectivity legend and observed BREFQCD imagery use the same advertised style');
+      mark('legend', 'Actual NOAA legend and observed ' + product.layer + ' imagery use the same advertised style');
       updateUI();
     } catch (error) {
       if (ticket !== generation) return;
@@ -743,11 +875,13 @@
     }
   }
   async function radarCatalog(ticket) {
+    const product = productAtLocation('reflectivity');
+    if (!product) throw new Error('No published NOAA radar coverage in this extent');
     state.radarStatus = 'Loading NOAA scan catalog'; updateUI();
-    const metadata = await foregroundRead('/api/weather-preview/wms?' + new URLSearchParams({ product: REFLECTIVITY.product, op: 'capabilities' }), false, ticket);
+    const metadata = await foregroundRead('/api/weather-preview/wms?' + new URLSearchParams({ ...productParameters(product), op: 'capabilities' }), false, ticket);
     if (ticket !== generation) return;
-    const layer = metadata.layers?.find((candidate) => candidate.name === REFLECTIVITY.layer);
-    const style = layer?.styles?.find((candidate) => candidate.name === REFLECTIVITY.style);
+    const layer = metadata.layers?.find((candidate) => candidate.name === product.layer);
+    const style = layer?.styles?.find((candidate) => candidate.name === product.style);
     if (!layer || !style || !metadata.mapFormats?.some((format) => format.toLowerCase() === 'image/png')
       || !layer.crs?.some((crs) => crs.toUpperCase() === 'EPSG:3857')) throw new Error('NOAA reflectivity layer, style, PNG or EPSG:3857 not advertised');
     const scans = new Map();
@@ -763,8 +897,9 @@
     applyLoopWindow();
     if (!state.frames.length) throw new Error('No explicit observed NOAA scan times were advertised');
     state.catalogFetchedAt = Date.now();
+    Object.assign(reflectivity, product);
     state.radarStatus = 'Catalog verified · loading exact observed scan';
-    mark('radar', 'NOAA BREFQCD verified · ' + state.frames.length + ' explicit advertised scan times');
+    mark('radar', 'NOAA ' + product.layer + ' verified · ' + state.frames.length + ' explicit advertised scan times');
     updateUI();
     primeFrames();
     await Promise.allSettled([loadFrame(state.frame), metadata.legendSupported ? loadReflectivityLegend(ticket) : Promise.resolve()]);
@@ -986,7 +1121,9 @@
     // These independent observations share the same geographic viewport. Their
     // times remain distinct; velocity is never presented as hotel surface wind.
     drawWms('ptype', geo); drawWms('velocity', geo);
-    ADDITIONAL_RADAR_LAYERS.forEach(([name]) => drawWms(name, geo));
+    ADDITIONAL_RADAR_LAYERS.forEach(([name]) => {
+      if (name !== 'kilxReflectivity' || !state.radarStation || !state.showRadar || !displayedRaster) drawWms(name, geo);
+    });
     if (changed) updateUI();
   }
   function drawPin(geo) {
@@ -1017,7 +1154,7 @@
     drawWms('cloudCover', geo);
     drawImpacts(geo); drawRadar(geo);
     window.cmpriGroundMap?.drawReferences?.(context, geo);
-    drawAlerts(geo); drawPin(geo); drawTemperatures(geo);
+    drawAlerts(geo); drawPin(geo); drawTemperatures(geo); drawRadarStations(geo);
     updateGroundStatus();
     mark('legend', 'Rendered · separate source/type labels for selected layers');
   }
@@ -1032,7 +1169,7 @@
       else if (state.radarStatus.startsWith('Unavailable')) times.push('Observed reflectivity unavailable');
     }
     Object.keys(wmsLayers).forEach((name) => {
-      if (state.enabled[name] && wmsLayers[name].state.displayedTime) times.push(WMS_PRODUCTS[name].title + (WMS_PRODUCTS[name].forecast ? ' valid: ' : ': ') + formatTime(wmsLayers[name].state.displayedTime)
+      if (state.enabled[name] && wmsLayers[name].state.displayedTime) times.push(wmsLayerTitle(name) + (WMS_PRODUCTS[name].forecast ? ' valid: ' : ': ') + formatTime(wmsLayers[name].state.displayedTime)
         + (wmsFreshness(name).stale ? (WMS_PRODUCTS[name].forecast ? ' (expired forecast)' : ' (old observation)') : ''));
     });
     return times.join(' · ');
@@ -1059,7 +1196,7 @@
       if (!record.legendUrl) return;
       const row = document.createElement('div'); row.className = 'cmpri-map-legend-row cmpri-wms-legend';
       row.dataset.legend = name;
-      const heading = document.createElement('strong'); heading.textContent = WMS_PRODUCTS[name].title;
+      const heading = document.createElement('strong'); heading.textContent = wmsLayerTitle(name);
       const image = document.createElement('img'); image.id = 'mapWmsLegend-' + name; image.src = record.legendUrl;
       image.alt = 'Official NOAA legend for ' + record.state.layer + ', advertised style ' + record.state.style;
       if (name !== 'velocity' && name !== 'ptype') {
@@ -1071,7 +1208,7 @@
       // Both verified NOAA legends are 500×30, with the unchanged source color
       // band in rows 0–9. Reflow source labels at readable size in the same key.
       if (name === 'velocity') {
-        heading.textContent = 'Local velocity · KILX · knots';
+        heading.textContent = wmsLayerTitle(name) + ' · knots';
         ticks.classList.add('cmpri-velocity-ticks'); ticks.setAttribute('aria-label', 'Radial velocity in knots; RF is the source range-folded code');
         [['RF', 12], ['−100', 34], ['−80', 80], ['−60', 123], ['−45', 167], ['−20', 211],
           ['+0', 272], ['20', 316], ['45', 359], ['60', 402], ['80', 445], ['100', 488]].forEach(([value, x], index) => {
@@ -1095,9 +1232,9 @@
     if (state.showRadar) {
       if (reflectivityLegendUrl) {
         const row = document.createElement('div'); row.className = 'cmpri-map-legend-row cmpri-reflectivity-legend';
-        const heading = document.createElement('strong'); heading.textContent = 'NOAA reflectivity · dBZ';
+        const heading = document.createElement('strong'); heading.textContent = 'NOAA ' + (state.radarStation ? state.radarStation.id + ' ' : '') + 'reflectivity · dBZ';
         const image = document.createElement('img'); image.id = 'mapReflectivityLegend'; image.src = reflectivityLegendUrl;
-        image.alt = 'Official NOAA reflectivity intensity legend for conus_bref_qcd, advertised style radar_reflectivity';
+        image.alt = 'Official NOAA reflectivity intensity legend for ' + reflectivity.layer + ', advertised style ' + reflectivity.style;
         const scale = document.createElement('div'); scale.className = 'cmpri-reflectivity-scale';
         const ramp = document.createElement('div'); ramp.className = 'cmpri-reflectivity-ramp'; ramp.append(image);
         const ticks = document.createElement('div'); ticks.className = 'cmpri-reflectivity-ticks'; ticks.setAttribute('aria-label', 'Reflectivity in dBZ');
@@ -1170,12 +1307,14 @@
     }
     if ($('scanTime')) $('scanTime').textContent = scanTime();
     if ($('loopLabel')) $('loopLabel').textContent = count ? 'Observed loop · ' + availableWindowMinutes() + ' min available / ' + state.loopMinutes + ' min requested' : '';
-    if ($('playbackSpeed')) { $('playbackSpeed').value = String(PLAYBACK_SPEEDS.indexOf(state.playbackSpeed)); $('playbackSpeed').setAttribute('aria-valuetext', state.playbackSpeed); }
-    if ($('playbackSpeedValue')) $('playbackSpeedValue').textContent = state.playbackSpeed[0].toUpperCase() + state.playbackSpeed.slice(1);
+    const speed = PLAYBACK_MULTIPLIERS[state.playbackSpeed] + '×';
+    if ($('playbackSpeed')) { $('playbackSpeed').value = String(PLAYBACK_SPEEDS.indexOf(state.playbackSpeed)); $('playbackSpeed').setAttribute('aria-valuetext', speed); }
+    if ($('playbackSpeedValue')) $('playbackSpeedValue').textContent = speed;
     if ($('loopLength')) { $('loopLength').value = String(state.loopMinutes); $('loopLength').setAttribute('aria-valuetext', state.loopMinutes + ' minutes'); }
     if ($('loopLengthValue')) $('loopLengthValue').textContent = state.loopMinutes + ' min';
-    if ($('mapOpacity')) $('mapOpacity').value = Math.round(state.opacity * 100);
-    if ($('opacityValue')) $('opacityValue').textContent = Math.round(state.opacity * 100) + '%';
+    const opacity = Math.round(state.opacity * 100);
+    if ($('mapOpacity')) { $('mapOpacity').value = opacity; $('mapOpacity').setAttribute('aria-valuetext', opacity + '%'); }
+    if ($('opacityValue')) $('opacityValue').textContent = opacity + '%';
     const selected = layerSelections();
     const unavailableLayer = {
       reflectivity: state.radarStatus.startsWith('Unavailable') && !displayedRaster,
@@ -1187,6 +1326,7 @@
     document.querySelectorAll('[data-map-layer]').forEach((button) => {
       const name = button.dataset.mapLayer;
       button.setAttribute('aria-pressed', String(Boolean(selected[name])));
+      if (LOCAL_LAYERS[name] && productInfo[name]) button.title = productInfo[name][1].replaceAll('KILX', state.radarStation?.id || 'KILX');
       button.toggleAttribute('data-unavailable', Boolean(unavailableLayer[name]));
       if (unavailableLayer[name]) button.setAttribute('aria-description', 'Source unavailable');
       else button.removeAttribute('aria-description');
@@ -1195,7 +1335,7 @@
     if ($('layerUnavailable')) $('layerUnavailable').hidden = true;
     const unavailable = [];
     Object.keys(wmsLayers).filter((name) => state.enabled[name]).forEach((name) => {
-      const record = wmsLayers[name], freshness = wmsFreshness(name), title = WMS_PRODUCTS[name].title;
+      const record = wmsLayers[name], freshness = wmsFreshness(name), title = wmsLayerTitle(name);
       if (record.state.status.startsWith('Unavailable')) unavailable.push(title + ' unavailable.' + (record.raster ? ' Last loaded image retained.' : ''));
       if (freshness.stale) unavailable.push(title + (WMS_PRODUCTS[name].forecast ? ' forecast is expired (' : ' observation is old (') + Math.floor(freshness.ageMinutes) + ' min).');
       if (WMS_PRODUCTS[name].note && record.state.legendStatus.startsWith('Unavailable')) unavailable.push(title + ' key unavailable.');
@@ -1230,7 +1370,7 @@
     if (!state.opened || !state.active || document.hidden || !state.showRadar || !frameCount()) return;
     playbackRunning = true; followLatest = false; primeFrames();
     const ticket = ++playbackGeneration;
-    const delay = () => ({ slow: 1500, normal: 850, fast: 350 })[state.playbackSpeed];
+    const delay = () => 850 / PLAYBACK_MULTIPLIERS[state.playbackSpeed];
     const advance = () => {
       loop = null;
       if (!playbackRunning || ticket !== playbackGeneration || !state.opened || !state.active || document.hidden) return;
@@ -1249,7 +1389,9 @@
     if (viewportTimer !== null) clearTimeout(viewportTimer);
     viewportTimer = setTimeout(() => {
       viewportTimer = null;
-      if (state.opened && state.active && !document.hidden) void loadSelectedImage();
+      if (!state.opened || !state.active || document.hidden) return;
+      if (changeRadarCoverage(mosaicRegion(geometry()), state.radarStation)) void tryLive();
+      else void loadSelectedImage();
     }, 180);
   }
   function localPoint(clientX, clientY) {
@@ -1266,7 +1408,7 @@
     const geo = geometry(), point = anchor || { x: geo.width / 2, y: geo.height / 2 };
     const fixed = { x: geo.center.x + (point.x - geo.width / 2) * geo.resolution,
       y: geo.center.y - (point.y - geo.height / 2) * geo.resolution };
-    state.zoom = Math.max(0.45, Math.min(1024, state.zoom * factor));
+    state.zoom = Math.max(MIN_MAP_ZOOM, Math.min(1024, state.zoom * factor));
     const resolution = 620 / state.zoom;
     setCenter(fixed.x - (point.x - geo.width / 2) * resolution, fixed.y + (point.y - geo.height / 2) * resolution);
     state.viewportRevision += 1; mark(source, 'Exercised · shared map zoom now ' + state.zoom.toFixed(2) + '×');
@@ -1328,11 +1470,11 @@
       </div>
       <div class="cmpri-map-playback-options">
         <label class="cmpri-map-slider" for="playbackSpeed">
-          <span>Playback Speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span>
-          <input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal">
+          <span>Radar Speed <output id="playbackSpeedValue" for="playbackSpeed" aria-hidden="true">1×</output></span>
+          <input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="1×">
         </label>
         <label class="cmpri-map-slider" for="loopLength">
-          <span>Observation Loop <output id="loopLengthValue" for="loopLength">90 min</output></span>
+          <span>Observation Loop <output id="loopLengthValue" for="loopLength" aria-hidden="true">90 min</output></span>
           <input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes">
         </label>
       </div>
@@ -1349,7 +1491,9 @@
     const sliders = host.querySelector('.cmpri-map-playback-options');
     if (opacity) {
       const label = document.createElement('span');
-      label.append(document.createTextNode('Opacity '), $('opacityValue'));
+      const value = $('opacityValue');
+      value.setAttribute('aria-hidden', 'true');
+      label.append(document.createTextNode('Opacity '), value);
       const input = $('mapOpacity');
       opacity.classList.add('cmpri-map-slider'); opacity.replaceChildren(label, input);
       sliders.prepend(opacity);
@@ -1360,6 +1504,9 @@
     temperatureHost = document.createElement('div'); temperatureHost.className = 'cmpri-map-temperature-layer'; temperatureHost.hidden = true;
     temperatureHost.setAttribute('role', 'group'); temperatureHost.setAttribute('aria-label', 'NWS observed temperatures');
     shell.append(temperatureHost);
+    stationHost = document.createElement('div'); stationHost.className = 'cmpri-map-radar-stations'; stationHost.hidden = true;
+    stationHost.setAttribute('role', 'group'); stationHost.setAttribute('aria-label', 'NOAA radar stations');
+    shell.append(stationHost);
     const attribution = document.createElement('div'); attribution.id = 'mapAttribution'; attribution.className = 'cmpri-map-attribution';
     const source = document.createElement('span'); source.id = 'mapAttributionSource'; source.textContent = 'USGS · NOAA/NWS';
     attribution.append(source);
@@ -1380,6 +1527,8 @@
     }
     ['mapHelp', 'mapStatus', 'openMapReference', 'observedRadarNote', 'tryLiveFeeds'].forEach((id) => $(id)?.remove());
     document.querySelectorAll('[data-map-layer]').forEach((button) => {
+      const label = document.createElement('span'); label.className = 'cmpri-map-layer-label';
+      label.textContent = button.textContent; button.replaceChildren(label);
       if (productInfo[button.dataset.mapLayer]) button.title = productInfo[button.dataset.mapLayer][1];
       button.addEventListener('click', () => selectLayer(button.dataset.mapLayer));
     });
@@ -1425,7 +1574,14 @@
     on('showEchoes', 'change', (event) => { selectLayer('radar', event.target.checked); mark('showEchoes', 'Exercised · selected observed product ' + (state.showRadar ? 'shown' : 'hidden') + '; playback stopped'); });
     on('zoomIn', 'click', () => zoomBy(1.4, 'zoomIn'));
     on('zoomOut', 'click', () => zoomBy(1 / 1.4, 'zoomOut'));
-    on('recenter', 'click', () => { stopPlayback(); closeAlertDetails(); state.center = { ...HOTEL }; state.zoom = 4; state.viewportRevision += 1; mark('recenter', 'Exercised · fixed hotel center and initial regional zoom restored'); queueDraw(); scheduleViewportImage(); emit(); });
+    on('recenter', 'click', () => {
+      stopPlayback(); closeAlertDetails(); state.center = { ...HOTEL }; state.zoom = 4; state.viewportRevision += 1;
+      const changed = changeRadarCoverage('conus', null);
+      $('mapLayerKilxReflectivity').querySelector('.cmpri-map-layer-label').textContent = 'KILX radar';
+      $('mapLayerRadar').removeAttribute('title');
+      mark('recenter', 'Exercised · fixed hotel center and initial regional zoom restored');
+      queueDraw(); if (changed) void tryLive(); else scheduleViewportImage(); emit();
+    });
     on('fullscreen', 'click', async () => {
       if (document.fullscreenElement === shell) await document.exitFullscreen();
       else if (shell.classList.contains('expanded')) shell.classList.remove('expanded');
@@ -1451,7 +1607,7 @@
         const first = localPoint(points[0].x, points[0].y), second = localPoint(points[1].x, points[1].y), geo = geometry();
         const distance = Math.max(1, Math.hypot(first.x - second.x, first.y - second.y));
         const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
-        state.zoom = Math.max(0.45, Math.min(1024, gesture.zoom * distance / gesture.distance));
+        state.zoom = Math.max(MIN_MAP_ZOOM, Math.min(1024, gesture.zoom * distance / gesture.distance));
         const resolution = 620 / state.zoom;
         setCenter(gesture.fixed.x - (midpoint.x - geo.width / 2) * resolution, gesture.fixed.y + (midpoint.y - geo.height / 2) * resolution);
         gestureMoved = true; mark('pinchZoom', 'Exercised · actual two-pointer midpoint-anchored zoom at ' + state.zoom.toFixed(2) + '×');
@@ -1562,6 +1718,7 @@
     const currentWms = WMS_PRODUCTS[state.activeLayer] ? state.activeLayer : Object.keys(wmsLayers).find((name) => state.enabled[name]) || 'velocity';
     return { initialized: state.initialized, opened: state.opened, active: state.active,
       mapReady: state.mapReady, mode: state.mode, activeLayer: state.activeLayer,
+      radarRegion: state.radarRegion, radarStation: state.radarStation?.id || null, radarStationsVisible: [...stationMarkers.keys()],
       layers: { radar: state.showRadar, ...layerSelections() },
       frame: state.frame, frameCount: frameCount(), playing: playbackRunning,
       displayedFrame: state.frames.findIndex((frame) => frame.time === state.displayedTime), displayedScanTime: state.displayedTime,

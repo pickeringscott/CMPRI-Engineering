@@ -1,6 +1,8 @@
 /** Read-only Weather transport for fixed official NOAA WMS services.
  * Layer/style/time choices must come from their actual capabilities documents.
  * No CMPRI session, database, API key, GPS, push, or scheduler is used. */
+import { RADAR_STATIONS } from "../../../../lib/weather/radar-stations";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 15;
@@ -16,7 +18,13 @@ const SOURCES = {
   // Verified forecast raster uses WMS 1.1.1, empty style and an exact advertised VTIT.
   cloudCover: "https://digital.weather.gov/ndfd.conus/wms",
 } as const;
-type Product = keyof typeof SOURCES;
+type Product = keyof typeof SOURCES | "station";
+const STATION_IDS: ReadonlySet<string> = new Set(RADAR_STATIONS.map(({ id }) => id));
+const MOSAIC_SUFFIX = {
+  reflectivity: "bref_qcd", precipitation: "pcpn_typ", composite: "cref_qcd", echoTops: "neet_v18",
+} as const;
+const MOSAIC_REGIONS = new Set(["conus", "alaska", "carib", "hawaii", "guam"]);
+type SourceSelection = { station: string | null; region: string | null };
 type Dimension = { units: string | null; default: string | null; current: boolean; values: string };
 type Style = { name: string; title: string; legendUrl: string | null };
 type Layer = { name: string; title: string; abstract: string; crs: string[]; time: Dimension | null; dimensions: Record<string, Dimension>; styles: Style[] };
@@ -30,12 +38,12 @@ class CloudCapabilitiesDiagnostic extends Error {
   readonly source: string;
   constructor(message: string, xml: string, source: string) { super(message); this.xml = xml; this.source = source; }
 }
-const metadataCache = new Map<Product, { at: number; value: Capabilities }>();
+const metadataCache = new Map<string, { at: number; value: Capabilities }>();
 const MAX_BYTES = 2 * 1024 * 1024;
 const TIMEOUT_MS = 12000;
 const METADATA_TTL_MS = 5 * 60000;
 const HEADERS = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", "X-Content-Type-Options": "nosniff" };
-const ALLOWED_PARAMETERS = new Set(["product", "op", "layer", "style", "time", "bbox", "width", "height", "format"]);
+const ALLOWED_PARAMETERS = new Set(["product", "op", "station", "region", "layer", "style", "time", "bbox", "width", "height", "format"]);
 
 function unavailable(status: number, message: string) {
   return Response.json({ unavailable: true, error: { code: status, message } }, { status, headers: HEADERS });
@@ -154,8 +162,13 @@ async function bytes(response: Response) {
   for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
   return result;
 }
-function sourceUrl(product: Product, parameters: Record<string, string>) {
-  const url = new URL(SOURCES[product]); url.search = new URLSearchParams(parameters).toString(); return url.href;
+function sourceUrl(product: Product, selection: SourceSelection, parameters: Record<string, string>) {
+  const { station, region } = selection;
+  const suffix = MOSAIC_SUFFIX[product as keyof typeof MOSAIC_SUFFIX];
+  const base = product === "station"
+    ? `https://opengeo.ncep.noaa.gov/geoserver/${station!.toLowerCase()}/ows`
+    : region && suffix ? `https://opengeo.ncep.noaa.gov/geoserver/${region}/${region}_${suffix}/ows` : SOURCES[product];
+  const url = new URL(base); url.search = new URLSearchParams(parameters).toString(); return url.href;
 }
 async function fetchSource(url: string, image: boolean, signal: AbortSignal) {
   const response = await fetch(url, { method: "GET", credentials: "omit", redirect: "error", cache: "no-store", signal,
@@ -168,10 +181,11 @@ async function fetchSource(url: string, image: boolean, signal: AbortSignal) {
   }
   return data;
 }
-async function capabilities(product: Product, signal: AbortSignal) {
-  const cached = metadataCache.get(product);
+async function capabilities(product: Product, selection: SourceSelection, signal: AbortSignal) {
+  const key = [product, selection.region, selection.station].join("/");
+  const cached = metadataCache.get(key);
   if (cached && Date.now() - cached.at < METADATA_TTL_MS) return cached.value;
-  const source = sourceUrl(product, { service: "WMS", version: product === "cloudCover" ? "1.1.1" : "1.3.0", request: "GetCapabilities" });
+  const source = sourceUrl(product, selection, { service: "WMS", version: product === "cloudCover" ? "1.1.1" : "1.3.0", request: "GetCapabilities" });
   const xml = new TextDecoder().decode(await fetchSource(source, false, signal));
   let value: Capabilities;
   try { value = parseCapabilities(product, source, xml); }
@@ -183,7 +197,7 @@ async function capabilities(product: Product, signal: AbortSignal) {
       error instanceof Error ? error.message : "NDFD capabilities could not be parsed", xml, source);
     throw error;
   }
-  metadataCache.set(product, { at: Date.now(), value }); return value;
+  metadataCache.set(key, { at: Date.now(), value }); return value;
 }
 function duration(value: string) {
   const match = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/.exec(value);
@@ -214,10 +228,18 @@ export async function GET(request: Request) {
   // upstream URLs are constructed below from meaningful, validated values only.
   for (const key of ALLOWED_PARAMETERS) if (query.getAll(key).length > 1) return unavailable(400, "Duplicate WMS parameter");
   const productValue = query.get("product"), op = query.get("op");
-  if (!productValue || !Object.prototype.hasOwnProperty.call(SOURCES, productValue) || !["capabilities", "map", "legend"].includes(op || "")) return unavailable(400, "Choose a fixed NOAA product and a supported WMS operation");
+  if (productValue === "station" && op === "stations") {
+    if ([...ALLOWED_PARAMETERS].some((key) => key !== "product" && key !== "op" && query.has(key))) return unavailable(400, "The station catalog accepts only product and operation");
+    return Response.json({ stations: RADAR_STATIONS }, { headers: HEADERS });
+  }
+  if (!productValue || (productValue !== "station" && !Object.prototype.hasOwnProperty.call(SOURCES, productValue)) || !["capabilities", "map", "legend"].includes(op || "")) return unavailable(400, "Choose a fixed NOAA product and a supported WMS operation");
   const format = query.get("format");
   if (format !== null && format !== "json" && format !== "image") return unavailable(400, "Choose image or JSON inspection format");
   const product = productValue as Product;
+  const station = query.get("station"), region = query.get("region");
+  if ((product === "station" && (!station || !STATION_IDS.has(station))) || (product !== "station" && station !== null)) return unavailable(400, "Choose an advertised NOAA radar station");
+  if (region !== null && (!MOSAIC_REGIONS.has(region) || !Object.prototype.hasOwnProperty.call(MOSAIC_SUFFIX, product))) return unavailable(400, "Choose an advertised NOAA mosaic region");
+  const selection = { station, region };
   if (product === "cloudCover" && op === "legend") return unavailable(502,
     "The official NDFD cloud-cover service does not advertise a PNG legend");
   const bboxParts = (query.get("bbox") || "").split(",");
@@ -236,7 +258,7 @@ export async function GET(request: Request) {
   const timeout = setTimeout(abort, TIMEOUT_MS);
   try {
     controller.signal.throwIfAborted();
-    const metadata = await capabilities(product, controller.signal);
+    const metadata = await capabilities(product, selection, controller.signal);
     if (op === "capabilities") return Response.json(metadata, { headers: HEADERS });
     const layer = metadata.layers.find((candidate) => candidate.name === query.get("layer"));
     if (!layer) return unavailable(400, "Layer was not advertised by this official WMS service");
@@ -261,7 +283,7 @@ export async function GET(request: Request) {
       parameters.VERSION = "1.1.1"; delete parameters.CRS; parameters.SRS = "EPSG:3857";
       parameters.VTIT = time!; parameters.EXCEPTIONS = "application/vnd.ogc.se_xml";
     } else if (time) parameters.TIME = time;
-    const source = sourceUrl(product, parameters);
+    const source = sourceUrl(product, selection, parameters);
     const image = await fetchSource(source, true, controller.signal);
     // Inspection changes only the response envelope, never the fixed upstream
     // PNG request. The exact validated bytes can be reviewed without corruption

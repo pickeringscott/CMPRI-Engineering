@@ -43,6 +43,7 @@ test('the compiled Weather launcher is enabled in production, previews and local
   ]) {
     const config=loadTs('next.config.ts',{}, {process:{env:{VERCEL_ENV,NODE_ENV}}}).default;
     assert.equal(config.env.NEXT_PUBLIC_CMPRI_WEATHER_PREVIEW,expected,`${VERCEL_ENV}/${NODE_ENV}`);
+    assert.equal(config.env.NEXT_PUBLIC_CMPRI_PREVIEW,VERCEL_ENV==='preview'?'1':'0');
   }
 });
 

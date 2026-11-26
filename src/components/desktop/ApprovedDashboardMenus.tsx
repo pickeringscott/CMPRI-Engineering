@@ -5,6 +5,7 @@ import {mountApprovedMenus} from '@/lib/ui/approved-header-menus';
 import {mountAnchoredMenus} from '@/lib/ui/anchored-dashboard-menus';
 import {mountAskDashboardLauncher} from '@/lib/ui/ask-dashboard-launcher';
 import {modalLauncherStyle} from '@/lib/ui/header-palette';
+import {WEATHER_MENU_PATH} from '@/lib/dashboard/menu-groups';
 import {allowsAnchoredHeaderPlacement,anchoredHeaderLayoutForGroups,normalizeHeaderLayout,headerLayoutForGroups,type AnchoredMenuRestriction,type HeaderLayout} from '@/lib/header-layout';
 import {notepadLayoutKey} from '@/lib/ui/notepad-navigation';
 import {useStaffNotesSummary} from '@/lib/staff-notes-unread';
@@ -111,7 +112,11 @@ export default function ApprovedDashboardMenus<T extends Action>({groups,onLaunc
    void persist();
   };
   const styledGroups=(JSON.parse(signature) as MenuGroup<T>[]).map(group=>({
-   ...group,items:group.items.map(action=>({...action,style:modalLauncherStyle(action.key,action.label)})),
+   ...group,items:group.items.map(action=>({
+    ...action,
+    style:modalLauncherStyle(action.key,action.label),
+    tooltip:action.key===WEATHER_MENU_PATH?'Open to see the latest forecast.':undefined,
+   })),
   }));
   const launch=(action:T,at:number,opener?:HTMLButtonElement)=>{
    latest.current(action,at,opener);
