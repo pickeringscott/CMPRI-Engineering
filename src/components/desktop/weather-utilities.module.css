@@ -14,13 +14,11 @@
 }
 
 .dial {
-  position: fixed;
-  right: env(safe-area-inset-right, 0px);
-  bottom: env(safe-area-inset-bottom, 0px);
-  z-index: 1;
+  position: absolute;
+  inset: 0;
   display: block;
-  inline-size: min(225px, 35vw, 55dvh);
-  aspect-ratio: 1;
+  inline-size: 100%;
+  block-size: 100%;
   min-inline-size: 0;
   padding: 0;
   border: 0;
@@ -63,36 +61,18 @@
 .marker { font-size: 6.15px; font-weight: 700; }
 .currentBead { fill: #fff; stroke: #101016; stroke-width: 1.1; }
 
-.temperature { fill: #fff; font-size: 24px; font-weight: 500; letter-spacing: -.7px; }
-.rule { stroke: #b1b1b8; stroke-width: .55; }
-.now { fill: #e5e5ea; font-size: 6.8px; text-transform: lowercase; }
+.temperature, .precipitation, .wind, .extreme { dominant-baseline: central; font-weight: 650; }
+.temperature { fill: #fff; font-size: calc(11.75px + 5pt); }
 .drops { fill: none; stroke: #a9d6ff; stroke-width: 1.05; stroke-linecap: round; stroke-linejoin: round; }
-.precipitation { fill: #a9d6ff; text-anchor: middle; font-size: 7.4px; font-weight: 650; }
-.wind { fill: #fff; font-size: 8.4px; font-weight: 650; }
-.windUnit { fill: #e5e5ea; font-size: 5.6px; font-weight: 550; }
+.precipitation { fill: #a9d6ff; text-anchor: end; font-size: 5.5px; }
+.wind { fill: #fff; text-anchor: start; font-size: 5.5px; }
+.windUnit { fill: #e5e5ea; font-size: 4px; font-weight: 550; }
 .windCircle { fill: none; stroke: #e5e5ea; stroke-width: .55; }
 .windArrow { fill: none; stroke: #fff; stroke-width: .7; stroke-linecap: round; stroke-linejoin: round; }
 .calm { fill: #fff; }
-.extreme { font-size: 7.2px; font-weight: 650; }
-.moonLight { fill: #ececf5; }
+.extreme { font-size: 4.8px; }
 
-.condition svg { overflow: visible; }
-.condition :global(.wv-sun) { fill: #f4ce68; stroke: #f9df9b; stroke-width: 1.6; }
-.condition :global(.wv-sun-rays) { fill: none; stroke: #d7b85e; stroke-width: 1.8; }
-.condition :global(.wv-moon) { fill: #e9d496; stroke: #f5e4b6; stroke-width: 1.7; }
-.condition :global(.wv-star) { fill: none; stroke: #f5e4b6; stroke-width: 1.7; }
-.condition :global(.wv-cloud) { fill: #c4d0dc; stroke: #e7edf3; stroke-width: 1.6; }
-.condition :global(svg[data-condition="cloud"] > .wv-cloud) {
-  fill: none;
-  stroke: #fff;
-  stroke-width: 2.1;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+:global(body:has([data-cmpri-weather-wallpaper])) .dial :is(.secondary, .ring, .currentBead, .marker, .markerOutline),
+:global(body:has([data-cmpri-weather-wallpaper])) .dial :is(canvas, .artboard > circle) {
+  display: none;
 }
-.condition :global(.wv-rain) { fill: none; stroke: #81c9f3; stroke-width: 3; }
-.condition :global(.wv-snow) { fill: none; stroke: #e3f5ff; stroke-width: 1.6; }
-.condition :global(.wv-lightning) { fill: #f5d35b; stroke: #16140d; stroke-width: .8; }
-.condition :global(.wv-fog) { fill: none; stroke: #b9c7cc; stroke-width: 2.3; }
-.condition :global(.wv-wind-lines) { fill: none; stroke: #bccdd1; stroke-width: 2.4; }
-.condition :global(.wv-unknown-ring) { fill: #191a19; stroke: #777e82; stroke-width: 1.5; }
-.condition :global(.wv-unknown-mark) { fill: none; stroke: #c9ced0; stroke-width: 2.5; }

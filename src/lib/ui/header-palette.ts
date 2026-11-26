@@ -54,7 +54,9 @@ export function modalTitleStyle(title: string) {
 
 /** Home-page tab buttons use the shared modal scheme, including special palettes. */
 export function modalLauncherStyle(href: string, title: string): Record<string,string> {
-  return { ...modalPaletteStyle(modalActionForRoute(href, title)), 'box-shadow': 'none' };
+  const palette = modalPaletteStyle(modalActionForRoute(href, title));
+  if (href.split(/[?#]/)[0] === '/previews/cmpri-weather-preview.html') palette['background-color'] = '#000000';
+  return { ...palette, 'box-shadow': 'none' };
 }
 
 export function hasBonvoyTierHelp(href: string): boolean {

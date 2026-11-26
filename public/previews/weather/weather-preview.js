@@ -13,6 +13,23 @@
   const activeTab = 'weather';
   let returnFocus = null;
   const map = window.cmpriWeatherMap;
+  const radarOnly = query.get('radarOnly');
+  if (radarOnly === 'widget' || radarOnly === 'wallpaper') {
+    document.documentElement.classList.add('cmpri-weather-embedded', 'cmpri-weather-radar-only');
+    const weather = byId('weatherWindow');
+    weather.removeAttribute('role');
+    weather.removeAttribute('aria-modal');
+    weather.hidden = false;
+    if (radarOnly === 'widget') {
+      document.documentElement.classList.add('cmpri-weather-radar-widget');
+      byId('radarCanvas').inert = true;
+    }
+    map.open();
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) map.resume();
+    });
+    return;
+  }
   map.init();
   window.nwsLiveView.init();
   window.initNotificationPreview();

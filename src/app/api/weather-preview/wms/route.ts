@@ -9,6 +9,9 @@ const SOURCES = {
   reflectivity: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_bref_qcd/ows",
   velocity: "https://opengeo.ncep.noaa.gov/geoserver/kilx/ows",
   precipitation: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows",
+  composite: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_cref_qcd/ows",
+  echoTops: "https://opengeo.ncep.noaa.gov/geoserver/conus/conus_neet_v18/ows",
+  kilx: "https://opengeo.ncep.noaa.gov/geoserver/kilx/ows",
   // Official NDFD WMS endpoint documented by digital.weather.gov/staticpages/mapservices.php.
   // Verified forecast raster uses WMS 1.1.1, empty style and an exact advertised VTIT.
   cloudCover: "https://digital.weather.gov/ndfd.conus/wms",

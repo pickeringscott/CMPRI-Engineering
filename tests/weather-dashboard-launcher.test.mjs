@@ -98,6 +98,8 @@ test('the weather dial and feed only run at desktop widths without removing the 
   const Component=loadTs('src/components/desktop/WeatherUtilities.tsx',{
     react:React,'react/jsx-runtime':jsx,'next/script':{default:()=>null},
     '@/components/UiLanguageProvider':{useUiLanguage:()=>({t:value=>value})},
+    './WeatherDialScene':{default:()=>null},
+    './WeatherWidgetRadar':{default:({children})=>children},
     './weather-utilities.module.css':{default:new Proxy({},{get:(_target,key)=>String(key)})},
   },{window:dom.window,document:dom.window.document,AbortController,
     fetch:async url=>{reads.push(url);return Response.json({dashboard:{current:46,high:59,low:38,precipitation:10,wind:13,bearing:300,condition:'Cloudy',icon:null,isDaytime:false,moonAngle:42}});}}).default;

@@ -10,13 +10,20 @@
 .cmpri-map-source-detail{margin-top:10px;color:var(--muted,#bdb5a7);font-size:11px}
 .cmpri-map-source-detail summary{cursor:pointer;color:var(--gold,#ffcd00);min-height:28px}
 .cmpri-map-source-detail p{margin:7px 0;overflow-wrap:anywhere}
-#mapControlHost{display:block;padding:0;background:var(--panel,#181612)}
+#mapControlHost{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;pointer-events:none}
 #mapLegend{display:grid;gap:8px;width:180px;max-width:100%;padding:0;border:0;border-radius:0;background:transparent;color:#fff;white-space:normal}
-.cmpri-map-legend-accordion{position:absolute;z-index:3;left:8px;bottom:23px;width:max-content;max-width:calc(100% - 16px);max-height:46%;overflow:auto;box-sizing:border-box;border:0;border-radius:4px;background:rgb(8 12 14 / .48);color:#fff;scrollbar-width:thin}
-.cmpri-map-legend-accordion>summary{min-height:28px;padding:6px 8px;cursor:pointer;font:600 10px/16px Arial,Helvetica,sans-serif;text-shadow:0 1px 2px #000}
-.cmpri-map-legend-accordion[open]{width:196px;padding:0 8px 8px;background:rgb(8 12 14 / .76);backdrop-filter:blur(2px)}
-.cmpri-map-legend-accordion[open]>summary{padding:6px 0;margin-bottom:2px}
-#mapLegendContents{width:180px;max-width:100%}
+.cmpri-map-legend-accordion{position:absolute;z-index:4;left:5px;top:4px;max-width:calc(100% - 48px);color:#fff}
+.cmpri-map-legend-accordion>summary{display:flex;align-items:center;gap:5px;width:fit-content;min-height:22px;padding:2px 4px;cursor:pointer;list-style:none;font:600 11px/1.3 Arial,Helvetica,sans-serif;text-shadow:0 1px 2px #000,0 0 4px #000}
+.cmpri-map-legend-accordion>summary::-webkit-details-marker{display:none}
+.cmpri-map-legend-accordion>summary::before{content:"";border-block:3px solid transparent;border-inline-start:5px solid currentColor}
+.cmpri-map-legend-accordion[open]>summary::before{transform:rotate(90deg)}
+#mapLegendContents{width:196px;max-width:100%;max-height:min(142px,29dvh);overflow:auto;padding:5px 7px;border-radius:4px;background:rgb(8 12 14 / .86);font-size:11px;scrollbar-width:thin;scrollbar-color:#aaa transparent}
+@supports selector(::-webkit-scrollbar){
+  #mapLegendContents{scrollbar-width:auto;scrollbar-color:auto}
+  #mapLegendContents::-webkit-scrollbar{width:5px}
+  #mapLegendContents::-webkit-scrollbar-thumb{background:#aaa;border-radius:5px}
+  #mapLegendContents::-webkit-scrollbar-button{display:none;width:0;height:0}
+}
 .cmpri-map-legend-row{display:block;width:180px;max-width:100%;font-size:9px;border:0;background:transparent}
 .cmpri-map-legend-row strong{display:block;font-size:9px;line-height:12px;font-weight:600;color:#fff;margin-bottom:4px;text-shadow:0 1px 2px #000,0 0 3px #000}
 .cmpri-map-legend-item{display:inline-flex;align-items:center;gap:5px;color:#fff;font-size:9px;white-space:nowrap;margin:0 6px 3px 0;text-shadow:0 1px 2px #000,0 0 3px #000}
@@ -46,10 +53,13 @@
 .cmpri-map-playback-options input[type=range]{width:100%;min-width:0;margin:0;min-height:24px}
 #mapGroundStatus{margin:8px 0;line-height:1.45}
 #radarCanvas{touch-action:none;cursor:grab}#radarCanvas.dragging{cursor:grabbing}
+.cmpri-map-temperature-layer{position:absolute;z-index:2;inset:0;overflow:hidden;pointer-events:none}
+.cmpri-map-temperature-pin{position:absolute;display:grid;place-items:center;min-width:34px;min-height:20px;padding:2px 5px;border:1px solid #111;border-radius:999px;box-shadow:0 1px 4px #000b;font:700 11px/1 Arial,sans-serif;white-space:nowrap;transform:translate(-50%,calc(-100% - 6px))}
+.cmpri-map-temperature-pin::after{content:"";position:absolute;left:50%;bottom:-4px;width:7px;height:7px;transform:translateX(-50%) rotate(45deg);background:inherit;border-right:1px solid #111;border-bottom:1px solid #111}
 #mapShell .map-actions{top:0;right:0;display:grid;gap:0;z-index:4;width:24px}
 #mapShell .map-actions button{box-sizing:border-box;width:24px;height:24px;min-width:24px;min-height:24px;margin:0;padding:0;border:1px solid #5b645f;border-radius:0;font-size:15px;line-height:22px}
 #mapShell .map-actions button+button{border-top:0}
-.cmpri-map-attribution{position:absolute;right:0;bottom:0;z-index:3;max-width:100%;box-sizing:border-box;padding:2px 5px;background:rgb(0 0 0 / .8);font-size:9px;line-height:1.3;overflow-wrap:anywhere;color:#e5e5e5}
+.cmpri-map-attribution{justify-self:end;max-width:100%;box-sizing:border-box;padding:2px 5px;background:rgb(0 0 0 / .8);font-size:9px;line-height:1.3;text-align:right;overflow-wrap:anywhere;color:#e5e5e5}
 .cmpri-map-attribution a{color:#e5e5e5;text-decoration:underline;text-underline-offset:2px}
 #mapShell .map-help,#mapShell:fullscreen .map-help,#mapShell.expanded .map-help{bottom:26px;max-width:calc(100% - 58px);box-sizing:border-box}
 .cmpri-map-alert-details{position:absolute;left:12px;top:45px;z-index:5;box-sizing:border-box;width:310px;max-width:calc(100% - 24px);max-height:calc(100% - 85px);overflow:auto;border:1px solid var(--gold,#ffcd00);border-radius:8px;padding:12px;background:rgb(15 15 15 / .96);color:var(--text,#fff8e6);box-shadow:0 6px 25px #0009;font-size:12px;line-height:1.45}
@@ -70,13 +80,47 @@
 .cmpri-velocity-ticks span:last-child{left:100%!important;transform:translateX(-100%)}
 .cmpri-source-code-ticks{height:15px;margin-top:1px}
 .cmpri-source-code-tick{width:26px;height:15px;background-size:750px 45px;background-repeat:no-repeat}
-.cmpri-map-layer-buttons{display:flex;gap:5px;flex-wrap:wrap;flex:1;min-width:0}
-.cmpri-map-layer-buttons button{min-height:32px;padding:5px 8px;font-size:11px;background:transparent;color:var(--muted,#bdb5a7)}
+.cmpri-map-layer-buttons{display:flex;gap:5px;flex:1;min-width:0;overflow:auto hidden;overscroll-behavior-inline:contain;scrollbar-width:thin;scrollbar-color:#ffffff57 transparent}
+.cmpri-map-layer-buttons button{flex:none;min-height:32px;padding:5px 8px;font-size:11px;white-space:nowrap;background:transparent;color:var(--muted,#bdb5a7)}
+.cmpri-map-layer-buttons:focus-visible,.cmpri-map-layer-buttons button:focus-visible{outline-offset:-2px}
+@supports selector(::-webkit-scrollbar){
+  .cmpri-map-layer-buttons{scrollbar-width:auto;scrollbar-color:auto}
+  .cmpri-map-layer-buttons::-webkit-scrollbar{height:6px}
+  .cmpri-map-layer-buttons::-webkit-scrollbar-thumb{background:#ffffff57;border-radius:8px}
+  .cmpri-map-layer-buttons::-webkit-scrollbar-button{display:none;width:0;height:0}
+}
 .cmpri-map-layer-buttons button[aria-pressed=true]{color:var(--gold,#ffcd00);border-color:var(--gold,#ffcd00);background:#ffcd001a}
-#frameRange,#mapOpacity,#playbackSpeed,#loopLength{appearance:none;-webkit-appearance:none;height:26px;background-color:transparent;background-position:center;background-size:100% 6px;background-repeat:no-repeat;border:0;border-radius:0;cursor:pointer;min-width:0}
-#mapOpacity,#playbackSpeed,#loopLength{background-image:linear-gradient(to right,#655827,#655827)}
-#frameRange::-webkit-slider-runnable-track,#mapOpacity::-webkit-slider-runnable-track,#playbackSpeed::-webkit-slider-runnable-track,#loopLength::-webkit-slider-runnable-track{height:6px;background:transparent;border:0;border-radius:0}
-#frameRange::-webkit-slider-thumb,#mapOpacity::-webkit-slider-thumb,#playbackSpeed::-webkit-slider-thumb,#loopLength::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:4px;height:22px;margin-top:-8px;background:#ffcd00;border:1px solid #fff8e6;border-radius:0;box-shadow:0 0 0 1px #111}
-#frameRange::-moz-range-track,#mapOpacity::-moz-range-track,#playbackSpeed::-moz-range-track,#loopLength::-moz-range-track{height:6px;background:transparent;border:0;border-radius:0}
-#frameRange::-moz-range-thumb,#mapOpacity::-moz-range-thumb,#playbackSpeed::-moz-range-thumb,#loopLength::-moz-range-thumb{width:3px;height:20px;background:#ffcd00;border:1px solid #fff8e6;border-radius:0;box-shadow:0 0 0 1px #111}
+.cmpri-map-layer-buttons button[data-unavailable]::after{content:"N/A";margin-inline-start:4px;font-size:8px;color:#ffbd9b}
+.cmpri-map-overlay{position:absolute;z-index:3;inset:auto 0 0;display:grid;pointer-events:none}
+#mapShell .map-bottom{padding:2px 6px 1px;background:transparent}
+#mapShell .loop{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:3px;margin:0;background:transparent}
+#mapShell .loop button{min-height:22px;padding:1px 5px;background:#000;color:#fff}
+#mapShell .loop button.is-playing{background:#1e1e1e}
+#mapShell .loop button:disabled{opacity:1;border-color:#777;color:#aaa}
+#mapShell .map-tools{display:block;margin:1px 0 0;background:transparent}
+#mapShell .map-bottom :is(button,input,label){pointer-events:auto}
+#mapShell .cmpri-map-playback-options{gap:0 5px}
+#mapShell .cmpri-map-slider{gap:0;font-size:calc(11px + 1pt);line-height:1.1;color:#fff;-webkit-text-stroke:1pt #000;paint-order:stroke fill}
+#mapShell .cmpri-map-slider>span{min-height:0}
+#mapShell .cmpri-map-slider output{display:none}
+#frameRange,#mapOpacity,#playbackSpeed,#loopLength{appearance:none;-webkit-appearance:none;width:100%;height:22px;min-height:22px;min-width:0;background-color:transparent;background-position:center;background-repeat:no-repeat;border:0;border-radius:0;cursor:pointer}
+#frameRange{--track-size:4px;--thumb-width:4px;background-image:linear-gradient(#d3d3d3,#d3d3d3);background-size:100% 4px}
+#frameRange:disabled{opacity:1}
+#mapOpacity,#playbackSpeed,#loopLength{--track-size:2px;--thumb-width:5px;background-image:linear-gradient(#000,#000);background-size:100% 2px}
+:is(#frameRange,#mapOpacity,#playbackSpeed,#loopLength)::-webkit-slider-runnable-track{height:var(--track-size);background:transparent}
+:is(#frameRange,#mapOpacity,#playbackSpeed,#loopLength)::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:var(--thumb-width);height:14px;margin-top:calc((var(--track-size) - 14px) / 2);background:#000;border:0;border-radius:1px}
+:is(#frameRange,#mapOpacity,#playbackSpeed,#loopLength)::-moz-range-track{height:var(--track-size);background:transparent}
+:is(#frameRange,#mapOpacity,#playbackSpeed,#loopLength)::-moz-range-thumb{width:var(--thumb-width);height:14px;background:#000;border:0;border-radius:1px}
+
+/* The dashboard widget and wallpaper use the same map and fetch lifecycle. */
+.cmpri-weather-radar-only .window-body { padding: 0; overflow: hidden; }
+.cmpri-weather-radar-only :is(.window-body, #panel-weather, .map-panel) { height: 100%; }
+.cmpri-weather-radar-only #panel-weather { margin: 0; }
+.cmpri-weather-radar-only .window-body > :not(#panel-weather),
+.cmpri-weather-radar-only #panel-weather > :not(.map-panel) { display: none; }
+.cmpri-weather-radar-only .map-panel { display: flex; flex-direction: column; padding: 0; border: 0; border-radius: 0; }
+.cmpri-weather-radar-only #mapShell { flex: 1; min-height: 0; height: auto; }
+.cmpri-weather-radar-widget :is(.map-top, .map-bottom, #mapControlHost, #recenter, #fullscreen, #mapLegendAccordion) { display: none; }
+.cmpri-weather-radar-widget #mapShell { border: 0; }
+.cmpri-weather-radar-widget #mapShell .map-actions { top: 24px; }
 @media(max-width:640px){.cmpri-map-menu>summary{min-height:40px;padding:9px 12px}.cmpri-map-menu-panel select{min-height:38px}.cmpri-map-playback-options{gap:7px 10px}.cmpri-map-playback-options .cmpri-map-slider{font-size:10px}.cmpri-map-slider>span{min-height:28px;align-content:space-between}.cmpri-map-attribution{font-size:9px}.cmpri-map-alert-details{left:8px;max-width:calc(100% - 16px);padding:10px;font-size:11px}.cmpri-map-menu .cmpri-map-layer-controls label{min-height:36px}}

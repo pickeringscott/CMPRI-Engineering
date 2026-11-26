@@ -9,7 +9,7 @@ const css = readFileSync(new URL('../public/previews/weather/weather-map.css', i
 const buttons = {
   reflectivity: 'mapLayerRadar', velocity: 'mapLayerVelocity', ptype: 'mapLayerPtype',
   roads: 'mapLayerRoads', impacts: 'mapLayerImpacts', alerts: 'mapLayerAlerts',
-  cloudCover: 'mapLayerCloudCover',
+  cloudCover: 'mapLayerCloudCover', temperatures: 'mapLayerTemperatures',
 };
 
 function fixture() {
@@ -120,6 +120,22 @@ test('verified forecast cloud-cover control remains independent and reads no dat
     assert.equal(document.querySelector('[data-legend=cloudCover]'), null);
     assert.equal('satellite' in f.api.getState().layers, false);
     assert.equal('lightning' in f.api.getState().layers, false);
+  } finally { await f.cleanup(); }
+});
+
+test('Temperatures is the fourteenth independent layer and is inactive before Weather opens', async () => {
+  const f = fixture();
+  try {
+    const { document } = f.window;
+    const layers = [...document.querySelectorAll('.cmpri-map-layer-buttons button')];
+    assert.equal(layers.length, 14);
+    assert.equal(layers.at(-1).textContent, 'Temperatures');
+    f.selected({ reflectivity: true, alerts: true, temperatures: false });
+    f.click('temperatures');
+    f.selected({ reflectivity: true, alerts: true, temperatures: true });
+    assert.equal(f.api.getState().temperatureStations.length, 0);
+    f.click('temperatures');
+    f.selected({ reflectivity: true, alerts: true, temperatures: false });
   } finally { await f.cleanup(); }
 });
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://mapservices.weather.noaa.gov; connect-src 'self' https://mapservices.weather.noaa.gov; frame-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://mapservices.weather.noaa.gov; connect-src 'self' https://mapservices.weather.noaa.gov https://api.weather.gov; frame-src 'none'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="robots" content="noindex,nofollow">
 <title>CMPRI Engineering · Weather Branch Preview</title>
 <link rel="stylesheet" href="weather/weather-preview.css">
@@ -14,16 +14,17 @@
 <link rel="stylesheet" href="weather/willard-airport.css">
 <link rel="stylesheet" href="weather/willard-tracker.css">
 <link rel="stylesheet" href="weather/weather-map.css">
+<link rel="stylesheet" href="weather/weather-manual-alert.css">
 <link rel="stylesheet" href="weather/notification-preview.css">
 </head>
 <body>
 <header class="appbar"><div><div class="brand">CMPRI Engineering</div><div class="identity">Residence Inn Champaign · Chief Engineer <span class="muted">/ review persona</span></div></div><div class="app-controls"><span class="badge neutral">Branch preview</span><span class="review-tag">Review only · no changes saved</span></div></header>
 <nav class="navbar" aria-label="Dashboard preview"><div class="navgroup"><span>Operations</span><span class="inactive-launcher">Work Order List</span><button id="weatherLauncher" data-open="false">☁ Weather</button><span class="inactive-launcher">Pool</span></div><div class="navgroup secondary"><span>Assets &amp; Supply</span><span class="inactive-launcher">Inventory</span></div><div class="navgroup secondary"><span>Account</span><span class="inactive-launcher">Manage Profile</span></div></nav>
-<main class="dashboard" id="dashboard"><div class="eyebrow">Proposed Operations view</div><h1 class="landing-heading">A clearer view of the<br>weather around the property.</h1><p class="landing-description">Radar, forecasts, official alerts, and a little more time to prepare. Explore the proposed Weather view in CMPRI’s current desktop theme.</p><div class="launch-card"><div class="weather-glyph" aria-hidden="true">☁</div><div class="launch-copy"><h2>Weather</h2><p>Residence Inn Champaign<br>502 West Marketview Drive · Central time</p></div><button class="primary" id="openWeather">Open Weather ↗</button></div><p class="landing-note">Live NOAA / NWS weather review for the fixed property. Open Weather to load the published feeds. Notification examples are simulations; no database or push work runs.</p><div class="landing-footer"><span>One property. One shared alert check.</span><span>No GPS · No keys · No database · No pushes</span></div></main>
+<main class="dashboard" id="dashboard"><div class="eyebrow">Proposed Operations view</div><h1 class="landing-heading">A clearer view of the<br>weather around the property.</h1><p class="landing-description">Radar, forecasts, official alerts, and a little more time to prepare. Explore the proposed Weather view in CMPRI’s current desktop theme.</p><div class="launch-card"><div class="weather-glyph" aria-hidden="true">☁</div><div class="launch-copy"><h2>Weather</h2><p>Residence Inn Champaign<br>502 West Marketview Drive</p></div><button class="primary" id="openWeather">Open Weather ↗</button></div><p class="landing-note">Live NOAA / NWS weather review for the fixed property. Open Weather to load the published feeds. Notification examples are simulations; no database or push work runs.</p><div class="landing-footer"><span>One property. One shared alert check.</span><span>No GPS · No keys · No database · No pushes</span></div></main>
 <section class="window" id="weatherWindow" role="dialog" aria-modal="false" aria-labelledby="windowTitle" hidden>
  <div class="titlebar"><span class="dot" aria-hidden="true"></span><span id="windowTitle">Weather · Residence Inn Champaign</span><span class="window-caption">CMPRI / review only</span><button class="close" id="closeWeather" aria-label="Close Weather">×</button></div>
  <div class="window-body" id="windowBody">
-  <div class="view-head"><div><div class="eyebrow">Property weather</div><h1 style="margin-top:5px">Residence Inn Champaign</h1><p class="location">502 West Marketview Drive · 40.138080, −88.251416 · America/Chicago</p></div><span class="badge neutral"><span class="dot"></span>Branch review only</span></div>
+  <div class="view-head"><div><div class="eyebrow">Property weather</div><h1 style="margin-top:5px">Residence Inn Champaign</h1><p class="location">502 West Marketview Drive · 40.138080, −88.251416</p></div><span class="badge neutral"><span class="dot"></span>Branch review only</span></div>
   <div id="panel-weather">
    <div class="priority-row">
     <section class="panel conditions-priority" id="currentConditionsSection"><div class="section-label"><div><h2>Current Conditions</h2><p class="current-as-of" id="liveObservationTime">As of: unavailable · Willard (KCMI)</p></div><span class="badge neutral" id="liveConditionsBadge">KCMI</span></div><div class="conditions-inline"><div id="liveTemperature">—</div></div><div id="currentConditionsGraphs" class="current-conditions-graphs"></div></section>
@@ -36,8 +37,71 @@
      <div id="mapControlHost"></div>
     </section>
 
-   <section class="panel forecast-panel"><div class="section-label"><div><h2>Hourly forecast</h2><p class="small muted">Published NWS forecast · Central time</p></div><div class="row forecast-controls"><span class="badge neutral">NWS forecast</span><button data-scroll-target="hourlyForecast" data-direction="-1" aria-label="Scroll hourly forecast left">‹</button><button data-scroll-target="hourlyForecast" data-direction="1" aria-label="Scroll hourly forecast right">›</button></div></div><div class="hourly-forecast-scroll" id="hourlyForecast" tabindex="0" role="region" aria-label="Official hourly forecast and aligned graphs; scroll horizontally"><div class="hourly-forecast-content"><div class="forecast-strip hourly-forecast-cards" id="hourlyForecastCards"></div><div id="hourlyForecastGraphs" class="hourly-forecast-graphs"></div></div></div></section>
-   <section class="panel forecast-panel"><div class="section-label"><div><h2>Extended forecast</h2><p class="small muted">Daily temperatures · Central time</p></div><div class="row forecast-controls"><span class="badge neutral">NWS forecast</span><button data-scroll-target="extendedForecast" data-direction="-1" aria-label="Scroll extended forecast left">‹</button><button data-scroll-target="extendedForecast" data-direction="1" aria-label="Scroll extended forecast right">›</button></div></div><div class="forecast-strip" id="extendedForecast" tabindex="0" role="region" aria-label="Official extended forecast; scroll horizontally"></div></section>
+   <form class="panel manual-alert" id="alertPanel" autocomplete="off" aria-labelledby="alertPanelTitle" hidden>
+    <header class="manual-alert-heading"><h2 id="alertPanelTitle">Chief Engineer alert controls</h2><span class="small muted">Simulation only</span></header>
+    <div class="manual-alert-controls">
+      <label class="manual-alert-check"><input type="checkbox" id="customEnabled" checked> Custom Banner</label>
+      <label class="manual-alert-check"><input type="checkbox" id="radarOverride" checked> Use Live Radar as Desktop Wallpaper</label>
+      <select id="severity" aria-label="Severity">
+        <option value="" selected disabled hidden>Severity</option>
+        <option value="notice">Notice</option><option value="advisory">Advisory</option>
+        <option value="watch">Watch</option><option value="warning">Warning</option>
+      </select>
+      <div class="manual-color-field">
+        <button type="button" id="bannerColor" class="manual-color-swatch" value="#302600" style="--swatch:#302600" aria-label="Choose background color" popovertarget="backgroundColorPicker"></button>
+        <label for="bannerColor">Background Color</label>
+        <div id="backgroundColorPicker" class="manual-color-picker" popover role="dialog" aria-label="Background color picker">
+          <div class="manual-color-map" tabindex="0" autofocus role="group" aria-label="Background color map. Use left and right for saturation and up and down for brightness."></div>
+          <input class="manual-hue" type="range" min="0" max="359" step="any" aria-label="Background color hue">
+        </div>
+      </div>
+      <div class="manual-color-field">
+        <button type="button" id="bannerTextColor" class="manual-color-swatch" value="#ffe36c" style="--swatch:#ffe36c" aria-label="Choose text color" popovertarget="textColorPicker"></button>
+        <label for="bannerTextColor">Text Color</label>
+        <div id="textColorPicker" class="manual-color-picker" popover role="dialog" aria-label="Text color picker">
+          <div class="manual-color-map" tabindex="0" autofocus role="group" aria-label="Text color map. Use left and right for saturation and up and down for brightness."></div>
+          <input class="manual-hue" type="range" min="0" max="359" step="any" aria-label="Text color hue">
+        </div>
+      </div>
+      <div class="manual-expiration">
+        <label for="expiresAt">Expiration</label>
+        <div class="manual-expiration-input">
+          <input id="expiresAt" type="datetime-local" step="1">
+          <button id="expiryPickerToggle" type="button" aria-label="Open expiration date and time picker" popovertarget="expiryPicker"></button>
+        </div>
+        <div id="expiryPicker" class="manual-expiry-picker" popover role="dialog" aria-label="Expiration date and time">
+          <div class="manual-expiry-month">
+            <button type="button" id="expiryPrevMonth" aria-label="Previous month">‹</button><strong id="expiryMonth" aria-live="polite"></strong>
+            <button type="button" id="expiryNextMonth" aria-label="Next month">›</button>
+          </div>
+          <div>
+            <div class="manual-expiry-weekdays" aria-hidden="true"><span>Su</span><span>Mo</span><span>Tu</span><span>We</span><span>Th</span><span>Fr</span><span>Sa</span></div>
+            <div class="manual-expiry-days" id="expiryDays" role="group" aria-labelledby="expiryMonth"></div>
+          </div>
+          <div class="manual-expiry-time" role="group" aria-label="Expiration time">
+            <label>Hour <input id="expiryHour" type="number" min="0" max="23" inputmode="numeric"></label>
+            <label>Minute <input id="expiryMinute" type="number" min="0" max="59" inputmode="numeric"></label>
+            <label>Second <input id="expirySecond" type="number" min="0" max="59" inputmode="numeric"></label>
+            <div class="manual-expiry-period" id="expiryPeriod" role="group" aria-label="AM or PM">
+              <button type="button" aria-pressed="false">AM</button><button type="button" aria-pressed="false">PM</button>
+            </div>
+          </div>
+          <button type="button" class="manual-expiry-done" popovertarget="expiryPicker" popovertargetaction="hide">Done</button>
+        </div>
+      </div>
+    </div>
+    <label class="manual-alert-text">Scrolling banner text
+      <textarea id="bannerText" rows="3" maxlength="2000">Rain followed by freezing temperatures may leave sidewalks and parking areas slippery. Please use caution around entrances and walkways.</textarea>
+    </label>
+    <div class="manual-alert-actions">
+      <button type="submit" value="preview" id="previewAlert">Preview</button>
+      <button type="submit" value="publish" id="publishAlert">Publish</button>
+    </div>
+    <p id="formMessage" role="alert" hidden></p>
+   </form>
+
+   <section class="panel forecast-panel"><div class="section-label"><div><h2>Hourly forecast</h2><p class="small muted">Published NWS forecast</p></div><div class="row forecast-controls"><span class="badge neutral">NWS forecast</span><button data-scroll-target="hourlyForecast" data-direction="-1" aria-label="Scroll hourly forecast left">‹</button><button data-scroll-target="hourlyForecast" data-direction="1" aria-label="Scroll hourly forecast right">›</button></div></div><div class="hourly-forecast-scroll" id="hourlyForecast" tabindex="0" role="region" aria-label="Official hourly forecast and aligned graphs; scroll horizontally"><div class="hourly-forecast-content"><div class="forecast-strip hourly-forecast-cards" id="hourlyForecastCards"></div><div id="hourlyForecastGraphs" class="hourly-forecast-graphs"></div></div></div></section>
+   <section class="panel forecast-panel"><div class="section-label"><div><h2>Extended forecast</h2><p class="small muted">Daily temperatures</p></div><div class="row forecast-controls"><span class="badge neutral">NWS forecast</span><button data-scroll-target="extendedForecast" data-direction="-1" aria-label="Scroll extended forecast left">‹</button><button data-scroll-target="extendedForecast" data-direction="1" aria-label="Scroll extended forecast right">›</button></div></div><div class="forecast-strip" id="extendedForecast" tabindex="0" role="region" aria-label="Official extended forecast; scroll horizontally"></div></section>
    <section class="panel accumulation-strip"><div><strong>Snow &amp; ice · next 24h</strong><p class="small muted">NWS forecast grid intervals; unavailable when not supplied</p></div><div><span class="small muted">Snow</span> <strong id="liveSnow">Unavailable</strong></div><div><span class="small muted">Ice</span> <strong id="liveIce">Unavailable</strong></div><a class="small" href="https://www.weather.gov/ilx/wssi" target="_blank" rel="noopener noreferrer">Official winter guidance ↗</a></section>
    <details class="panel willard-airport" id="willardAirport"><summary>Willard Airport</summary></details>
   </div>
@@ -66,6 +130,7 @@
 <script src="weather/nws-live-view.js" defer></script>
 <script src="weather/willard-tracker.js" defer></script>
 <script src="weather/willard-airport.js" defer></script>
+<script src="weather/weather-manual-alert.js" defer></script>
 <script src="weather/weather-preview.js" defer></script>
 </body>
 </html>

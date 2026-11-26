@@ -17,11 +17,11 @@ const weatherPaths=[
   '/previews/cmpri-time-format.js',
   ...[
     'weather-preview.css','weather-visuals.css','weather-graphs.css','weather-astronomy.css',
-    'willard-airport.css','willard-tracker.css','weather-map.css','notification-preview.css',
+    'willard-airport.css','willard-tracker.css','weather-map.css','weather-manual-alert.css','notification-preview.css',
     'weather-clock.js','weather-tooltips.js','alert-check-simulation.js','notification-preview.js',
     'ground-map.js','weather-map.js','weather-visuals.js','weather-graphs.js',
     'weather-astronomy.js','weather-astronomy-feed.js','nws-live-view.js',
-    'willard-airport.js','willard-tracker.js','weather-preview.js','warning-siren.mp3',
+    'willard-airport.js','willard-tracker.js','weather-manual-alert.js','weather-preview.js','warning-siren.mp3',
     'signs/interstate-route.svg','signs/illinois-route.svg',
   ].map(path=>'/previews/weather/'+path),
 ];

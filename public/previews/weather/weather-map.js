@@ -15,6 +15,116 @@
   const REFRESH_INTERVAL = 5 * 60 * 1000;
   const IMAGE_CACHE_LIMIT = 64;
   const PLAYBACK_SPEEDS = Object.freeze(['slow', 'normal', 'fast']);
+  const ADDITIONAL_RADAR_LAYERS = Object.freeze([
+    ['composite', 'Composite'], ['echoTops', 'Echo tops'], ['kilxReflectivity', 'KILX radar'],
+    ['dualPolType', 'Dual-pol type'], ['hourlyRain', '1-hr rain'], ['stormTotal', 'Storm total'],
+  ]);
+  const MAX_TEMPERATURE_AGE = 90 * 60 * 1000;
+  const ALLOWED_TEMPERATURE_QUALITY = new Set(['C', 'S', 'V', 'G', 'T']);
+  // Official NWS station locations, ordered from central Illinois to the wider continental US.
+  const TEMPERATURE_STATIONS = [
+    ['KCMI', 'Champaign', 40.0324, -88.2755],
+    ['KTIP', 'Rantoul', 40.2895, -88.1473],
+    ['KBMI', 'Bloomington', 40.4769, -88.9158],
+    ['KDEC', 'Decatur', 39.8308, -88.8719],
+    ['KPRG', 'Paris', 39.6982, -87.6669],
+    ['KMTO', 'Mattoon', 39.4781, -88.2792],
+    ['KSPI', 'Springfield', 39.8453, -89.684],
+    ['KPIA', 'Peoria', 40.6675, -89.6839],
+    ['KIJX', 'Jacksonville', 39.774, -90.2419],
+    ['KUIN', 'Quincy', 39.9371, -91.1966],
+    ['KGBG', 'Galesburg', 40.9329, -90.4334],
+    ['KIKK', 'Kankakee', 41.0687, -87.8537],
+    ['KAAA', 'Lincoln', 40.1589, -89.3389],
+    ['KLOT', 'Romeoville', 41.6031, -88.1016],
+    ['KJOT', 'Joliet', 41.5175, -88.179],
+    ['KCMY', 'Sparta', 43.9583, -90.7378],
+    ['KMWA', 'Marion', 37.7667, -89.0099],
+    ['KOLY', 'Olney', 38.7213, -88.1799],
+    ['KRSV', 'Robinson', 39.0136, -87.6485],
+    ['KALN', 'Alton', 38.8897, -90.0316],
+    ['KPWK', 'Wheeling', 42.1208, -87.9047],
+    ['KDPA', 'West Chicago', 41.8964, -88.2511],
+    ['KORD', 'Chicago', 41.9797, -87.9044],
+    ['KRFD', 'Rockford', 42.1928, -89.0933],
+    ['KMLI', 'Moline', 41.4482, -90.5236],
+    ['KSTL', 'St. Louis', 38.7525, -90.3736],
+    ['KIRK', 'Kirksville', 40.0972, -92.5433],
+    ['KCOU', 'Columbia', 38.8169, -92.2183],
+    ['KBRL', 'Burlington', 40.7729, -91.1254],
+    ['KDBQ', 'Dubuque', 42.3984, -90.7091],
+    ['KCID', 'Cedar Rapids', 41.883, -91.7246],
+    ['KDSM', 'Des Moines', 41.534, -93.6531],
+    ['KEVV', 'Evansville', 38.0431, -87.5203],
+    ['KHUF', 'Terre Haute', 39.4429, -87.3221],
+    ['KLAF', 'Lafayette', 40.4125, -86.9475],
+    ['KIND', 'Indianapolis', 39.7252, -86.2816],
+    ['KTYQ', 'Zionsville', 40.0307, -86.2515],
+    ['KBMG', 'Bloomington, IN', 39.1431, -86.6167],
+    ['KSBN', 'South Bend', 41.7089, -86.3186],
+    ['KFWA', 'Fort Wayne', 40.9725, -85.2064],
+    ['KGRR', 'Grand Rapids', 42.8808, -85.5228],
+    ['KMKE', 'Milwaukee', 42.955, -87.9044],
+    ['KMSN', 'Madison', 43.1406, -89.3453],
+    ['KDVN', 'Davenport', 41.6134, -90.5948],
+    ['KDTW', 'Detroit', 42.2314, -83.3308],
+    ['KCLE', 'Cleveland', 41.4057, -81.8519],
+    ['KLUK', 'Cincinnati', 39.1058, -84.4158],
+    ['KCMH', 'Columbus', 39.9907, -82.8769],
+    ['KSDF', 'Louisville', 38.1741, -85.7365],
+    ['KBNA', 'Nashville', 36.1189, -86.6892],
+    ['KMEM', 'Memphis', 35.0564, -89.9863],
+    ['KLIT', 'Little Rock', 34.7267, -92.2361],
+    ['KSGF', 'Springfield, MO', 37.2397, -93.3897],
+    ['KMCI', 'Kansas City', 39.2972, -94.7306],
+    ['KOMA', 'Omaha', 41.3119, -95.9018],
+    ['KMSP', 'Minneapolis', 44.8831, -93.2289],
+    ['KDLH', 'Duluth', 46.8435, -92.1866],
+    ['KFSD', 'Sioux Falls', 43.5769, -96.7536],
+    ['KFAR', 'Fargo', 46.9253, -96.8111],
+    ['KBIS', 'Bismarck', 46.7825, -100.7572],
+    ['KICT', 'Wichita', 37.6472, -97.4294],
+    ['KOKC', 'Oklahoma City', 35.3886, -97.6003],
+    ['KDFW', 'Dallas–Fort Worth', 32.8974, -97.022],
+    ['KSAT', 'San Antonio', 29.5328, -98.4636],
+    ['KIAH', 'Houston', 29.9844, -95.3607],
+    ['KMSY', 'New Orleans', 29.9928, -90.2508],
+    ['KBHM', 'Birmingham', 33.5656, -86.745],
+    ['KATL', 'Atlanta', 33.6403, -84.4269],
+    ['KJAX', 'Jacksonville, FL', 30.4953, -81.6937],
+    ['KMIA', 'Miami', 25.7906, -80.3164],
+    ['KCHS', 'Charleston', 32.8989, -80.0406],
+    ['KCLT', 'Charlotte', 35.2083, -80.9614],
+    ['KRDU', 'Raleigh', 35.8922, -78.7819],
+    ['KRIC', 'Richmond', 37.5111, -77.3233],
+    ['KDCA', 'Washington', 38.8483, -77.0342],
+    ['KPHL', 'Philadelphia', 39.8733, -75.2268],
+    ['KJFK', 'New York', 40.6392, -73.7639],
+    ['KBOS', 'Boston', 42.3606, -71.0106],
+    ['KPIT', 'Pittsburgh', 40.4846, -80.2145],
+    ['KBUF', 'Buffalo', 42.94, -78.736],
+    ['KBTV', 'Burlington, VT', 44.4681, -73.1503],
+    ['KPWM', 'Portland, ME', 43.6422, -70.3044],
+    ['KDEN', 'Denver', 39.8466, -104.6562],
+    ['KABQ', 'Albuquerque', 35.0417, -106.6147],
+    ['KELP', 'El Paso', 31.8111, -106.3758],
+    ['KPHX', 'Phoenix', 33.4278, -112.0035],
+    ['KLAS', 'Las Vegas', 36.0719, -115.1634],
+    ['KLAX', 'Los Angeles', 33.9381, -118.3889],
+    ['KSAN', 'San Diego', 32.7336, -117.1831],
+    ['KSFO', 'San Francisco', 37.6196, -122.3656],
+    ['KRNO', 'Reno', 39.5078, -119.7682],
+    ['KSLC', 'Salt Lake City', 40.7707, -111.965],
+    ['KBOI', 'Boise', 43.567, -116.2405],
+    ['KPDT', 'Pendleton', 45.6976, -118.8344],
+    ['KPDX', 'Portland, OR', 45.5958, -122.6092],
+    ['KSEA', 'Seattle', 47.4447, -122.3136],
+    ['KGEG', 'Spokane', 47.6214, -117.5278],
+    ['KMSO', 'Missoula', 46.9208, -114.0925],
+    ['KBIL', 'Billings', 45.8069, -108.5422],
+    ['KCYS', 'Cheyenne', 41.1579, -104.8081],
+    ['KAMA', 'Amarillo', 35.22, -101.7172],
+  ].map(([id, name, lat, lon]) => ({ id, name, lat, lon }));
   // Fixed official exports verified as georeferenced PNGs on the branch preview.
   const GEOGRAPHIC_REFERENCE_ENABLED = true;
   const $ = (id) => document.getElementById(id);
@@ -25,8 +135,9 @@
     catalogFrames: [], displayedTime: null,
     showAlerts: true, alerts: [], alertFeedStatus: null, alertStatus: 'Unknown · waiting for the NWS property alert response',
     alertSource: null, alertCheckedAt: null, alertGeometryless: 0,
-    enabled: { velocity: false, ptype: false, cloudCover: false },
-    center: { ...HOTEL }, opacity: 0.65, showRadar: true, roads: false, impacts: false,
+    enabled: { velocity: false, ptype: false, cloudCover: false, composite: false, echoTops: false,
+      kilxReflectivity: false, dualPolType: false, hourlyRain: false, stormTotal: false },
+    center: { ...HOTEL }, opacity: 0.65, showRadar: true, roads: false, impacts: false, temperatures: false,
     frames: [], radarStatus: 'Waiting for Weather to open', roadsStatus: 'Unavailable · exact IDOT feed / report timestamps unverified',
     impactsStatus: 'Waiting for Weather to open', openAttempted: false, networkRequests: 0, fetchedAt: null,
     reportTime: null, catalogFetchedAt: null, forecastIssue: null, forecastStart: null, forecastEnd: null,
@@ -34,7 +145,7 @@
     forecastCoverage: { returned: 0, valid: 0, stale: 0, invalid: 0 }, error: '', viewportRevision: 0
   };
   let canvas, context, shell, observer, raf = null, loop = null, gesture = null, viewportTimer = null;
-  let playbackRunning = false, playbackGeneration = 0, frameSelection = 0;
+  let playbackRunning = false, followLatest = false, playbackGeneration = 0, frameSelection = 0;
   let queuedFrame = null;
   let frameQueue = [];
   let frameViewport = '';
@@ -53,15 +164,32 @@
   const failedImages = new Set();
   const verified = new Map();
   const reportCells = new Map();
+  const temperatureCache = new Map();
+  const temperatureRequests = new Map();
+  const temperaturePins = new Map();
+  let temperatureHost, temperatureViewport = '', temperatureTimer = null;
+  let visibleTemperatureStations = [];
   const productInfo = {
     velocity: ['Local velocity · KILX', 'The latest advertised KILX velocity image and official legend load through the preview transport. Velocity is radar-relative motion, not hotel surface wind.', 'https://opengeo.ncep.noaa.gov/geoserver/kilx/ows?service=wms&version=1.3.0&request=GetCapabilities'],
     ptype: ['Precipitation type', 'The latest advertised NOAA precipitation-type analysis and official legend load through the preview transport. No rain, snow or ice classification is inferred from reflectivity colors.', 'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_pcpn_typ/ows?service=wms&version=1.3.0&request=GetCapabilities'],
     cloudCover: ['Forecast cloud cover', 'NWS NDFD forecast percentage of sky covered by opaque clouds. Uses the current or next advertised UTC valid time and the newest source issuance for that time. The source does not advertise an official PNG color key; no substitute palette is drawn.', 'https://digital.weather.gov/ndfd.conus/wms?service=WMS&version=1.1.1&request=GetCapabilities'],
+    composite: ['Composite reflectivity', 'NOAA CONUS composite reflectivity.', 'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_cref_qcd/ows'],
+    echoTops: ['Echo tops', 'NOAA CONUS enhanced echo tops.', 'https://opengeo.ncep.noaa.gov/geoserver/conus/conus_neet_v18/ows'],
+    kilxReflectivity: ['KILX reflectivity', 'Local KILX super-resolution base reflectivity.', 'https://opengeo.ncep.noaa.gov/geoserver/kilx/ows'],
+    dualPolType: ['KILX dual-pol type', 'Local KILX dual-polarization hydrometeor classification.', 'https://opengeo.ncep.noaa.gov/geoserver/kilx/ows'],
+    hourlyRain: ['KILX 1-hour rain', 'Local KILX one-hour precipitation accumulation.', 'https://opengeo.ncep.noaa.gov/geoserver/kilx/ows'],
+    stormTotal: ['KILX storm total', 'Local KILX storm-total precipitation.', 'https://opengeo.ncep.noaa.gov/geoserver/kilx/ows'],
   };
   const WMS_PRODUCTS = Object.freeze({
     velocity: { product: 'velocity', layer: 'kilx_sr_bvel', style: 'radar_velocity', title: 'Local velocity · KILX' },
     ptype: { product: 'precipitation', layer: 'conus_pcpn_typ', style: 'radar_precip_type', title: 'Precipitation type · NOAA analysis' },
     cloudCover: { product: 'cloudCover', layer: 'ndfd.conus.sky', style: '', title: 'Forecast cloud cover', forecast: true, units: '%', staleAfterMinutes: 60 },
+    composite: { product: 'composite', layer: 'conus_cref_qcd', style: 'radar_reflectivity', title: productInfo.composite[0] },
+    echoTops: { product: 'echoTops', layer: 'conus_neet_v18', style: 'radar_echo_tops', title: productInfo.echoTops[0] },
+    kilxReflectivity: { product: 'kilx', layer: 'kilx_sr_bref', style: 'radar_reflectivity', title: productInfo.kilxReflectivity[0] },
+    dualPolType: { product: 'kilx', layer: 'kilx_bdhc', style: 'radar_bdhc', title: productInfo.dualPolType[0] },
+    hourlyRain: { product: 'kilx', layer: 'kilx_boha', style: 'radar_boha', title: productInfo.hourlyRain[0] },
+    stormTotal: { product: 'kilx', layer: 'kilx_bdsa', style: 'radar_bdsa', title: productInfo.stormTotal[0] },
   });
   const wmsLayers = Object.fromEntries(Object.entries(WMS_PRODUCTS).map(([name, product]) => [name, {
     metadata: null, raster: null, legendUrl: null, loading: false, queued: false,
@@ -88,6 +216,11 @@
     ['ptype', 'Precipitation type product', 'CMPRI overlay', 'Official NOAA CONUS WMS · advertised conus_pcpn_typ / radar_precip_type', 'Display the latest advertised precipitation-type analysis and actual official PNG legend on the same map. Classifications come from NOAA, never reflectivity colors.'],
     ['wmsLegend', 'Official observed-product legends', 'CMPRI image display', 'NOAA WMS GetLegendGraphic for each selected advertised style', 'Render the actual PNG legends returned by NOAA; missing legends stay unavailable. Units and categories are not invented.'],
     ['cloudCover', 'Forecast cloud cover', 'CMPRI overlay', 'NWS NDFD WMS 1.1.1 · ndfd.conus.sky / empty source default style / advertised VTIT', 'Display the official regional opaque-cloud forecast percentage under radar and geographic references. Uses an exact advertised UTC forecast valid time, shown in Central time. No satellite imagery or invented color key is substituted.'],
+    ...ADDITIONAL_RADAR_LAYERS.map(([name]) => {
+      const [label, description, source] = productInfo[name];
+      return [name, label, 'CMPRI overlay', source, description];
+    }),
+    ['temperatures', 'Temperatures', 'CMPRI overlay', 'National Weather Service station observations', 'Plot quality-checked recent air temperatures at the reporting stations visible in the map.'],
     ['moreNoaaProducts', 'More NOAA products · expand / collapse', 'CMPRI overlay', 'None · local presentation of official product links', 'Expand or collapse optional velocity and precipitation-type choices. This disclosure does not request a feed or change the independent map layers.'],
     ['pin', 'Fixed hotel pin', 'Embedded map component · CMPRI-authored', 'Marriott hotel View Map coordinates', 'Plot 40.138080, −88.251416 in the same projection as every selected layer; no GPS.'],
     ['pan', 'Pan · drag / touch / arrow keys', 'Embedded map component · CMPRI-authored', 'None · local presentation', 'Move the shared viewport; every visible layer and hotel pin moves together.'],
@@ -96,7 +229,7 @@
     ['recenter', 'Recenter', 'Embedded map component · CMPRI-authored', 'Marriott fixed hotel coordinates', 'Restore the hotel-centered initial extent without device location access.'],
     ['fullscreen', 'Fullscreen / exit', 'Embedded map component · CMPRI-authored', 'Browser Fullscreen API; CSS fallback', 'Expand the same map. Escape exits; no separate radar app or iframe.'],
     ['opacity', 'Opacity', 'Embedded map component · CMPRI-authored', 'None · local presentation', 'Change weather-layer opacity together. USGS background and hotel pin retain contrast.'],
-    ['legend', 'Layer legends', 'Embedded map component · CMPRI-authored', 'Official NOAA product legends and WSSI renderer; IDOT unavailable', 'Show compact official observed-product and forecast-impact legends in the map’s lower-left corner.'],
+    ['legend', 'Layer legends', 'Embedded map component · CMPRI-authored', 'Official NOAA product legends and WSSI renderer; IDOT unavailable', 'Show compact official observed-product and forecast-impact legends in the map’s upper-left corner.'],
     ['playLoop', 'Play / pause', 'Embedded map component · CMPRI-authored', 'Exact NOAA catalog rasters', 'Play only while Weather is visible. Close, hidden tab, and pause stop its local timer. No prediction or future radar.'],
     ['frameRange', 'Scan seek slider', 'Embedded map component · CMPRI-authored', 'Actual NOAA catalog times', 'Pause and select one exact frame; live timestamps are never synthesized.'],
     ['showEchoes', 'Show selected observed product', 'Embedded map component · CMPRI-authored', 'Same official NOAA source as selected product', 'Hide/show reflectivity, velocity or precipitation-type rendering without silently switching products; other layers remain independent.'],
@@ -133,6 +266,118 @@
     const halfHeight = geo.height * geo.resolution / 2;
     return { xmin: geo.center.x - halfWidth, ymin: geo.center.y - halfHeight,
       xmax: geo.center.x + halfWidth, ymax: geo.center.y + halfHeight };
+  }
+  function temperatureInView({ x, y }, geo) {
+    return x >= 24 && x <= geo.width - 24 && y >= 27 && y < geo.height;
+  }
+  function selectTemperatureStations(geo) {
+    // Use one station per screen cell, with at most six columns and four rows.
+    const width = Math.max(56, geo.width / 6), height = Math.max(38, geo.height / 4);
+    const cells = new Set();
+    return TEMPERATURE_STATIONS.filter((station) => {
+      const point = project(station.lat, station.lon, geo);
+      if (!temperatureInView(point, geo)) return false;
+      const cell = Math.floor(point.x / width) + ':' + Math.floor(point.y / height);
+      if (cells.has(cell)) return false;
+      cells.add(cell); return true;
+    });
+  }
+  function isFreshTemperature(report, now) {
+    return report && report.time <= now && now - report.time <= MAX_TEMPERATURE_AGE;
+  }
+  async function readTemperature(station, signal) {
+    const url = 'https://api.weather.gov/stations/' + station.id + '/observations/latest?require_qc=true';
+    const response = await fetch(url, { signal, credentials: 'omit', cache: 'no-store', headers: { Accept: 'application/geo+json' } });
+    if (!response.ok) throw new Error('NWS station observation unavailable');
+    const { geometry: location, properties } = await response.json();
+    const [lon, lat] = location?.type === 'Point' ? (location.coordinates || []) : [];
+    const temperature = properties?.temperature, unit = temperature?.unitCode?.split(':').at(-1);
+    const value = temperature?.value;
+    const fahrenheit = !Number.isFinite(value) ? null : unit === 'degC' ? value * 9 / 5 + 32 : unit === 'degF' ? value : null;
+    const report = { lon, lat, fahrenheit, time: Date.parse(properties?.timestamp) };
+    if (!Number.isFinite(lat) || Math.abs(lat) > 75 || !Number.isFinite(lon) || Math.abs(lon) > 180
+      || !Number.isFinite(fahrenheit) || fahrenheit < -130 || fahrenheit > 140
+      || (temperature?.qualityControl && !ALLOWED_TEMPERATURE_QUALITY.has(temperature.qualityControl))
+      || !isFreshTemperature(report, Date.now())) return null;
+    return report;
+  }
+  function refreshTemperatures() {
+    if (!state.temperatures || !state.opened || !state.active || document.hidden) return;
+    const now = Date.now();
+    for (const station of visibleTemperatureStations) {
+      if (temperatureRequests.size >= 6) return;
+      const cached = temperatureCache.get(station.id);
+      if (temperatureRequests.has(station.id) || cached?.retryAfter > now) continue;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 12000);
+      const entry = { report: cached?.report, retryAfter: now + REFRESH_INTERVAL };
+      temperatureCache.set(station.id, entry);
+      temperatureRequests.set(station.id, controller);
+      state.networkRequests += 1;
+      readTemperature(station, controller.signal).then((report) => {
+        if (report && (!entry.report || report.time >= entry.report.time)) entry.report = report;
+      }).catch(() => {
+        // A failed refresh may keep a still-current previously fetched observation.
+      }).finally(() => {
+        clearTimeout(timeout);
+        if (temperatureRequests.get(station.id) !== controller) return;
+        temperatureRequests.delete(station.id); queueDraw(); refreshTemperatures();
+      });
+    }
+  }
+  function stopTemperatures() {
+    clearTimeout(temperatureTimer); temperatureTimer = null; temperatureViewport = '';
+    for (const [id, controller] of temperatureRequests) {
+      temperatureCache.get(id).retryAfter = 0;
+      controller.abort();
+    }
+    temperatureRequests.clear();
+    visibleTemperatureStations = [];
+    temperaturePins.clear();
+    if (temperatureHost) { temperatureHost.replaceChildren(); temperatureHost.hidden = true; }
+  }
+  function drawTemperatures(geo) {
+    if (!state.temperatures || !temperatureHost) return;
+    const viewKey = [geo.center.x, geo.center.y, geo.width, geo.height, geo.resolution].join('/');
+    if (viewKey !== temperatureViewport) {
+      temperatureViewport = viewKey;
+      visibleTemperatureStations = selectTemperatureStations(geo);
+      clearTimeout(temperatureTimer);
+      temperatureTimer = setTimeout(refreshTemperatures, 180);
+    }
+    const now = Date.now(), shown = [];
+    const current = new Set();
+    for (const station of visibleTemperatureStations) {
+      const report = temperatureCache.get(station.id)?.report;
+      if (!isFreshTemperature(report, now)) continue;
+      const point = project(report.lat, report.lon, geo);
+      if (!temperatureInView(point, geo) || shown.some(({ x, y }) => Math.abs(x - point.x) < 46 && Math.abs(y - point.y) < 25)) continue;
+      const color = window.cmpriWeatherVisuals?.colorAt(report.fahrenheit);
+      if (!color) continue;
+      shown.push(point); current.add(station.id);
+      let pin = temperaturePins.get(station.id);
+      if (!pin) {
+        pin = document.createElement('span'); pin.className = 'cmpri-map-temperature-pin';
+        pin.dataset.station = station.id; pin.setAttribute('role', 'img');
+        temperaturePins.set(station.id, pin); temperatureHost.append(pin);
+      }
+      const brightness = [0.2126, 0.7152, 0.0722].reduce((result, weight, index) => {
+        const channel = parseInt(color.slice(1 + index * 2, 3 + index * 2), 16) / 255;
+        return result + weight * (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+      }, 0);
+      const degrees = Math.round(report.fahrenheit) + '°';
+      pin.textContent = degrees;
+      pin.title = station.name + ' · ' + degrees + 'F · NWS ' + station.id + ' · ' + formatTime(report.time);
+      pin.setAttribute('aria-label', pin.title); pin.style.left = point.x + 'px'; pin.style.top = point.y + 'px';
+      pin.style.backgroundColor = color; pin.style.color = brightness > 0.179 ? '#111' : '#fff';
+    }
+    for (const [id, pin] of temperaturePins) {
+      if (current.has(id)) continue;
+      pin.remove(); temperaturePins.delete(id);
+    }
+    temperatureHost.hidden = !shown.length;
+    mark('temperatures', shown.length ? shown.length + ' recent NWS station observations on this map'
+      : 'No recent NWS station observations displayed for this extent');
   }
   function wmsKey(name, geo) {
     return [name, wmsLayers[name].state.time, Math.round(geo.center.x), Math.round(geo.center.y), geo.resolution.toFixed(6), Math.round(geo.width), Math.round(geo.height)].join('|');
@@ -372,7 +617,7 @@
     const latest = state.catalogFrames[state.catalogFrames.length - 1]?.time;
     state.frames = latest ? state.catalogFrames.filter((frame) => frame.time >= latest - state.loopMinutes * 60000) : [];
     const retained = state.frames.findIndex((frame) => frame.time === selectedTime);
-    state.frame = retained >= 0 ? retained : Math.max(0, state.frames.length - 1);
+    state.frame = !followLatest && retained >= 0 ? retained : Math.max(0, state.frames.length - 1);
     // Keep the displayed raster and its real scan time until its replacement is ready,
     // including when a refresh advances the catalog beyond the previous loop window.
   }
@@ -573,6 +818,7 @@
     stopRefreshTimer();
     liveBusy = true; state.openAttempted = true;
     void window.nwsLiveView?.refreshObservations?.();
+    refreshTemperatures();
     state.mode = 'live'; failedImages.clear();
     state.radarStatus = 'Loading'; state.impactsStatus = 'Loading';
     state.roadsStatus = 'Unavailable · exact IDOT feed / report timestamps unverified';
@@ -739,7 +985,8 @@
     }
     // These independent observations share the same geographic viewport. Their
     // times remain distinct; velocity is never presented as hotel surface wind.
-    ['ptype', 'velocity'].forEach((name) => drawWms(name, geo));
+    drawWms('ptype', geo); drawWms('velocity', geo);
+    ADDITIONAL_RADAR_LAYERS.forEach(([name]) => drawWms(name, geo));
     if (changed) updateUI();
   }
   function drawPin(geo) {
@@ -770,7 +1017,7 @@
     drawWms('cloudCover', geo);
     drawImpacts(geo); drawRadar(geo);
     window.cmpriGroundMap?.drawReferences?.(context, geo);
-    drawAlerts(geo); drawPin(geo);
+    drawAlerts(geo); drawPin(geo); drawTemperatures(geo);
     updateGroundStatus();
     mark('legend', 'Rendered · separate source/type labels for selected layers');
   }
@@ -815,6 +1062,9 @@
       const heading = document.createElement('strong'); heading.textContent = WMS_PRODUCTS[name].title;
       const image = document.createElement('img'); image.id = 'mapWmsLegend-' + name; image.src = record.legendUrl;
       image.alt = 'Official NOAA legend for ' + record.state.layer + ', advertised style ' + record.state.style;
+      if (name !== 'velocity' && name !== 'ptype') {
+        row.append(heading, image); fragment.append(row); return;
+      }
       const scale = document.createElement('div'); scale.className = 'cmpri-reflectivity-scale cmpri-source-scale';
       const ramp = document.createElement('div'); ramp.className = 'cmpri-reflectivity-ramp'; ramp.append(image);
       const ticks = document.createElement('div'); ticks.className = 'cmpri-reflectivity-ticks';
@@ -877,10 +1127,9 @@
       }
       fragment.append(row);
     }
-    const empty = !fragment.childNodes.length;
-    host.replaceChildren(fragment); host.hidden = empty;
-    if ($('mapLegendAccordion')) $('mapLegendAccordion').hidden = empty;
-    if ($('mapLegendSummary')) $('mapLegendSummary').setAttribute('aria-label', 'Legends for selected map layers: ' + host.childElementCount + ' keys');
+    const keys = fragment.childElementCount;
+    host.replaceChildren(keys ? fragment : 'No legend available for the selected layers.');
+    if ($('mapLegendSummary')) $('mapLegendSummary').setAttribute('aria-label', 'Legends for selected map layers: ' + keys + ' keys');
   }
   function updateGroundStatus() {
     const ground = window.cmpriGroundMap?.getState();
@@ -909,12 +1158,15 @@
     const buffering = state.opened && state.active && state.showRadar && (loadingImages.size > 0 || state.openAttempted && !count && !state.radarStatus.startsWith('Unavailable'));
     document.querySelectorAll('.loop').forEach((bar) => { bar.dataset.loading = String(Boolean(buffering)); bar.setAttribute('aria-busy', String(Boolean(buffering))); });
     ['playLoop', 'frameRange', 'playbackSpeed', 'loopLength'].forEach((id) => { if ($(id)) $(id).disabled = !state.showRadar || count === 0; });
+    if ($('returnLive')) $('returnLive').disabled = !state.showRadar || !count || followLatest;
     if ($('frameRange')) {
       const input = $('frameRange'); input.max = Math.max(0, count - 1); input.value = state.frame;
       input.setAttribute('aria-valuetext', 'Scan ' + (state.frame + 1) + ' of ' + count + '; ' + ready + ' scans ready. ' + scanTime());
       input.title = ready + ' of ' + count + ' observed scans ready; gray segments are loading or pending';
-      const colors = { ready: '#d9b740', loading: '#8b846e', pending: '#37372f', failed: '#874e42' };
-      input.style.backgroundImage = count ? 'linear-gradient(to right,' + progress.map((frame, index) => colors[frame.status] + ' ' + index / count * 100 + '%,' + colors[frame.status] + ' ' + (index + 1) / count * 100 + '%').join(',') + ')' : '';
+      input.style.backgroundImage = count ? 'linear-gradient(to right,' + progress.map((frame, index) => {
+        const color = frame.status === 'ready' ? '#000000' : '#d3d3d3';
+        return color + ' ' + index / count * 100 + '%,' + color + ' ' + (index + 1) / count * 100 + '%';
+      }).join(',') + ')' : '';
     }
     if ($('scanTime')) $('scanTime').textContent = scanTime();
     if ($('loopLabel')) $('loopLabel').textContent = count ? 'Observed loop · ' + availableWindowMinutes() + ' min available / ' + state.loopMinutes + ' min requested' : '';
@@ -924,8 +1176,21 @@
     if ($('loopLengthValue')) $('loopLengthValue').textContent = state.loopMinutes + ' min';
     if ($('mapOpacity')) $('mapOpacity').value = Math.round(state.opacity * 100);
     if ($('opacityValue')) $('opacityValue').textContent = Math.round(state.opacity * 100) + '%';
-    const selected = { reflectivity: state.showRadar, ...state.enabled, roads: state.roads, impacts: state.impacts, alerts: state.showAlerts };
-    document.querySelectorAll('[data-map-layer]').forEach((button) => button.setAttribute('aria-pressed', String(Boolean(selected[button.dataset.mapLayer]))));
+    const selected = layerSelections();
+    const unavailableLayer = {
+      reflectivity: state.radarStatus.startsWith('Unavailable') && !displayedRaster,
+      roads: true, impacts: state.impactsStatus.startsWith('Unavailable') && !state.forecastExtent,
+      alerts: state.alertFeedStatus === 'unavailable',
+      ...Object.fromEntries(Object.entries(wmsLayers).map(([name, record]) => [name,
+        record.state.status.startsWith('Unavailable') && !record.raster])),
+    };
+    document.querySelectorAll('[data-map-layer]').forEach((button) => {
+      const name = button.dataset.mapLayer;
+      button.setAttribute('aria-pressed', String(Boolean(selected[name])));
+      button.toggleAttribute('data-unavailable', Boolean(unavailableLayer[name]));
+      if (unavailableLayer[name]) button.setAttribute('aria-description', 'Source unavailable');
+      else button.removeAttribute('aria-description');
+    });
     if (canvas) canvas.setAttribute('aria-label', 'USGS geographic map at fixed hotel coordinates. Selected layers: ' + Object.entries(selected).filter(([, on]) => on).map(([name]) => name).join(', ') + '. ' + scanTime() + '. Click the map to enable wheel zoom; leaving resets it. Drag, arrow keys, pinch and zoom buttons also work.');
     if ($('layerUnavailable')) $('layerUnavailable').hidden = true;
     const unavailable = [];
@@ -946,11 +1211,12 @@
     if (playbackRunning && displayed >= 0) state.frame = displayed;
     playbackRunning = false; playbackGeneration += 1;
     if (loop !== null) { clearTimeout(loop); loop = null; }
-    if ($('playLoop')) { $('playLoop').textContent = '▶ Play'; $('playLoop').setAttribute('aria-label', 'Play observed NOAA radar loop'); }
+    if ($('playLoop')) { $('playLoop').classList.remove('is-playing'); $('playLoop').textContent = '▶ Play'; $('playLoop').setAttribute('aria-label', 'Play observed NOAA radar loop'); }
     if (state.initialized) updateUI(); else emit();
   }
   async function setFrame(index, source) {
     const count = frameCount(); if (!count) return;
+    if (source === 'frameRange') followLatest = false;
     const selection = ++frameSelection;
     state.frame = (index + count) % count;
     if (source) mark(source, 'Exercised · exact NOAA catalog frame selected');
@@ -962,7 +1228,7 @@
   function play() {
     if (playbackRunning) { stopPlayback(); mark('playLoop', 'Paused at displayed scan; remaining frame loads continue'); return; }
     if (!state.opened || !state.active || document.hidden || !state.showRadar || !frameCount()) return;
-    playbackRunning = true; primeFrames();
+    playbackRunning = true; followLatest = false; primeFrames();
     const ticket = ++playbackGeneration;
     const delay = () => ({ slow: 1500, normal: 850, fast: 350 })[state.playbackSpeed];
     const advance = () => {
@@ -976,8 +1242,8 @@
       updateUI(); queueDraw(); loop = setTimeout(advance, delay());
     };
     loop = setTimeout(advance, delay());
-    if ($('playLoop')) { $('playLoop').textContent = 'Ⅱ Pause'; $('playLoop').setAttribute('aria-label', 'Pause radar loop'); }
-    mark('playLoop', 'Cycles ready observed scans while remaining frames load; new ready scans join automatically'); emit();
+    if ($('playLoop')) { $('playLoop').classList.add('is-playing'); $('playLoop').textContent = 'Ⅱ Pause'; $('playLoop').setAttribute('aria-label', 'Pause radar loop'); }
+    mark('playLoop', 'Cycles ready observed scans while remaining frames load; new ready scans join automatically'); updateUI();
   }
   function scheduleViewportImage() {
     if (viewportTimer !== null) clearTimeout(viewportTimer);
@@ -1016,6 +1282,10 @@
     } else if (points.length) gesture = { type: 'pan', x: points[0].x, y: points[0].y, center: geo.center, resolution: geo.resolution };
     else gesture = null;
   }
+  function layerSelections() {
+    return { reflectivity: state.showRadar, ...state.enabled, roads: state.roads,
+      impacts: state.impacts, alerts: state.showAlerts, temperatures: state.temperatures };
+  }
   function selectLayer(name, enabled) {
     init();
     if (name === 'radar') name = 'reflectivity';
@@ -1026,6 +1296,10 @@
       if (state.impacts) ensureImpacts();
     }
     else if (name === 'alerts') { state.showAlerts = enabled === undefined ? !state.showAlerts : Boolean(enabled); closeAlertDetails(); }
+    else if (name === 'temperatures') {
+      state.temperatures = enabled === undefined ? !state.temperatures : Boolean(enabled);
+      if (!state.temperatures) stopTemperatures();
+    }
     else if (name === 'reflectivity') {
       state.showRadar = enabled === undefined ? !state.showRadar : Boolean(enabled);
       if (!state.showRadar) { stopPlayback(); frameQueue = []; queuedFrame = null; }
@@ -1034,13 +1308,44 @@
       state.enabled[name] = enabled === undefined ? !state.enabled[name] : Boolean(enabled);
       if (state.enabled[name]) void loadWmsProduct(name); else stopWms(name);
     } else { mark(name, 'Unavailable · no verified embedded source'); return getState(); }
-    state.activeLayer = name; mark(name, 'Independent layer ' + (name === 'reflectivity' ? state.showRadar : name in state.enabled ? state.enabled[name] : name === 'roads' ? state.roads : name === 'impacts' ? state.impacts : state.showAlerts));
+    state.activeLayer = name; mark(name, 'Independent layer ' + layerSelections()[name]);
     updateUI(); queueDraw(); return getState();
   }
   function renderControls() {
     const host = $('mapControlHost'); if (!host) return;
     const opacity = $('mapOpacity')?.closest('.opacity');
-    host.innerHTML = `<div class="cmpri-map-menu-bar"><div class="cmpri-map-layer-buttons" role="group" aria-label="Independent weather map layers"><button id="mapLayerRadar" data-map-layer="reflectivity" aria-pressed="true">Reflectivity</button><button id="mapLayerVelocity" data-map-layer="velocity" aria-pressed="false">Velocity</button><button id="mapLayerPtype" data-map-layer="ptype" aria-pressed="false">Precipitation type</button><button id="mapLayerRoads" data-map-layer="roads" aria-pressed="false">Reported winter roads · unavailable</button><button id="mapLayerImpacts" data-map-layer="impacts" aria-pressed="false">Forecast winter impacts</button><button id="mapLayerAlerts" data-map-layer="alerts" aria-pressed="true">Official alerts</button><button id="mapLayerCloudCover" data-map-layer="cloudCover" aria-pressed="false">Forecast cloud cover</button></div></div><div class="cmpri-map-playback-options"><label class="cmpri-map-slider" for="playbackSpeed"><span>Playback speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span><input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal"></label><label class="cmpri-map-slider" for="loopLength"><span>Observation loop <output id="loopLengthValue" for="loopLength">90 min</output></span><input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes"></label></div><p id="mapGroundStatus" class="cmpri-map-status-copy" role="status"></p><p id="mapFeedStatus" class="cmpri-map-status-copy" role="status"></p>`;
+    host.innerHTML = `
+      <div class="cmpri-map-menu-bar">
+        <div class="cmpri-map-layer-buttons" role="group" aria-label="Independent weather map layers">
+          <button type="button" id="mapLayerRadar" data-map-layer="reflectivity">Reflectivity</button>
+          <button type="button" id="mapLayerVelocity" data-map-layer="velocity">Velocity</button>
+          <button type="button" id="mapLayerPtype" data-map-layer="ptype">Precipitation type</button>
+          <button type="button" id="mapLayerRoads" data-map-layer="roads">Reported winter roads</button>
+          <button type="button" id="mapLayerImpacts" data-map-layer="impacts">Forecast winter impacts</button>
+          <button type="button" id="mapLayerAlerts" data-map-layer="alerts">Official alerts</button>
+          <button type="button" id="mapLayerCloudCover" data-map-layer="cloudCover">Forecast cloud cover</button>
+        </div>
+      </div>
+      <div class="cmpri-map-playback-options">
+        <label class="cmpri-map-slider" for="playbackSpeed">
+          <span>Playback Speed <output id="playbackSpeedValue" for="playbackSpeed">Normal</output></span>
+          <input id="playbackSpeed" type="range" min="0" max="2" step="1" value="1" aria-valuetext="Normal">
+        </label>
+        <label class="cmpri-map-slider" for="loopLength">
+          <span>Observation Loop <output id="loopLengthValue" for="loopLength">90 min</output></span>
+          <input id="loopLength" type="range" min="60" max="120" step="30" value="90" aria-valuetext="90 minutes">
+        </label>
+      </div>
+      <p id="mapGroundStatus" class="cmpri-map-status-copy" role="status"></p>
+      <p id="mapFeedStatus" class="cmpri-map-status-copy" role="status"></p>`;
+    const layerGroup = host.querySelector('.cmpri-map-layer-buttons');
+    layerGroup.tabIndex = 0;
+    for (const [name, label] of [...ADDITIONAL_RADAR_LAYERS, ['temperatures', 'Temperatures']]) {
+      const button = document.createElement('button');
+      button.type = 'button'; button.dataset.mapLayer = name;
+      button.id = 'mapLayer' + name[0].toUpperCase() + name.slice(1);
+      button.textContent = label; layerGroup.append(button);
+    }
     const sliders = host.querySelector('.cmpri-map-playback-options');
     if (opacity) {
       const label = document.createElement('span');
@@ -1052,13 +1357,24 @@
     const tools = document.querySelector('.map-tools');
     if (tools) tools.prepend(sliders);
     if ($('mapLayerControlsHost')) $('mapLayerControlsHost').append(host.querySelector('.cmpri-map-menu-bar'));
+    temperatureHost = document.createElement('div'); temperatureHost.className = 'cmpri-map-temperature-layer'; temperatureHost.hidden = true;
+    temperatureHost.setAttribute('role', 'group'); temperatureHost.setAttribute('aria-label', 'NWS observed temperatures');
+    shell.append(temperatureHost);
     const attribution = document.createElement('div'); attribution.id = 'mapAttribution'; attribution.className = 'cmpri-map-attribution';
     const source = document.createElement('span'); source.id = 'mapAttributionSource'; source.textContent = 'USGS · NOAA/NWS';
-    attribution.append(source); shell.append(attribution);
+    attribution.append(source);
+    const overlay = document.createElement('div'); overlay.className = 'cmpri-map-overlay';
+    const playback = $('playLoop').closest('.map-bottom');
+    const latest = document.createElement('button'); latest.type = 'button'; latest.id = 'returnLive'; latest.textContent = 'Latest'; latest.disabled = true;
+    $('frameRange').after(latest);
+    host.append($('scanTime'), $('loopLabel'));
+    overlay.append(playback, attribution); shell.append(overlay);
     if ($('mapLegend')) {
       const accordion = document.createElement('details'); accordion.id = 'mapLegendAccordion'; accordion.className = 'cmpri-map-legend-accordion';
       const summary = document.createElement('summary'); summary.id = 'mapLegendSummary'; summary.textContent = 'Legends';
-      const contents = document.createElement('div'); contents.id = 'mapLegendContents'; contents.append($('mapLegend'));
+      const contents = document.createElement('div'); contents.id = 'mapLegendContents';
+      const legendRow = $('mapLegend').parentElement;
+      contents.append($('mapLegend')); legendRow.remove();
       accordion.append(summary, contents); shell.append(accordion);
       accordion.addEventListener('toggle', () => { mark('legend', 'Legends ' + (accordion.open ? 'expanded' : 'collapsed') + '; no feed request'); emit(); });
     }
@@ -1103,6 +1419,7 @@
     on('moreNoaaProducts', 'toggle', () => mark('moreNoaaProducts', 'Exercised · optional NOAA product choices ' + ($('moreNoaaProducts').open ? 'expanded' : 'collapsed') + '; no feed request'));
     on('mapLayersMenu', 'toggle', () => mark('mapLayersMenu', 'Exercised · Layers menu ' + ($('mapLayersMenu').open ? 'opened' : 'closed')));
     on('playLoop', 'click', play);
+    on('returnLive', 'click', () => { stopPlayback(); followLatest = true; void setFrame(frameCount() - 1); });
     on('frameRange', 'input', (event) => { const requested = Number(event.target.value); stopPlayback(); setFrame(requested, 'frameRange'); });
     on('mapOpacity', 'input', (event) => { state.opacity = Number(event.target.value) / 100; mark('opacity', 'Exercised · weather-layer opacity ' + Math.round(state.opacity * 100) + '%'); updateUI(); queueDraw(); });
     on('showEchoes', 'change', (event) => { selectLayer('radar', event.target.checked); mark('showEchoes', 'Exercised · selected observed product ' + (state.showRadar ? 'shown' : 'hidden') + '; playback stopped'); });
@@ -1188,6 +1505,7 @@
     window.cmpriTimeFormat?.subscribe(() => {
       updateAlertStatus();
       updateUI();
+      queueDraw();
       $('mapAlertDetails')?.querySelectorAll('time').forEach((time) => { time.textContent = formatTime(time.dateTime); });
     });
     updateUI(); return window.cmpriWeatherMap;
@@ -1214,6 +1532,7 @@
   }
   function pause() {
     state.active = false; state.wheelZoomActive = false; stopRefreshTimer(); stopPlayback(); cancelRequests();
+    stopTemperatures();
     window.cmpriGroundMap?.close(); pointers.clear(); gesture = null;
     canvas?.classList.remove('dragging'); closeAlertDetails();
     if (viewportTimer !== null) { clearTimeout(viewportTimer); viewportTimer = null; }
@@ -1243,7 +1562,7 @@
     const currentWms = WMS_PRODUCTS[state.activeLayer] ? state.activeLayer : Object.keys(wmsLayers).find((name) => state.enabled[name]) || 'velocity';
     return { initialized: state.initialized, opened: state.opened, active: state.active,
       mapReady: state.mapReady, mode: state.mode, activeLayer: state.activeLayer,
-      layers: { radar: state.showRadar, reflectivity: state.showRadar, ...state.enabled, roads: state.roads, impacts: state.impacts, alerts: state.showAlerts },
+      layers: { radar: state.showRadar, ...layerSelections() },
       frame: state.frame, frameCount: frameCount(), playing: playbackRunning,
       displayedFrame: state.frames.findIndex((frame) => frame.time === state.displayedTime), displayedScanTime: state.displayedTime,
       catalogFrameCount: state.catalogFrames.length, availableWindowMinutes: availableWindowMinutes(), loopMinutes: state.loopMinutes, playbackSpeed: state.playbackSpeed,
@@ -1255,7 +1574,8 @@
       pinAnchor: { ...HOTEL, x: hotelPoint?.x ?? null, y: hotelPoint?.y ?? null, anchor: 'tip' },
       legend: { expanded: Boolean($('mapLegendAccordion')?.open), keyCount: $('mapLegend')?.childElementCount || 0 },
       refresh: { intervalMs: REFRESH_INTERVAL, nextAt: refreshTimer !== null ? refreshDueAt : null, scheduled: refreshTimer !== null },
-      networkRequests: state.networkRequests, pendingRequests: controllers.size,
+      networkRequests: state.networkRequests, pendingRequests: controllers.size + temperatureRequests.size,
+      temperatureStations: [...temperaturePins.keys()], temperaturePending: temperatureRequests.size,
       rasterLoads: loadingImages.size, rasterQueue: frameQueue.length + (queuedFrame === null ? 0 : 1), rasterLoadLimit: 2,
       imageCacheSize: images.size, imageCacheLimit: IMAGE_CACHE_LIMIT, frameProgress: progress,
       displayedRasterLoaded: Boolean(displayedRaster), displayedRasterRetained: Boolean(displayedRaster && !images.has(displayedRaster.key)),

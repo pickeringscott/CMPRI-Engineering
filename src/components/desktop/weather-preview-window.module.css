@@ -5,4 +5,31 @@
 .dialog > :global(button.fixed){display:none!important}
 /* Above the anchored header's overflow, with menu action rows reserved below. */
 :global([data-weather-desktop-bulletin-host]):has(.ticker){position:relative;z-index:202}
+.manualTicker {
+  cursor: default;
+  font-size: 16px;
+  color: inherit;
+  background: transparent;
+}
+.manualBulletin { min-inline-size: 0; }
+.manualTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+  padding: 4px 12px 0;
+  font: 12px/18px Arial, Helvetica, sans-serif;
+}
+.manualTitle time { white-space: nowrap; }
+.manualTicker:hover .tickerTrack { animation-play-state: running; }
+.radarWallpaper {
+  position: absolute;
+  inset: 0;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  border: 0;
+  background: #111;
+  pointer-events: auto;
+}
 .dialog[data-level=warning] .dialogHeader{border-bottom-color:#a52c39}.dialog[data-level=warning] .dialogContent h2{color:#ffb6ad}.dialog[data-level=watch] .dialogContent h2{color:#ffe36c}.dialog[data-level=history] .label,.dialog[data-level=history] .dialogContent h2{color:#c4bcad}.soundStatus{display:flex;align-items:center;flex-wrap:wrap;gap:8px;color:#c4bcad;font-size:13px}.soundStatus button{min-block-size:40px;border:1px solid #72551b;border-radius:6px;background:#211b0d;color:#ffdf63;padding:6px 12px;font:inherit;cursor:pointer}
