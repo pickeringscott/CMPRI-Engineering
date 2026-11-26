@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://mapservices.weather.noaa.gov; connect-src 'self' https://mapservices.weather.noaa.gov; frame-src 'self'; font-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="robots" content="noindex,nofollow">
+<title>CMPRI Engineering · Weather Branch Preview</title>
+<link rel="stylesheet" href="weather/weather-preview.css">
+<link rel="stylesheet" href="weather/weather-visuals.css">
+<link rel="stylesheet" href="weather/weather-graphs.css">
+<link rel="stylesheet" href="weather/weather-astronomy.css">
+<link rel="stylesheet" href="weather/willard-airport.css">
+<link rel="stylesheet" href="weather/willard-tracker.css">
+<link rel="stylesheet" href="weather/weather-map.css">
+<link rel="stylesheet" href="weather/notification-preview.css">
+<link rel="stylesheet" href="weather-alert-review.css">
+</head>
+<body>
+<header class="appbar"><div><div class="brand">CMPRI Engineering</div><div class="identity" id="reviewIdentity">Residence Inn Champaign · Chief Engineer</div></div><div class="app-controls"><label>Review as <select id="reviewRole"><option value="chief">Chief Engineer</option><option value="staff">CMPRI staff</option></select></label></div></header>
+<nav class="navbar" aria-label="Dashboard preview"><div class="navgroup"><span>Operations</span><span class="inactive-launcher">Work Order List</span><button id="weatherLauncher" data-open="false">☁ Weather</button><span class="inactive-launcher">Pool</span></div><div class="navgroup secondary"><span>Assets &amp; Supply</span><span class="inactive-launcher">Inventory</span></div><div class="navgroup secondary"><span>Account</span><span class="inactive-launcher">Manage Profile</span></div></nav>
+<div id="reviewWallpaper" hidden></div>
+<div id="reviewBanner" role="status" hidden><strong id="reviewBannerStatus"></strong><span id="reviewBannerText"></span><button id="reviewReturn" type="button" hidden>Return to Publish</button><button id="reviewExit" type="button" hidden>Dismiss preview</button></div>
+<main class="dashboard review-dashboard" id="dashboard"><div class="review-property"><p>Residence Inn Champaign</p><h1 class="landing-heading" id="reviewHeading">Engineering Dashboard</h1></div>
+<div class="review-launchers"><section><h2>Daily Work</h2><span>Work Order List</span><span>Preventive Maintenance</span><span>Notepad</span></section><section><h2>Property Operations</h2><span>Room Ranker</span><span>Pool Log</span><button id="openWeather" type="button">Open Weather ↗</button></section></div></main>
+<aside id="reviewWidget" aria-label="Desktop weather widget">
+  <button id="reviewDial" type="button" aria-label="Open Weather"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="reviewRing" x1="0" x2="1" y1="1" y2="0" gradientUnits="objectBoundingBox"><stop stop-color="#63d9f9"/><stop offset=".55" stop-color="#8bcfb5"/><stop offset="1" stop-color="#f5bc63"/></linearGradient></defs><circle cx="50" cy="50" r="41" fill="none" stroke="url(#reviewRing)" stroke-width="4"/><circle id="reviewTimeDot" r="3.4" fill="white" stroke="#121b26" stroke-width="1"/><text id="reviewTemp" x="50" y="55">—</text><text id="reviewTime" x="50" y="69"></text></svg></button>
+  <button id="reviewFlip" aria-label="Flip radar panel up" type="button">⌃</button>
+  <div id="reviewWidgetRadar" hidden></div>
+</aside>
+<section class="window" id="weatherWindow" role="dialog" aria-modal="false" aria-labelledby="windowTitle" hidden>
+ <div class="titlebar"><span class="dot" aria-hidden="true"></span><span id="windowTitle">Weather · Residence Inn Champaign</span><span class="window-caption">CMPRI / review only</span><button class="close" id="closeWeather" aria-label="Close Weather">×</button></div>
+ <div class="window-body" id="windowBody">
+  <div class="view-head"><div><div class="eyebrow">Property weather</div><h1 style="margin-top:5px">Residence Inn Champaign</h1><p class="location">502 West Marketview Drive · 40.138080, −88.251416 · America/Chicago</p></div><span class="badge neutral"><span class="dot"></span>Branch review only</span></div>
+  <div id="panel-weather">
+<section class="panel review-alert-editor" id="reviewEditor" hidden aria-labelledby="reviewEditorTitle">
+<h2 id="reviewEditorTitle">Manual weather alert</h2>
+<form id="reviewForm">
+<label>Banner message <textarea id="reviewMessage" maxlength="260" rows="2" required>Possible slippery conditions on sidewalks and in the parking lot after rain and freezing temperatures.</textarea></label>
+<div class="review-fields"><label>Banner color <input id="reviewColor" type="color" value="#875517"></label><label>Severity <select id="reviewSeverity"><option value="advisory">Advisory</option><option value="elevated" selected>Elevated</option><option value="severe">Severe</option></select></label><label><input id="reviewOverride" type="checkbox"> Override the CMPRI wallpaper with live radar</label></div>
+<p class="small muted" id="reviewHelp">Radar wallpaper is available for Elevated and Severe alerts.</p>
+<div class="review-fields"><button type="submit" class="primary">Preview</button><button id="reviewPublish" type="button" disabled>Publish</button><button id="reviewClear" type="button">Clear simulation</button></div>
+<p id="reviewStatus" role="status">Placement in the Weather modal is provisional. Publishing affects this mockup only.</p>
+</form></section>
+   <div class="priority-row">
+    <section class="panel conditions-priority" id="currentConditionsSection"><div class="section-label"><div><h2>Current Conditions</h2><p class="current-as-of" id="liveObservationTime">As of: unavailable · Willard (KCMI)</p></div><span class="badge neutral" id="liveConditionsBadge">KCMI</span></div><div class="conditions-inline"><div id="liveTemperature">—</div></div><div id="currentConditionsGraphs" class="current-conditions-graphs"></div></section>
+    <section class="panel official-priority" id="officialAlertsSection" hidden><div class="section-label"><h2>Official NWS alerts</h2><span class="badge neutral" id="liveAlertsBadge">NWS</span></div><div id="liveAlertsHost"></div></section>
+   </div>
+   <p class="alert-availability" id="liveAlertAvailability" hidden></p>
+    <section class="panel map-panel"><div class="map-top"><div class="row between"><h2 style="font-size:15px">Radar &amp; travel layers</h2><a href="cmpri-radar-review.html" target="_blank" rel="noopener">Open expanded radar ↗</a></div><div id="mapLayerControlsHost"></div></div>
+     <div class="map-shell" id="mapShell"><canvas id="radarCanvas" tabindex="0" aria-label="Official NOAA radar at the verified hotel location. Pan and zoom control the map. Data is unavailable until the official response loads."></canvas><div class="map-actions"><button id="zoomIn" aria-label="Zoom in">+</button><button id="zoomOut" aria-label="Zoom out">−</button><button id="recenter" aria-label="Recenter on hotel" title="Recenter on hotel">⌖</button><button id="fullscreen" aria-label="Toggle map fullscreen" title="Fullscreen">⛶</button></div><div class="layer-unavailable" id="layerUnavailable" hidden><span class="badge neutral" style="justify-self:center">Unavailable in this build</span><h3 id="layerTitle"></h3><p id="layerDescription"></p><a id="layerSource" target="_blank" rel="noopener noreferrer">Open official NOAA/NWS product ↗</a></div></div>
+     <div class="map-bottom"><div class="row between"><div class="legend" id="mapLegend" aria-label="Official radar legend"></div><span class="small muted" id="loopLabel">Observed radar loop</span></div><div class="loop"><button id="playLoop" aria-label="Play observed NOAA radar loop">▶ Play</button><input id="frameRange" type="range" min="0" max="0" value="0" aria-label="Observed NOAA radar frame"></div><div class="scan-time" id="scanTime">No observed scan displayed</div><div class="map-tools"><label class="opacity" for="mapOpacity">Opacity <input id="mapOpacity" type="range" min="0" max="100" value="65"><output id="opacityValue" for="mapOpacity">65%</output></label><label class="row small" style="gap:6px"><input type="checkbox" id="showEchoes" checked>Show radar echoes</label></div></div>
+     <div id="mapControlHost"></div>
+    </section>
+
+   <section class="panel forecast-panel"><div class="section-label"><div><h2>Hourly forecast</h2><p class="small muted">Published NWS forecast · Central time</p></div><div class="row forecast-controls"><span class="badge neutral">NWS forecast</span><button data-scroll-target="hourlyForecast" data-direction="-1" aria-label="Scroll hourly forecast left">‹</button><button data-scroll-target="hourlyForecast" data-direction="1" aria-label="Scroll hourly forecast right">›</button></div></div><div class="hourly-forecast-scroll" id="hourlyForecast" tabindex="0" role="region" aria-label="Official hourly forecast and aligned graphs; scroll horizontally"><div class="hourly-forecast-content"><div class="forecast-strip hourly-forecast-cards" id="hourlyForecastCards"></div><div id="hourlyForecastGraphs" class="hourly-forecast-graphs"></div></div></div></section>
+   <section class="panel forecast-panel"><div class="section-label"><div><h2>Extended forecast</h2><p class="small muted">Daily temperatures · Central time</p></div><div class="row forecast-controls"><span class="badge neutral">NWS forecast</span><button data-scroll-target="extendedForecast" data-direction="-1" aria-label="Scroll extended forecast left">‹</button><button data-scroll-target="extendedForecast" data-direction="1" aria-label="Scroll extended forecast right">›</button></div></div><div class="forecast-strip" id="extendedForecast" tabindex="0" role="region" aria-label="Official extended forecast; scroll horizontally"></div></section>
+   <section class="panel accumulation-strip"><div><strong>Snow &amp; ice · next 24h</strong><p class="small muted">NWS forecast grid intervals; unavailable when not supplied</p></div><div><span class="small muted">Snow</span> <strong id="liveSnow">Unavailable</strong></div><div><span class="small muted">Ice</span> <strong id="liveIce">Unavailable</strong></div><a class="small" href="https://www.weather.gov/ilx/wssi" target="_blank" rel="noopener noreferrer">Official winter guidance ↗</a></section>
+   <details class="panel willard-airport" id="willardAirport"><summary>Willard Airport</summary></details>
+  </div>
+  <div id="panel-notifications" hidden><div id="notificationPreviewHost"></div></div>
+  <div id="panel-checks" hidden>
+   <div class="section-label"><div><h2>One shared check for the property</h2><p class="small muted" style="margin-top:4px">Simulation only · the clock advances when you click · no scheduler is running</p></div><span class="badge">Virtual time</span></div>
+   <div class="sim-modes"><div class="mode-tile" id="modeClear"><span class="small">No active alert</span><strong>5 min</strong><p>Routine check</p></div><div class="mode-tile" id="modeWatch"><span class="small">Watch / advisory</span><strong>2 min</strong><p>Heightened check</p></div><div class="mode-tile" id="modeWarning"><span class="small">Warning</span><strong>1 min</strong><p>Urgent check</p></div></div>
+   <div class="sim-layout"><section class="panel"><div class="eyebrow">Current simulated mode</div><h3 class="current-mode"><span id="simMode">Clear</span> · <span id="simInterval">5 minutes</span></h3><p class="small muted">Next shared check: <span id="simNext"></span></p><div class="sim-stats"><div><strong id="simNws">0</strong><small>NWS requests<br>simulated</small></div><div><strong id="simDb">0</strong><small>Supabase transactions<br>simulated · actual 0</small></div><div><strong id="simPush">0</strong><small>In-app messages<br>simulated</small></div></div><p class="small" id="simStage"></p><div class="row" style="margin-top:12px"><button class="primary" id="simStep">Advance to Watch</button><button id="simUnchanged">Repeat unchanged</button></div><div class="row" style="margin-top:8px"><button id="simChange">Material update</button><button id="simCancel">Cancel most urgent</button><button id="simExpire">Expire most urgent</button><button id="simReset">Reset</button></div><hr class="rule"><p class="small muted">The most urgent active alert sets the interval. Cancel or expire the warning while a watch remains: the mode slows to 2 minutes. Clear the remaining watch: it returns to 5 minutes.</p><p class="footnote">Faster checks create more NWS requests, with no database request for an unchanged comparison. Cache and delivery keys are in local memory here; proposed shared-worker state is not implemented.</p></section><section class="panel"><div class="section-label"><h2>Comparison &amp; activity log</h2><span class="badge">Simulation</span></div><p class="small muted">One hypothetical alert request per property check. A simulated transaction stores the changed alert and any outbox / delivery key together. No per-user polling.</p><ol class="sim-log" id="simLog"></ol></section></div>
+  </div>
+
+ </div>
+</section>
+<div id="guestSafetyHost"></div>
+<script src="weather/weather-tooltips.js" defer></script>
+<script src="/ui-language.js" data-ui-scope="weather" defer></script>
+<script src="cmpri-time-format.js" defer></script>
+<script src="weather/weather-clock.js" defer></script>
+<script src="weather/alert-check-simulation.js" defer></script>
+<script src="weather/notification-preview.js" defer></script>
+<script src="weather/ground-map.js" defer></script>
+<script src="weather/weather-map.js" defer></script>
+<script src="weather/weather-visuals.js" defer></script>
+<script src="weather/weather-graphs.js" defer></script>
+<script src="weather/weather-astronomy.js" defer></script>
+<script src="weather/weather-astronomy-feed.js" defer></script>
+<script src="weather/nws-live-view.js" defer></script>
+<script src="weather/willard-tracker.js" defer></script>
+<script src="weather/willard-airport.js" defer></script>
+<script src="weather/weather-preview.js" defer></script>
+<script src="weather-alert-review.js" defer></script>
+</body>
+</html>

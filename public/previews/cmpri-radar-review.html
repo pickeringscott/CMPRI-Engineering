@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>CMPRI · Champaign Radar</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%}body{background:#101b29;color:#eaf1fa;font:15px system-ui;display:grid;grid-template-rows:auto minmax(170px,1fr) auto}header,footer{padding:.8rem 1rem;background:#152436}header h1{margin:0 0 .55rem;font-size:1.15rem}.controls,.playback{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap}button,select{font:inherit;color:inherit;background:#233851;border:1px solid #617a95;border-radius:5px;padding:.32rem .55rem}button:disabled{opacity:.55}footer{display:grid;gap:.4rem}#mapShell{position:relative;min-width:0;overflow:hidden}#radarMap{height:100%;background:#223a45}.map-actions{position:absolute;z-index:800;right:12px;bottom:28px;display:grid;gap:4px}.map-actions button{width:34px;height:30px;padding:0;background:#142438;color:white}.legend{max-height:75px;max-width:100%;overflow:auto}.legend img{vertical-align:middle;background:white}.muted{color:#b9cbe0;font-size:.85rem}#alertsList ul{margin:.25rem 0}a{color:#b6dcff}.leaflet-control-attribution a{color:#174168}.compact header,.compact footer{display:none}.compact body{grid-template-rows:1fr}.compact .map-actions{right:9px;bottom:19px}.compact .map-actions [data-full],.wallpaper .map-actions{display:none}[hidden]{display:none!important}
+</style>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+</head>
+<body>
+<header>
+<h1>Champaign radar</h1>
+<div class="controls"><label>Radar layer <select id="layer"></select></label><label><input id="showAlerts" type="checkbox" checked> NWS watches, warnings and advisories</label><button id="refresh">Refresh live</button></div>
+</header>
+<div id="mapShell">
+<div id="radarMap" aria-label="USGS map centered on Champaign with NOAA radar"></div>
+<div class="map-actions"><button id="flip" aria-label="Flip radar panel down" hidden>⌄</button><button id="zoomIn" aria-label="Zoom in">+</button><button id="zoomOut" aria-label="Zoom out">−</button><button id="recenter" aria-label="Recenter on Champaign" data-full>⌖</button><button id="fullscreen" aria-label="Toggle map fullscreen" data-full>⛶</button></div>
+</div>
+<footer>
+<div class="playback"><button id="playLoop" disabled>▶ Play</button><input id="frameRange" aria-label="Radar scan" type="range" min="0" max="0" value="0" disabled><label>Opacity <input id="mapOpacity" type="range" min="0" max="100" value="65"></label><span id="scanTime" role="status">Waiting for NOAA</span></div>
+<div id="mapLegend" class="legend muted"></div><div id="availability" class="muted"></div><details id="alertsList"><summary id="alertStatus">Checking NWS alerts for Champaign</summary><ul id="alertEvents"></ul></details>
+</footer>
+<script>
+'use strict';
+const byId = id => document.getElementById(id);
+const query = new URLSearchParams(location.search);
+const mode = query.get('mode');
+if (mode) document.documentElement.classList.add('compact',mode === 'wallpaper' ? 'wallpaper' : 'widget');
+const center = [40.138080,-88.251416];
+const products = [
+  ['conus','bref_qcd','National · Base reflectivity'],
+  ['conus','cref_qcd','National · Composite reflectivity'],
+  ['conus','pcpn_typ','National · Precipitation type'],
+  ['conus','neet_v18','National · Enhanced echo tops'],
+  ['kilx','sr_bref','KILX · High-resolution reflectivity'],
+  ['kilx','sr_bvel','KILX · High-resolution velocity'],
+  ['kilx','bdhc','KILX · Precipitation type (hydrometeor classification)'],
+  ['kilx','boha','KILX · One-hour accumulation'],
+  ['kilx','bdsa','KILX · Storm total']
+];
+const clock = new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',dateStyle:undefined,month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false,timeZoneName:'short'});
+const select = byId('layer');
+for (const [index, product] of products.entries()) select.add(new Option(product[2], index));
+if (!window.L) {
+  byId('scanTime').textContent = 'Unavailable · the map library could not load';
+  byId('radarMap').textContent = byId('scanTime').textContent;
+  throw new Error('Leaflet could not load');
+}
+const map = L.map('radarMap',{zoomControl:false,scrollWheelZoom:false}).setView(center, mode === 'widget' ? 7 : 8);
+const basemap = L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',{maxZoom:16,attribution:'USGS The National Map · USDA/NAIP'}).addTo(map);
+basemap.once('tileerror',()=>{byId('availability').textContent = 'Some USGS imagery tiles are unavailable.'});
+L.circleMarker(center,{radius:6,color:'white',fillColor:'#2389ff',fillOpacity:1}).addTo(map).bindTooltip('Residence Inn Champaign');
+const alerts = L.geoJSON(null,{style:feature=>({color:alertColor(feature.properties.event),weight:2,fillOpacity:.14}),onEachFeature:(feature,layer)=>{const label=document.createElement('span');label.textContent=feature.properties.event;layer.bindTooltip(label)}}).addTo(map);
+let alertsGeneration=0;
+let selected, frames=[], raster, generation=0, imageGeneration=0, timer, index=0, viewportTimer, imagePending=false, catalogCache = new Map();
+const endpoint = (region, code) => 'https://opengeo.ncep.noaa.gov/geoserver/' + region + '/' + (region === 'conus' ? region + '_' + code + '/' : '') + 'ows';
+const wmsURL = (source, params) => source + '?' + new URLSearchParams({service:'WMS',version:'1.3.0',...params});
+const stamp = date => clock.format(date);
+const child = (element,name) => [...(element?.children || [])].find(node=>node.localName===name);
+function scanTimes(text) {
+  const result = [];
+  for (const value of text.split(',')) {
+    const [start,end,period] = value.trim().split('/');
+    if (!/Z$/i.test(start)) continue;
+    if (!end) { if(Number.isFinite(Date.parse(start))) result.push(start); continue; }
+    const step = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/i.exec(period || '');
+    if (!step || !/Z$/i.test(end)) continue;
+    const millis = ((Number(step[1]||0)*60+Number(step[2]||0))*60+Number(step[3]||0))*1000;
+    const first=Date.parse(start), last=Date.parse(end);
+    if (millis<=0 || !Number.isFinite(first) || !Number.isFinite(last) || last<first) continue;
+    const count=Math.floor((last-first)/millis);
+    for(let i=Math.max(0,count-11);i<=count;i++) result.push(new Date(first+i*millis).toISOString());
+  }
+  return [...new Set(result.map(time=>new Date(time).toISOString()))].sort().slice(-12);
+}
+async function capabilities(region,code) {
+  const source = endpoint(region,code);
+  if (!catalogCache.has(source)) {
+    const fetchOptions={signal:AbortSignal.timeout(10000)};
+    const direct=()=>fetch(wmsURL(source,{request:'GetCapabilities'}),fetchOptions);
+    const read = location.pathname.startsWith('/previews/') && location.protocol!=='file:'
+      ? fetch('/api/weather-radar-review?region='+region+'&product='+code,fetchOptions).then(response=>response.ok?response:direct())
+      : direct();
+    catalogCache.set(source,read.then(response=>{
+      if(!response.ok) throw new Error('NOAA catalog HTTP '+response.status);
+      return response.text();
+    }).then(xml=>new DOMParser().parseFromString(xml,'application/xml')).catch(error=>{
+      catalogCache.delete(source); throw error;
+    }));
+  }
+  const xml = await catalogCache.get(source);
+  const layer = [...xml.getElementsByTagNameNS('*','Layer')].find(node=>child(node,'Name')?.textContent.split(':').at(-1) === region+'_'+code);
+  if (!layer) throw new Error('NOAA did not advertise this layer');
+  const name = child(layer,'Name').textContent;
+  const styleNode=child(layer,'Style');
+  const style=child(styleNode,'Name')?.textContent || '';
+  let dimension;
+  for(let node=layer;node?.localName==='Layer'&&!dimension;node=node.parentElement){
+    dimension=[...node.children].find(item=>item.localName==='Dimension'&&item.getAttribute('name')?.toLowerCase()==='time');
+  }
+  return {source,name,style,times:scanTimes(dimension?.textContent || '')};
+}
+function playbackState() {
+  byId('playLoop').disabled = frames.length<2;
+  byId('frameRange').disabled = frames.length<2;
+  byId('frameRange').max = Math.max(0,frames.length-1);
+  byId('frameRange').value = index;
+}
+function stop() {
+  clearInterval(timer);timer=null;byId('playLoop').textContent='▶ Play';
+}
+function draw(next,fit=false) {
+  if (!selected) return;
+  const request = ++imageGeneration;
+  index = next;
+  const time = frames[index];
+  byId('frameRange').value = index;
+  const bounds = map.getBounds();
+  const a = L.CRS.EPSG3857.project(bounds.getSouthWest()), b = L.CRS.EPSG3857.project(bounds.getNorthEast());
+  const size=map.getSize();
+  if(!size.x||!size.y)return;
+  const url = wmsURL(selected.source,{request:'GetMap',layers:selected.name,styles:selected.style,crs:'EPSG:3857',bbox:[a.x,a.y,b.x,b.y].join(','),width:Math.min(1600,size.x),height:Math.min(1600,size.y),format:'image/png',transparent:'true',...(time?{time}:{})});
+  imagePending=true;
+  const image = new Image();
+  image.onload = () => {
+    if (request!==imageGeneration) return;
+    imagePending=false;
+    raster?.remove();
+    raster=L.imageOverlay(url,bounds,{opacity:byId('mapOpacity').value/100,interactive:false}).addTo(map);
+    byId('scanTime').textContent=time ? 'Scan '+stamp(new Date(time)) : 'NOAA latest · scan time unavailable';
+    byId('radarMap').setAttribute('aria-label',byId('scanTime').textContent+' · '+products[select.value][2]);
+  };
+  image.onerror = () => {
+    if (request!==imageGeneration) return;
+    imagePending=false;
+    raster?.remove();raster=null;
+    byId('scanTime').textContent='Unavailable · NOAA did not return a radar image';
+  };
+  if (!fit && !timer) byId('scanTime').textContent='Loading NOAA scan…';
+  image.src=url;
+}
+async function loadProduct() {
+  const ticket=++generation;
+  ++imageGeneration;stop();raster?.remove();raster=null;selected=null;frames=[];index=0;playbackState();
+  const [region,code,label]=products[select.value];
+  byId('scanTime').textContent='Checking '+label+'…';
+  byId('mapLegend').textContent='';
+  try {
+    const product=await capabilities(region,code);
+    if(ticket!==generation)return;
+    select.selectedOptions[0].textContent=label;
+    selected=product;frames=product.times;index=Math.max(0,frames.length-1);
+    const legend=new Image();legend.alt='NOAA legend for '+label;
+    legend.onerror=()=>{if(ticket===generation)byId('mapLegend').textContent='NOAA legend unavailable for this layer.'};
+    legend.src=wmsURL(product.source,{request:'GetLegendGraphic',layer:product.name,style:product.style,format:'image/png'});
+    byId('mapLegend').append(legend);
+    playbackState();draw(index);
+  } catch(error) {
+    if(ticket!==generation)return;
+    select.selectedOptions[0].textContent=label+' · unavailable';
+    byId('scanTime').textContent='Unavailable · '+error.message;
+  }
+}
+function alertColor(event) {
+  return /warning/i.test(event)?'#ff6161':/watch/i.test(event)?'#ffbf49':'#d6a9ff';
+}
+async function loadAlerts() {
+  const ticket=++alertsGeneration;
+  if(!byId('showAlerts').checked){alerts.remove();byId('alertsList').hidden=true;return}
+  alerts.addTo(map);byId('alertsList').hidden=false;
+  try{
+    const response=await fetch('https://api.weather.gov/alerts/active?point='+center.map(value=>value.toFixed(4)).join(','),{signal:AbortSignal.timeout(12000)});
+    if(!response.ok)throw new Error('HTTP '+response.status);
+    const data=await response.json();
+    if(ticket!==alertsGeneration)return;
+    if(!Array.isArray(data.features))throw new Error('invalid alert response');
+    alerts.clearLayers().addData(data.features.filter(feature=>['Polygon','MultiPolygon'].includes(feature.geometry?.type)));
+    byId('alertEvents').replaceChildren(...data.features.map(feature=>{
+      const row=document.createElement('li');
+      const featureData=feature.properties;
+      row.textContent=featureData.event+(featureData.ends?' · ends '+stamp(new Date(featureData.ends)):'')+(!feature.geometry?' · no published polygon':'');
+      row.style.color=alertColor(featureData.event);
+      return row;
+    }));
+    byId('alertStatus').textContent=data.features.length ? 'NWS Champaign alerts · '+data.features.length : 'NWS reports no active Champaign alerts';
+  }catch(error){
+    if(ticket!==alertsGeneration)return;
+    alerts.clearLayers();byId('alertEvents').replaceChildren();
+    byId('alertStatus').textContent='NWS alerts unavailable · '+error.message;
+  }
+}
+function refresh(){catalogCache=new Map();void loadProduct();void loadAlerts()}
+byId('refresh').onclick=refresh;
+select.onchange=loadProduct;
+byId('showAlerts').onchange=loadAlerts;
+byId('zoomIn').onclick=()=>map.zoomIn();
+byId('zoomOut').onclick=()=>map.zoomOut();
+byId('recenter').onclick=()=>map.setView(center,8);
+byId('fullscreen').onclick=()=>document.fullscreenElement?document.exitFullscreen():byId('mapShell').requestFullscreen();
+byId('mapOpacity').oninput=()=>raster?.setOpacity(byId('mapOpacity').value/100);
+byId('frameRange').oninput=()=>{stop();draw(Number(byId('frameRange').value))};
+byId('playLoop').onclick=()=>{
+  if(timer){stop();return}
+  byId('playLoop').textContent='❚❚ Pause';
+  timer=setInterval(()=>{ if (!imagePending) draw((index+1)%frames.length); },1300);
+};
+map.on('moveend resize',()=>{clearTimeout(viewportTimer);viewportTimer=setTimeout(()=>draw(index,true),160)});
+new ResizeObserver(()=>map.invalidateSize({pan:false})).observe(byId('mapShell'));
+if(mode==='widget'){
+  byId('flip').hidden=false;
+  byId('flip').onclick=()=>parent.postMessage('cmpri-weather-review-flip',location.origin);
+}
+setInterval(()=>{if(!document.hidden)refresh()},300000);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();else refresh()});
+refresh();
+</script>
+</body>
+</html>
