@@ -352,6 +352,10 @@ export default function GlobalModalHost() {
       const existing = stackRef.current.find(item => desktopEntryKey(item) === key);
       if (existing) {
         if (closingWindows.current.has(existing.id)) return;
+        if (key === WEATHER_PATH && clickedAt !== undefined && !existing.weatherCached) {
+          requestCloseRef.current(existing.id);
+          return;
+        }
         const sameLauncher = !entry.launcher || !existing.launcher
           || currentWindowLauncher(existing.launcher) === entry.launcher.element;
         if (clickedAt !== undefined && existing.openedAt !== undefined && !existing.weatherCached

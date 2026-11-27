@@ -33,7 +33,14 @@
    <p class="alert-availability" id="liveAlertAvailability" hidden></p>
     <section class="panel map-panel"><div class="map-top"><div class="row between"><h2 style="font-size:15px">Radar &amp; travel layers</h2></div><div id="mapLayerControlsHost"></div></div>
      <div class="map-shell" id="mapShell"><canvas id="radarCanvas" tabindex="0" aria-label="Official NOAA radar at the verified hotel location. Pan and zoom control the map. Data is unavailable until the official response loads."></canvas><div class="map-actions"><button id="zoomIn" aria-label="Zoom in">+</button><button id="zoomOut" aria-label="Zoom out">−</button><button id="recenter" aria-label="Recenter on hotel" title="Recenter on hotel">⌖</button><button id="fullscreen" aria-label="Toggle map fullscreen" title="Fullscreen">⛶</button></div><div class="layer-unavailable" id="layerUnavailable" hidden><span class="badge neutral" style="justify-self:center">Unavailable in this build</span><h3 id="layerTitle"></h3><p id="layerDescription"></p><a id="layerSource" target="_blank" rel="noopener noreferrer">Open official NOAA/NWS product ↗</a></div></div>
-     <div class="map-bottom"><div class="row between"><div class="legend" id="mapLegend" aria-label="Official radar legend"></div><span class="small muted" id="loopLabel">Observed radar loop</span></div><div class="loop"><button id="playLoop" aria-label="Play observed NOAA radar loop">▶ Play</button><input id="frameRange" type="range" min="0" max="0" value="0" aria-label="Observed NOAA radar frame"></div><div class="scan-time" id="scanTime">No observed scan displayed</div><div class="map-tools"><label class="opacity" for="mapOpacity">Opacity <input id="mapOpacity" type="range" min="0" max="100" value="65"><output id="opacityValue" for="mapOpacity">65%</output></label><label class="row small" style="gap:6px"><input type="checkbox" id="showEchoes" checked>Show radar echoes</label></div></div>
+     <div class="map-bottom"><div class="row between"><div class="legend" id="mapLegend" aria-label="Official radar legend"></div><span class="small muted" id="loopLabel">Observed radar loop</span></div><div class="loop">
+       <button id="playLoop" type="button" aria-label="Play observed NOAA radar loop">
+         <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+           <path class="cmpri-map-play-icon" d="M5 3v10l8-5-8-5Z"/>
+           <path class="cmpri-map-pause-icon" d="M4 3h2.5v10H4ZM9.5 3H12v10H9.5Z"/>
+         </svg>
+       </button>
+       <input id="frameRange" type="range" min="0" max="0" value="0" aria-label="Observed NOAA radar frame"></div><div class="scan-time" id="scanTime">No observed scan displayed</div><div class="map-tools"><label class="opacity" for="mapOpacity">Opacity <input id="mapOpacity" type="range" min="0" max="100" value="65"><output id="opacityValue" for="mapOpacity">65%</output></label><label class="row small" style="gap:6px"><input type="checkbox" id="showEchoes" checked>Show radar echoes</label></div></div>
      <div id="mapControlHost"></div>
     </section>
 

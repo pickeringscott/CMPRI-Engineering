@@ -1351,7 +1351,11 @@
     if (playbackRunning && displayed >= 0) state.frame = displayed;
     playbackRunning = false; playbackGeneration += 1;
     if (loop !== null) { clearTimeout(loop); loop = null; }
-    if ($('playLoop')) { $('playLoop').classList.remove('is-playing'); $('playLoop').textContent = '▶ Play'; $('playLoop').setAttribute('aria-label', 'Play observed NOAA radar loop'); }
+    const button = $('playLoop');
+    if (button) {
+      button.classList.remove('is-playing');
+      button.setAttribute('aria-label', 'Play observed NOAA radar loop');
+    }
     if (state.initialized) updateUI(); else emit();
   }
   async function setFrame(index, source) {
@@ -1382,7 +1386,11 @@
       updateUI(); queueDraw(); loop = setTimeout(advance, delay());
     };
     loop = setTimeout(advance, delay());
-    if ($('playLoop')) { $('playLoop').classList.add('is-playing'); $('playLoop').textContent = 'Ⅱ Pause'; $('playLoop').setAttribute('aria-label', 'Pause radar loop'); }
+    const button = $('playLoop');
+    if (button) {
+      button.classList.add('is-playing');
+      button.setAttribute('aria-label', 'Pause radar loop');
+    }
     mark('playLoop', 'Cycles ready observed scans while remaining frames load; new ready scans join automatically'); updateUI();
   }
   function scheduleViewportImage() {

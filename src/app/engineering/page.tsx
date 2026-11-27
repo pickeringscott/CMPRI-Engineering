@@ -810,8 +810,12 @@ export default function EngineeringDashboardPage() {
       open();
       return;
     }
-    const openedAt = windowOpenedAtRef.current.get(key);
     const existing = windowsRef.current.find(entry => entry.key === key && !entry.weatherCached);
+    if (key === WEATHER_PREVIEW_PATH && existing) {
+      requestCloseWindow(key);
+      return;
+    }
+    const openedAt = windowOpenedAtRef.current.get(key);
     if (existing?.launcher && opener && currentWindowLauncher(existing.launcher) !== opener) {
       open();
       return;
