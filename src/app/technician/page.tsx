@@ -314,6 +314,7 @@ export default function TechnicianDashboard() {
           </div>
           <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
             <ApprovedDashboardMenus anchored askEnabled={!!account && isRecognizedChiefEngineer(account)} userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={launchMenuAction} />
+            <div data-weather-advisory-heading-host />
           </nav>
         </header>
         <div ref={setWeatherBulletinHost} data-weather-desktop-bulletin-host className="relative z-20 w-full" />

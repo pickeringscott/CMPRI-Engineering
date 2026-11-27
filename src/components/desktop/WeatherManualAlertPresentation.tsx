@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTimeFormat } from "@/components/TimeFormatProvider";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
@@ -29,44 +29,19 @@ export default function WeatherManualAlertPresentation({ alert, scope, bulletinH
   const timeFormat = useTimeFormat();
   const [initialTimeFormat] = useState(timeFormat);
   const frame = useRef<HTMLIFrameElement>(null);
+  const headingId = useId();
   const stamp = useMemo(() => new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Chicago", month: "short", day: "numeric", timeZoneName: "short",
     hour: timeFormat === "24h" ? "2-digit" : "numeric", minute: "2-digit", second: "2-digit",
     ...timeFormatOptions(timeFormat),
   }), [timeFormat]);
   const showBanner = Boolean(alert?.custom && alert.text && bulletinHost);
+  const headingHost = showBanner ? bulletinHost?.parentElement?.querySelector<HTMLElement>(
+    ":scope > header.cmpri-dashboard-titlebar > nav > [data-weather-advisory-heading-host]",
+  ) : null;
   const showWallpaper = Boolean(alert?.override && wallpaperHost);
   const attention = attentionAlert ?? (scope === "publish" ? alert : null);
   const notepadLevel = attention?.attention && (attention.severity === "watch" || attention.severity === "warning") ? attention.severity : null;
-
-  useEffect(() => {
-    if (!showBanner || !bulletinHost) return;
-    const header = bulletinHost.parentElement?.querySelector<HTMLElement>(":scope > header.cmpri-dashboard-titlebar");
-    if (!header) return;
-    const property = "--cmpri-active-weather-ticker-depth";
-    const priorDepth = header.style.getPropertyValue(property);
-    const menu = header.querySelector(".cmpri-header-v23.anchored-menu");
-    const measure = () => {
-      const clearance = bulletinHost.getBoundingClientRect().bottom - header.getBoundingClientRect().bottom;
-      const depth = Math.max(0, Math.ceil(clearance)) + "px";
-      if (header.style.getPropertyValue(property) === depth) return;
-      header.style.setProperty(property, depth);
-      menu?.dispatchEvent(new Event("cmpri-menu-placement"));
-    };
-    const observer = new ResizeObserver(measure);
-    observer.observe(header);
-    observer.observe(bulletinHost);
-    for (let row = header.nextElementSibling; row && row !== bulletinHost; row = row.nextElementSibling) {
-      observer.observe(row);
-    }
-    measure();
-    return () => {
-      observer.disconnect();
-      if (priorDepth) header.style.setProperty(property, priorDepth);
-      else header.style.removeProperty(property);
-      menu?.dispatchEvent(new Event("cmpri-menu-placement"));
-    };
-  }, [showBanner, bulletinHost]);
 
   useEffect(() => {
     if (!showWallpaper) return;
@@ -90,14 +65,19 @@ export default function WeatherManualAlertPresentation({ alert, scope, bulletinH
     };
   }, [notepadLevel]);
 
+  const heading = alert && showBanner ? <header className={styles.manualTitle} style={{ color: titleInk(alert.color) }}>
+    {headingHost ? <span aria-hidden="true" className={styles.manualTitleBackdrop} style={{ backgroundColor: alert.color }} /> : null}
+    <strong id={headingId}>{t("Property Advisory")}</strong>
+    <time dateTime={new Date(alert.expires).toISOString()}>{t("Until")} {stamp.format(alert.expires)}</time>
+  </header> : null;
+
   return <>
+    {headingHost && heading ? createPortal(heading, headingHost) : null}
     {alert && showBanner && bulletinHost ? createPortal(
       <section data-weather-alert-ticker data-weather-manual-alert-ticker={scope} role="status"
+        aria-labelledby={headingId}
         className={styles.manualBulletin} style={{ background: alert.color, color: alert.textColor }}>
-        <header className={styles.manualTitle} style={{ color: titleInk(alert.color) }}>
-          <strong>{t("Property Advisory")}</strong>
-          <time dateTime={new Date(alert.expires).toISOString()}>{t("Until")} {stamp.format(alert.expires)}</time>
-        </header>
+        {headingHost ? null : heading}
         <div className={`${styles.ticker} ${styles.manualTicker}`}>
           <span key={alert.text} className={styles.tickerTrack}
             style={{ animationDuration: Math.max(20, alert.text.length * .09) + "s" }}>{alert.text}</span>

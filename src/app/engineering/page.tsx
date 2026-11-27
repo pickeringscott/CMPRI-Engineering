@@ -922,6 +922,7 @@ export default function EngineeringDashboardPage() {
         </div>
         <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
           <ApprovedDashboardMenus anchored askEnabled={isRecognizedChiefEngineer(session.user)} restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
+          <div data-weather-advisory-heading-host />
         </nav>
 
         {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={event => openPoolStatus(event.currentTarget)}/></div>}

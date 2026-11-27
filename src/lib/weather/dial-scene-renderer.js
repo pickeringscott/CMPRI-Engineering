@@ -14,15 +14,21 @@ function createDialSquirrels() {
     { fur: '#b36742', tail: '#81432b', highlight: '#edac78', chest: '#f8d7b3' },
   ];
   const range = (low, high) => low + Math.random() * (high - low);
+  const groundStops = () => Math.floor(range(1, 4));
+  const visitsNest = animal => {
+    const visit = animal.skippedNest || Math.random() < .78;
+    animal.skippedNest = !visit;
+    return visit;
+  };
   const tracks = [];
   const pawPattern = [
     [0.42, -0.39, 0.35, 0.18], [0.52, 0.33, 0.33, 0.17],
     [-0.27, -0.25, 0.2, 0.13], [-0.4, 0.17, 0.2, 0.13],
   ];
   const animals = [
-    { x: 26, y: 44, tree: true, heading: 0.9, facing: 1, stops: 2 },
-    { x: 46, y: 81, tree: false, heading: 0, facing: 1, stops: 2 },
-    { x: 70, y: 78, tree: false, heading: Math.PI, facing: -1, stops: 4 },
+    { x: 26, y: 44, tree: true, heading: 0.9, facing: 1 },
+    { x: 46, y: 81, tree: false, heading: 0, facing: 1 },
+    { x: 70, y: 78, tree: false, heading: Math.PI, facing: -1 },
   ].map((animal, index) => ({
     ...animal,
     coat: coats[index],
@@ -35,6 +41,9 @@ function createDialSquirrels() {
     phase: range(0, 2 * Math.PI),
     wait: range(0.15, 0.48) + 0.15 * index,
     speed: range(10, 14),
+    stops: groundStops(),
+    lastClimb: -1,
+    skippedNest: false,
     strides: 0,
     printAt: range(1.5, 2.7),
     waypoints: [],
@@ -42,13 +51,17 @@ function createDialSquirrels() {
   const treePoint = (point) => ({ ...point, tree: true });
   const approach = top.slice(0, -1).map(treePoint);
   const fork = treePoint({ x: 28.5, y: 42.6 });
+  const nestVisit = animal => [fork, animal.nest, fork];
   const nearbyBranches = [treePoint({ x: 23, y: 40 }), treePoint({ x: 32.2, y: 41.6 }), treePoint({ x: 35.5, y: 45.1 })];
   const nesting = mode => mode === 'sleep' || mode === 'shelter';
   const restBetweenTrips = () => range(6, 12);
   let climber = animals[0];
+  let climbOrder = 0;
   let snow = 0;
   let mode;
-  animals[0].waypoints = [top[3], top[2], top[1], top[0]].map(treePoint).concat(base);
+  climber.lastClimb = climbOrder++;
+  climber.waypoints = (visitsNest(climber) ? nestVisit(climber) : [])
+    .concat(approach.slice().reverse(), base);
 
   function nearestTreePoint(animal) {
     const distance = point => Math.hypot(point.x - animal.x, point.y - animal.y);
@@ -77,7 +90,7 @@ function createDialSquirrels() {
         const descent = onTree ? approach.slice(0, branchIndex + 1).reverse().concat(base) : [];
         animal.waypoints = animal.insideNest ? [fork, ...descent] : descent;
         animal.wait = animal.insideNest ? range(.12, .4) + index * .68 : 0;
-        animal.stops = Math.floor(range(2, 5));
+        animal.stops = groundStops();
       } else if (animal.insideNest) {
         animal.waypoints = [];
         animal.wait = range(2.5, 5) + index * 1.3;
@@ -121,14 +134,19 @@ function createDialSquirrels() {
     }
     if (climber === animal) {
       climber = null;
-      animal.stops = Math.floor(range(2, 5));
+      animal.stops = groundStops();
     }
-    if (animal.stops <= 0 && !climber) {
+    const olderClimberWaiting = animals.some(other => other.stops <= 0 && other.lastClimb < animal.lastClimb);
+    if (animal.stops <= 0 && !climber && !olderClimberWaiting) {
       climber = animal;
-      const canopy = top.slice(0, Math.random() < 0.55 ? 6 : 5);
-      const descent = canopy.slice(0, -1).reverse().map(treePoint);
-      animal.waypoints = canopy.map(treePoint).concat(descent, base);
-      animal.waypoints[canopy.length - 1].perch = true;
+      animal.lastClimb = climbOrder++;
+      if (visitsNest(animal)) {
+        animal.waypoints = approach.concat(nestVisit(animal), approach.slice().reverse(), base);
+      } else {
+        const canopy = top.slice(0, Math.random() < .55 ? 6 : 5);
+        animal.waypoints = canopy.map(treePoint).concat(canopy.slice(0, -1).reverse().map(treePoint), base);
+        animal.waypoints[canopy.length - 1].perch = true;
+      }
       return base;
     }
     animal.stops--;
@@ -186,7 +204,7 @@ function createDialSquirrels() {
         animal.tree = Boolean(target.tree);
         animal.insideNest = Boolean(target.insideNest);
         animal.destination = null;
-        animal.wait = target.insideNest && mode === 'brief' ? restBetweenTrips()
+        animal.wait = target.insideNest ? (mode === 'brief' ? restBetweenTrips() : range(1.2, 2.8))
           : target.perch ? range(0.7, 1.4) : animal.waypoints.length ? 0 : range(0.22, 0.75);
       }
     }

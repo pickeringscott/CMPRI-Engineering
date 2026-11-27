@@ -21,6 +21,23 @@
   font: 12px/18px Arial, Helvetica, sans-serif;
 }
 .manualTitle time { white-space: nowrap; }
+:global([data-weather-advisory-heading-host]) .manualTitle { display: contents; }
+:global([data-weather-advisory-heading-host]) .manualTitle > :is(strong, time) {
+  position: relative;
+  grid-row: 1;
+  padding-inline: 3px;
+  font-size: clamp(9px, 2vw, 12px);
+  line-height: var(--cmpri-menu-tab-band);
+  white-space: nowrap;
+}
+:global([data-weather-advisory-heading-host]) .manualTitle strong { grid-column: 1; }
+:global([data-weather-advisory-heading-host]) .manualTitle time { grid-column: 3; }
+.manualTitleBackdrop {
+  position: absolute;
+  inset: 0 0 auto;
+  block-size: var(--cmpri-menu-tab-band);
+  pointer-events: none;
+}
 .manualTicker:hover .tickerTrack { animation-play-state: running; }
 .notepadAttention :global(.buttons > [data-key="/notepad"]) { position: relative; }
 .notepadAttention :global(.buttons > [data-key="/notepad"])::before {
