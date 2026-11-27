@@ -33,6 +33,7 @@ async function fixture(askEnabled = false) {
     "@/components/UiLanguageProvider": { useUiLanguage: () => ({ t: translator, tt: translator }) },
     "@/lib/ui/approved-header-menus": { mountApprovedMenus: mount }, "@/lib/ui/anchored-dashboard-menus": { mountAnchoredMenus: mount },
     "@/lib/ui/ask-dashboard-launcher": {}, "@/lib/ui/header-palette": { modalLauncherStyle: () => ({}) },
+    "@/lib/dashboard/menu-groups": { WEATHER_MENU_PATH: "/previews/cmpri-weather-preview.html" },
     "@/lib/header-layout": layouts, "@/lib/staff-notes-unread": { useStaffNotesSummary: () => null },
     "@/lib/supabase/client": { getValidSession: async () => ({ user: { id: "actor" }, access_token: "current-session" }) },
     "@/lib/events/browser": { subscribeResources: (topics, callback, initial) => {

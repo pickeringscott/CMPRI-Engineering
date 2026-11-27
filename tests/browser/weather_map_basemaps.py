@@ -479,10 +479,10 @@ async def run_viewport(browser, base, output, width, height):
             require(state["scanTimes"][-1] - state["scanTimes"][0] <= int(minutes) * 60000, "Loop exceeds selected history")
             loop_counts[minutes] = state["frameCount"]
         require(loop_counts["120"] > loop_counts["60"], "Loop-window control did not filter actual history")
-        for slider_value, value in enumerate(["slow", "normal", "fast"]):
+        for slider_value, (value, multiplier) in enumerate([("slow", "0.5×"), ("normal", "1×"), ("fast", "2×")]):
             await set_range(frame, "playbackSpeed", slider_value)
             require((await frame.evaluate("window.cmpriWeatherMap.getState()"))["playbackSpeed"] == value, "Playback speed selection did not update")
-            require(value in (await frame.locator("#playbackSpeedValue").inner_text()).lower(), "Playback speed output is unreadable")
+            require(await frame.locator("#playbackSpeedValue").inner_text() == multiplier, "Radar Speed multiplier did not update")
         displayed = await frame.evaluate("window.cmpriWeatherMap.getState().displayedScanTime")
         await frame.locator("#playLoop").click()
         await wait_for(frame, "before => { const s=window.cmpriWeatherMap.getState(); return s.playing && s.displayedScanTime !== before; }", displayed, timeout=7000)

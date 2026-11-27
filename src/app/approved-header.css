@@ -101,6 +101,9 @@ body.drag-invalid,body.drag-invalid *{cursor:not-allowed!important}
 
 .cmpri-header-v23 .action:not(.create):hover{background-color:rgba(var(--action-rgb),.23)!important}
 .cmpri-header-v23 .action:not(.create):active{background-color:rgba(var(--action-rgb),.3)!important}
+.cmpri-header-v23 .action[data-key="/previews/cmpri-weather-preview.html"]:is(:hover,:active){
+ background-color:#000!important;box-shadow:inset 0 0 0 1px #555!important;
+}
 .cmpri-header-v23 .action:not(.create):focus-visible{outline:2px solid rgba(var(--action-rgb),.8);outline-offset:2px}
 .cmpri-header-v23 .action:not(.create)::selection{background:rgba(var(--action-rgb),.35);color:#fff}.cmpri-header-v23 .chief-mobile .collapsed .buttons,.cmpri-header-v23 .chief-mobile .collapsed .group-scroll{display:none!important}
 

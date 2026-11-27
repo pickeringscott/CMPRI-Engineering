@@ -58,6 +58,26 @@ header.cmpri-dashboard-titlebar:has(~ [data-weather-desktop-bulletin-host] [data
   pointer-events: none;
 }
 
+/* The advisory shares the tab line. Let the native menu reserve its open
+   action rows in flow so every panel ends before the scrolling message. */
+.cmpri-dashboard-menu-rail > [data-weather-advisory-heading-host] {
+  display: contents;
+}
+
+.cmpri-dashboard-menu-rail:has(> [data-weather-advisory-heading-host]:not(:empty)) {
+  --cmpri-active-weather-ticker-depth: 0px;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: start;
+  column-gap: clamp(3px, 1vw, 12px);
+  block-size: auto;
+}
+
+.cmpri-dashboard-menu-rail:has(> [data-weather-advisory-heading-host]:not(:empty)) > .cmpri-dashboard-menu-overlay {
+  position: relative;
+  grid-area: 1 / 2;
+}
+
 [data-cmpri-menu-title] {
   width: max-content;
   max-width: 100%;

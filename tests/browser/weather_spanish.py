@@ -163,7 +163,7 @@ async def run_viewport(browser, base, output, width, height):
         await expect(frame.locator('#mapLayerCloudCover')).to_have_attribute('title', re.compile('Porcentaje Previsto Por NWS NDFD'))
         await expect(frame.locator('#mapLayerRoads')).to_contain_text('no disponibles')
         await expect(frame.locator('#mapLayerImpacts')).to_have_text('Impactos invernales previstos')
-        await expect(frame.locator('#playbackSpeed').locator('..')).to_contain_text('Velocidad de reproducción')
+        await expect(frame.locator('#playbackSpeed').locator('..')).to_contain_text('Velocidad del radar')
         await expect(frame.locator('#loopLength').locator('..')).to_contain_text('Bucle de observaciones')
         await expect(frame.locator('#recenter')).to_have_attribute('aria-label', 'Centrar en el hotel')
         await expect(frame.locator('#recenter')).to_have_attribute('title', 'Centrar En El Hotel')

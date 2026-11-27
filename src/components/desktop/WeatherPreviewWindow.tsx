@@ -6,8 +6,10 @@ import DesktopWindow from "@/components/desktop/DesktopWindow";
 import DesktopFrame from "@/components/desktop/DesktopFrame";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import { useTimeFormat } from "@/components/TimeFormatProvider";
+import { useWeatherManualAlert } from "@/components/WeatherManualAlertProvider";
 import type { DesktopBounds, WindowRect } from "@/lib/ui/desktop-windows";
 import { timeFormatOptions } from "@/lib/ui/time-format";
+import { parseWeatherManualAlert } from "@/lib/weather/manual-alert";
 import { armWeatherWarningSound, playWeatherWarningSound, stopWeatherWarningSound } from "@/lib/weather-warning-sound";
 import styles from "./weather-preview-window.module.css";
 
@@ -29,6 +31,7 @@ type Props = {
   registerFrame: (frame: HTMLIFrameElement | null) => void;
   onOpen: (href: string, title: string) => void; onReturnToDesktop: () => void;
   visible: boolean; bulletinHost: HTMLElement | null;
+  canEditManualAlert?: boolean;
 };
 
 const EMPTY: SafetyState = { status: "unavailable", checkedAt: null, source: null, error: "", alerts: [], notifications: [], autoOpenKeys: [] };
@@ -61,12 +64,13 @@ function parseState(input: unknown): SafetyState | null {
     alerts: records(value.alerts), notifications: records(value.notifications),
     autoOpenKeys: Array.isArray(value.autoOpenKeys) ? value.autoOpenKeys.filter((key): key is string => typeof key === "string" && key.length <= 1000).slice(0, 200) : [] };
 }
-
 /** Used only for the preview Weather route; every other desktop window keeps
  * its existing frame, titlebar, notification behavior, and permissions. */
 export default function WeatherPreviewWindow(props: Props) {
   const { t } = useUiLanguage();
   const timeFormat = useTimeFormat();
+  const manualAlerts = useWeatherManualAlert();
+  const manualAllowed = props.canEditManualAlert === true && manualAlerts.enabled;
   const [initialTimeFormat] = useState(timeFormat);
   const frameSrc = useMemo(() => {
     const url = new URL(props.src, "https://cmpri.invalid");
@@ -87,6 +91,10 @@ export default function WeatherPreviewWindow(props: Props) {
   const snapshot = useRef<SafetyState>(EMPTY);
   const selected = useRef<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement | null>(null);
+  const manualActions = useRef(manualAlerts);
+  const manualAccess = useRef(manualAllowed);
+  const manualMutation = useRef(false);
+  const returnToDesktop = useRef(props.onReturnToDesktop);
   const frameCleanup = useRef<(() => void) | null>(null);
   const registerRef = useRef(props.registerFrame);
   const dialogRef = useRef<HTMLDialogElement | null>(null);
@@ -95,6 +103,8 @@ export default function WeatherPreviewWindow(props: Props) {
   const timeFormatRef = useRef(timeFormat);
   const token = new URL(props.src, "https://cmpri.invalid").searchParams.get("modalToken");
   useEffect(() => { registerRef.current = props.registerFrame; }, [props.registerFrame]);
+  useEffect(() => { returnToDesktop.current = props.onReturnToDesktop; }, [props.onReturnToDesktop]);
+  useEffect(() => { manualActions.current = manualAlerts; }, [manualAlerts]);
 
   const send = useCallback((type: string, extra: Record<string, unknown> = {}) => {
     frameRef.current?.contentWindow?.postMessage({ type, modalToken: token, ...extra }, window.location.origin);
@@ -139,6 +149,7 @@ export default function WeatherPreviewWindow(props: Props) {
         frame.contentWindow?.postMessage({ type: "cmpri-time-format-updated", timeFormat: timeFormatRef.current }, window.location.origin);
         frame.contentWindow?.postMessage({ type: "cmpri-weather-view-state", visible: visibleRef.current, modalToken: token }, window.location.origin);
         frame.contentWindow?.postMessage({ type: "cmpri-weather-safety-request-state", modalToken: token }, window.location.origin);
+        frame.contentWindow?.postMessage({ type: "cmpri-weather-manual-alert-access", allowed: manualAccess.current, modalToken: token }, window.location.origin);
       };
       frame.addEventListener("load", request);
       frameCleanup.current = () => frame.removeEventListener("load", request);
@@ -151,15 +162,67 @@ export default function WeatherPreviewWindow(props: Props) {
   }, [timeFormat, send]);
 
   useEffect(() => {
+    manualAccess.current = manualAllowed;
+    send("cmpri-weather-manual-alert-access", { allowed: manualAllowed });
+  }, [manualAllowed, send]);
+
+  useEffect(() => {
     visibleRef.current = props.visible;
     send("cmpri-weather-view-state", { visible: props.visible });
   }, [props.visible, send]);
 
   useEffect(() => {
+    const manualResult = (ok: boolean, message: string, pending?: boolean) =>
+      send("cmpri-weather-manual-alert-result", { ok, message, pending });
+    const manualFailure = (error: unknown, pending?: boolean) => {
+      const message = error instanceof Error ? error.message.trim() : "";
+      manualResult(false, message.slice(0, 240) || "Weather alert could not be updated.", pending);
+    };
+    const closeMobile = () => {
+      if (window.matchMedia("(max-width: 700px)").matches) returnToDesktop.current();
+    };
+    async function submitManual(mode: unknown, payload: unknown) {
+      if (!manualAccess.current || !visibleRef.current || (mode !== "preview" && mode !== "publish" && mode !== "delete")) return;
+      const alert = mode === "delete" ? null : parseWeatherManualAlert(payload);
+      if (mode !== "delete" && !alert) {
+        manualResult(false, "Review the alert settings and choose a future expiration.", mode === "publish" ? false : undefined);
+        return;
+      }
+      if (mode === "preview" && alert) {
+        try {
+          manualActions.current.showPreview(alert);
+          manualResult(true, "Private weather preview updated.");
+          closeMobile();
+        } catch (error) {
+          manualFailure(error);
+        }
+        return;
+      }
+      if (manualMutation.current) return;
+      manualMutation.current = true;
+      try {
+        if (mode === "delete") {
+          await manualActions.current.deleteAlert();
+          manualResult(true, "Weather alert deleted.", false);
+        } else if (alert) {
+          await manualActions.current.publish(alert);
+          manualResult(true, "Weather alert published.", false);
+          closeMobile();
+        }
+      } catch (error) {
+        manualFailure(error, false);
+      } finally {
+        manualMutation.current = false;
+      }
+    }
     function receive(event: MessageEvent) {
       const data = object(event.data), frame = frameRef.current;
       if (!data || !frame || !token || event.origin !== window.location.origin || event.source !== frame.contentWindow || data.modalToken !== token) return;
-      if (data.type === "cmpri-weather-safety-state") {
+      if (data.type === "cmpri-weather-manual-alert-request-access") {
+        send("cmpri-weather-manual-alert-access", { allowed: manualAccess.current });
+      } else if (data.type === "cmpri-weather-manual-alert-submit") {
+        void submitManual(data.mode, data.payload);
+      } else if (data.type === "cmpri-weather-safety-state") {
         const next = parseState(data.payload); if (!next) return;
         const previous = snapshot.current;
         snapshot.current = next; setSafety(next);

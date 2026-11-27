@@ -919,6 +919,7 @@ export const ASK_NATIVE_NON_OPERATIONS = Object.freeze([
   { path: "/api/integrations/drive-po/maintenance", reason: "Machine watch maintenance worker." },
   { path: "/api/integrations/drive-po/notify", reason: "Provider webhook." },
   { path: "/api/notifications/dispatch", reason: "Machine notification-delivery worker." },
+  { path: "/api/weather-preview/manual-alert", reason: "Preview advisory delivery for signed-in browser sessions. Publishing and deletion are explicit actions in the Weather window." },
   { path: "/api/pool-status/reconcile", reason: "Machine reconciliation worker." },
   { path: "/api/room-operations/reconcile", reason: "Machine reconciliation worker." },
   { path: "/api/room-operations/cleanup", reason: "Machine retention worker." },

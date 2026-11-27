@@ -758,9 +758,9 @@ class OfficialFeedFixtures:
 
 async def dashboard_weather_launcher(page):
     """Reveal Weather through the actual dashboard tab before opening its window."""
-    safety = page.locator("fieldset").filter(has=page.get_by_role("button", name="Safety & Logs", exact=True))
-    title = safety.get_by_role("button", name="Safety & Logs", exact=True)
+    title = page.get_by_role("button", name="Safety & Logs", exact=True)
     await title.wait_for(state="visible", timeout=60000)
+    safety = title.locator("xpath=ancestor::fieldset[1]")
     if await title.get_attribute("aria-expanded") != "true" or await safety.get_attribute("data-active") != "true":
         await title.click()
     launcher = safety.get_by_role("button", name="Weather", exact=True)

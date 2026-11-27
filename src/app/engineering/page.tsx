@@ -48,7 +48,7 @@ import {
   type WindowSize,
 } from "@/lib/ui/desktop-windows";
 import { animateWindowTelescope, captureWindowLauncher, clearWindowTelescope, currentWindowLauncher, type WindowLauncher } from "@/lib/ui/window-telescope";
-import { isRecognizedChiefEngineer, profileCanReopenPool, profileCanUseHoursTracker, roleAllows, roleKey } from "@/lib/server/roles";
+import { isRecognizedChiefEngineer, profileCanReopenPool, profileCanUseHoursTracker, profileIsChiefEngineerOrSystemAdmin, roleAllows, roleKey } from "@/lib/server/roles";
 import PoolStatus from "@/components/desktop/PoolStatus";
 import WeatherUtilities from "@/components/desktop/WeatherUtilities";
 import ApprovedDashboardMenus from "@/components/desktop/ApprovedDashboardMenus";
@@ -57,6 +57,7 @@ import DesktopFrame from "@/components/desktop/DesktopFrame";
 import DesktopWorkspaceResume from "@/components/desktop/DesktopWorkspaceResume";
 import type { WorkspaceState } from "@/lib/ui/workspace-resume";
 import WeatherPreviewWindow from "@/components/desktop/WeatherPreviewWindow";
+import { useWeatherManualAlertHosts } from "@/components/WeatherManualAlertProvider";
 import { armWeatherWarningSound } from "@/lib/weather-warning-sound";
 import DashboardNotificationBell from "@/components/DashboardNotificationBell";
 import TroubleshootingGuideDropdown from "@/components/TroubleshootingGuideDropdown";
@@ -182,6 +183,8 @@ export default function EngineeringDashboardPage() {
   const boundsRef = useRef<DesktopBounds>({ width: 0, height: 0 });
   const [windows, setWindows] = useState<DesktopWindowEntry[]>([]);
   const [weatherBulletinHost, setWeatherBulletinHost] = useState<HTMLDivElement | null>(null);
+  const [weatherWallpaperHost, setWeatherWallpaperHost] = useState<HTMLDivElement | null>(null);
+  useWeatherManualAlertHosts(weatherBulletinHost, weatherWallpaperHost);
   const [windowGuests, setWindowGuests] = useState<Record<string, Record<string, unknown>>>({});
   const windowsRef = useRef<DesktopWindowEntry[]>([]);
   const workOrderRegistryOwner = useRef("");
@@ -807,8 +810,12 @@ export default function EngineeringDashboardPage() {
       open();
       return;
     }
-    const openedAt = windowOpenedAtRef.current.get(key);
     const existing = windowsRef.current.find(entry => entry.key === key && !entry.weatherCached);
+    if (key === WEATHER_PREVIEW_PATH && existing) {
+      requestCloseWindow(key);
+      return;
+    }
+    const openedAt = windowOpenedAtRef.current.get(key);
     if (existing?.launcher && opener && currentWindowLauncher(existing.launcher) !== opener) {
       open();
       return;
@@ -919,6 +926,7 @@ export default function EngineeringDashboardPage() {
         </div>
         <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
           <ApprovedDashboardMenus anchored askEnabled={isRecognizedChiefEngineer(session.user)} restriction={frontDeskLayout ? "front_desk" : isHousekeepingDashboard ? "housekeeping" : null} groups={visibleLauncherGroups} onLaunch={launch} userId={session.user.id} hotelId={session.hotelId} />
+          <div data-weather-advisory-heading-host />
         </nav>
 
         {frontDeskLayout && <div role="status" aria-live="polite" className="fixed bottom-4 right-4 z-50 max-w-[min(24rem,calc(100vw-2rem))]"><PoolStatus noticeOnly onOpen={event => openPoolStatus(event.currentTarget)}/></div>}
@@ -942,6 +950,7 @@ export default function EngineeringDashboardPage() {
       <div ref={setWeatherBulletinHost} data-weather-desktop-bulletin-host className="relative z-[200] w-full shrink-0" />
 
       <div className="cmpri-desktop relative isolate min-h-0 flex-1 overflow-hidden">
+        <div ref={setWeatherWallpaperHost} className="pointer-events-none absolute inset-0" />
         {openKeys.size === 0 && (
           <p aria-hidden="true" className="pointer-events-none absolute inset-0 grid place-items-center text-xs uppercase tracking-[0.4em] text-slate-700 select-none">{t("CMPRI ")}{frontDeskLayout ? t("Front Desk") : t("Engineering")}</p>
         )}
@@ -959,6 +968,7 @@ export default function EngineeringDashboardPage() {
             if (entry.key === WEATHER_PREVIEW_PATH && entry.kind === "frame" && entry.src) {
               return <WeatherPreviewWindow key={entry.key} windowKey={entry.key} title={entry.title} accentClass={entry.accent} src={entry.src}
                 visible={!entry.weatherCached} bulletinHost={weatherBulletinHost}
+                canEditManualAlert={profileIsChiefEngineerOrSystemAdmin(session.user)}
                 rect={rect} bounds={bounds} zIndex={zIndex} active={activeKey === entry.key} onFocus={() => raise(entry.key)}
                 onClose={() => requestCloseWindow(entry.key)} onRectCommit={next => commitRect(entry.key, next)}
                 registerFrame={frame => { if (frame) frameRefs.current.set(entry.key, frame); }}

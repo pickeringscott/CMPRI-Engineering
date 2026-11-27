@@ -1,0 +1,14 @@
+.wallpaperHost {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.wallpaperHost iframe { pointer-events: none; }
+
+:global(body):has(> .wallpaperHost) { isolation: isolate; }
+
+:global(body):has(> .wallpaperHost) > main {
+  background-color: color-mix(in srgb, var(--background) 80%, transparent);
+}

@@ -1,15 +1,16 @@
 "use client";
 
 import Script from "next/script";
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type MouseEventHandler, type ReactNode } from "react";
+import { useEffect, useId, useState, useSyncExternalStore, type MouseEventHandler, type ReactNode } from "react";
 import { useUiLanguage } from "@/components/UiLanguageProvider";
 import type { DashboardWeather } from "@/lib/weather/dashboard-weather";
+import WeatherDialScene from "./WeatherDialScene";
+import WeatherWidgetRadar from "./WeatherWidgetRadar";
 import styles from "./weather-utilities.module.css";
 
 type WeatherVisuals = {
   colorAt: (fahrenheit: number) => string;
   stops: ReadonlyArray<{ fahrenheit: number; color: string }>;
-  condition: (description: string | null, options: { icon: string | null; isDaytime: boolean | null }) => SVGElement;
 };
 
 const REFRESH_INTERVAL = 10 * 60 * 1000;
@@ -20,7 +21,16 @@ const UNKNOWN_COLOR = "#373a40";
 // At the full 225px size, one typographic point is 4/3 CSS pixels.
 // Dilating the alpha applies the outline to both text and lines as the dial scales.
 const LIGHT_INK_OUTLINE = (96 / 72) / (225 / 100);
-const WIND_INDICATOR_BOTTOM = 62.4 + 4.2 + 0.55 / 2;
+const CENTRAL_CLOCK = new Intl.DateTimeFormat("en-US", {
+  timeZone: "America/Chicago", hour: "numeric", minute: "numeric", hourCycle: "h23",
+});
+
+function currentTimeAngle() {
+  const parts = CENTRAL_CLOCK.formatToParts(new Date());
+  const minutes = Number(parts.find(part => part.type === "hour")?.value) * 60
+    + Number(parts.find(part => part.type === "minute")?.value);
+  return ARC_START + minutes / 1440 * ARC_SPAN;
+}
 
 function onArc(angle: number, radius = RADIUS) {
   const radians = angle * Math.PI / 180;
@@ -52,55 +62,39 @@ function temperatureInk(color: string) {
   return luminance > 0.179 ? "#000" : "#fff";
 }
 
-function moonLight(angle: number | null) {
-  if (angle === null) return null;
-  const radius = 4.2;
-  const side = angle > 180 ? 0 : 1;
-  const narrow = angle < 90 || angle > 270;
-  const terminator = Math.abs(radius * Math.cos(angle * Math.PI / 180));
-  return `M0 ${-radius}A${radius} ${radius} 0 0 ${side} 0 ${radius}A${terminator} ${radius} 0 0 ${narrow ? 1 - side : side} 0 ${-radius}Z`;
-}
-
 function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: MouseEventHandler<HTMLButtonElement> }) {
   const { t } = useUiLanguage();
   const [visuals, setVisuals] = useState<WeatherVisuals | null>(null);
-  const conditionHost = useRef<SVGGElement>(null);
+  const [beadAngle, setBeadAngle] = useState(currentTimeAngle);
   const outlineId = `weather-outline-${useId().replaceAll(":", "")}`;
   const outline = `url(#${outlineId})`;
   const condition = data?.condition ?? null;
-  const icon = data?.icon ?? null;
-  const isDaytime = data?.isDaytime ?? null;
-
   useEffect(() => {
-    const drawing = visuals?.condition(condition, { icon, isDaytime });
-    const cloud = drawing?.querySelector<SVGPathElement>(".wv-cloud:only-of-type");
-    if (drawing?.dataset.condition === "cloud" && drawing.childElementCount === 2 && cloud) {
-      cloud.setAttribute("d", "M22 35h-4a8 8 0 1 1 6-14m-5-3a14 14 0 0 1 27-2m-5 9a8 8 0 0 0-10 5m0 0a5 5 0 1 0-2 5h20a6 6 0 1 0-5-9");
-    }
-    // Keep the original icon position/size inside the common artboard so its
-    // light strokes receive the same physical outline as the other readings.
-    drawing?.setAttribute("x", "38.6");
-    drawing?.setAttribute("y", "49.5");
-    drawing?.setAttribute("width", "26");
-    drawing?.setAttribute("height", "19.5");
-    conditionHost.current?.replaceChildren(...(drawing ? [drawing] : []));
-  }, [condition, icon, isDaytime, visuals]);
+    const update = () => setBeadAngle(currentTimeAngle());
+    const timer = window.setInterval(update, 1000);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, []);
 
   const high = data?.high ?? null, low = data?.low ?? null, current = data?.current ?? null;
-  const range = high !== null && low !== null && high > low && current !== null
-    ? Math.min(1, Math.max(0, (high - current) / (high - low))) : 0.5;
-  const beadAngle = HIGH_ANGLE + range * (LOW_ANGLE - HIGH_ANGLE);
-  const nearestMarker = Math.min(beadAngle - HIGH_ANGLE, LOW_ANGLE - beadAngle);
-  const bead = onArc(beadAngle, nearestMarker < 13 ? RADIUS - 10 : RADIUS);
+  const bead = onArc(beadAngle);
   const arc = dialArc(visuals, high, low);
   const endpoints = [onArc(ARC_START), onArc(ARC_START + ARC_SPAN)];
   const markers = [
     { label: "H", position: onArc(HIGH_ANGLE), color: arc.highColor },
     { label: "L", position: onArc(LOW_ANGLE), color: arc.lowColor },
   ];
-  const moon = moonLight(data?.moonAngle ?? null);
   const temperature = (value: number | null) => value === null ? "—" : `${Math.round(value)}°`;
+  const currentTemperature = temperature(current);
+  const extremeReadings = [
+    { label: `H: ${temperature(high)}`, color: arc.highColor, x: 41.7, name: "high" },
+    { label: `L: ${temperature(low)}`, color: arc.lowColor, x: 61.5, name: "low" },
+  ];
   const precipitation = data?.precipitation == null ? "—" : `${Math.round(data.precipitation)}%`;
+  const precipitationWidth = precipitation.length === 1 ? 5.5 : 4.6 + 3.5 * (precipitation.length - 1);
   const wind = data?.wind == null ? "—" : String(Math.round(data.wind));
   const details = [
     t("Open Weather", "Abrir clima"), current === null ? t("Observation unavailable", "Observación no disponible") : `${temperature(current)} · ${condition || t("Current conditions")}`,
@@ -115,6 +109,7 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
       }} />
       <button type="button" className={styles.dial} data-cmpri-weather-dial="" data-cmpri-desktop-launch="/previews/cmpri-weather-preview.html"
         aria-label={details.replaceAll("\n", ". ")} aria-haspopup="dialog" title={details} onClick={onOpen}>
+        <WeatherDialScene data={data} />
         <span className={styles.ring} style={{ background: arc.background }} aria-hidden="true" />
         <svg className={styles.artboard} viewBox="0 0 100 100" aria-hidden="true" focusable="false">
           <defs>
@@ -131,31 +126,34 @@ function WeatherDial({ data, onOpen }: { data: DashboardWeather | null; onOpen: 
             <circle cx={position.x} cy={position.y} r="4.2" fill={color} className={styles.markerOutline} />
             <text x={position.x} y={position.y + 2.2} fill={temperatureInk(color)} filter={temperatureInk(color) === "#fff" ? outline : undefined} className={styles.marker}>{label}</text>
           </g>)}
-          {current !== null && high !== null && low !== null ? <circle cx={bead.x} cy={bead.y} r="3.5" className={styles.currentBead} /> : null}
+          <circle cx={bead.x} cy={bead.y} r="3.5" className={styles.currentBead} />
           <g filter={outline} data-cmpri-weather-light-ink="">
-          <text x={CENTER_X} y="35" className={styles.temperature}>{temperature(current)}</text>
-          <path d="M34 39H69" className={styles.rule} />
-          <text x={CENTER_X} y="46.7" className={styles.now}>{t("Now", "Ahora")}</text>
-          <g className={styles.drops} transform="translate(6.8 -4.6)" data-cmpri-precipitation-icon="">
-            <path d="M18.2 53.9c1.5 2 2.6 3.5 2.6 5a2.6 2.6 0 0 1-5.2 0c0-1.5 1.1-3 2.6-5Z" />
-            <path d="M23.9 51.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
-            <path d="M23.9 57.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
+            <text x={CENTER_X} y="39.5" data-cmpri-current-temperature="" className={styles.temperature} textLength={currentTemperature.length > 3 ? 36 : undefined} lengthAdjust="spacingAndGlyphs">{currentTemperature}</text>
+            <g>
+              <g className={styles.drops} transform={`translate(${50 - precipitationWidth - 3.6} 57.8) scale(.43) translate(-20.5 -57.25)`} data-cmpri-precipitation-icon="">
+                <path d="M18.2 53.9c1.5 2 2.6 3.5 2.6 5a2.6 2.6 0 0 1-5.2 0c0-1.5 1.1-3 2.6-5Z" />
+                <path d="M23.9 51.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
+                <path d="M23.9 57.9c.95 1.2 1.55 2.2 1.55 3.1a1.55 1.55 0 0 1-3.1 0c0-.9.6-1.9 1.55-3.1Z" />
+              </g>
+              <text x="50" y="57.8" className={styles.precipitation} data-cmpri-precipitation-value="" textLength={precipitationWidth} lengthAdjust="spacingAndGlyphs">{precipitation}</text>
+              <text x="53.2" y="57.8" className={styles.wind} textLength={wind.length > 1 ? 14.6 : undefined} lengthAdjust="spacingAndGlyphs" data-cmpri-wind-value="">{wind}<tspan className={styles.windUnit}> MPH</tspan></text>
+              <g transform="translate(71.6 57.8) scale(.78) translate(-75.1 -62.4)">
+                <circle cx="75.1" cy="62.4" r="4.2" className={styles.windCircle} data-cmpri-wind-indicator="" />
+                {data?.wind === 0 ? <circle cx="75.1" cy="62.4" r="1" className={styles.calm} /> : data?.bearing != null && data?.wind != null ? (
+                  <path d="M75.1 60v4.8m-1.5-1.6 1.5 1.6 1.5-1.6" transform={`rotate(${data.bearing} 75.1 62.4)`} className={styles.windArrow} />
+                ) : null}
+              </g>
+            </g>
           </g>
-          <text x="27.3" y={WIND_INDICATOR_BOTTOM} className={styles.precipitation} data-cmpri-precipitation-value="" textLength={precipitation.length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs">{precipitation}</text>
-          <text x="75.1" y="55.8" className={styles.wind}>{wind}<tspan className={styles.windUnit}> mph</tspan></text>
-          <circle cx="75.1" cy="62.4" r="4.2" className={styles.windCircle} data-cmpri-wind-indicator="" />
-          {data?.wind === 0 ? <circle cx="75.1" cy="62.4" r="1" className={styles.calm} /> : data?.bearing != null && data?.wind != null ? (
-            <path d="M75.1 60v4.8m-1.5-1.6 1.5 1.6 1.5-1.6" transform={`rotate(${data.bearing} 75.1 62.4)`} className={styles.windArrow} />
-          ) : null}
-          <g className={styles.condition} ref={conditionHost} />
+          <g>
+            {extremeReadings.map(({ label, color, x, name }) => <g key={name} data-cmpri-extreme={name}>
+              <rect x={x - 8.6} y="64" width="17.2" height="6" rx="3" fill={color}
+                data-cmpri-high-temperature={name === "high" ? "" : undefined}
+                data-cmpri-low-temperature={name === "low" ? "" : undefined} />
+              <text x={x} y="67" textLength={label.length > 6 ? 14.8 : undefined} lengthAdjust="spacingAndGlyphs"
+                fill={temperatureInk(color)} filter={temperatureInk(color) === "#fff" ? outline : undefined} className={styles.extreme}>{label}</text>
+            </g>)}
           </g>
-          <rect x="34" y="67.6" width="17.2" height="8.2" rx="4.1" fill={arc.lowColor} />
-          <rect x="52.2" y="67.6" width="17.2" height="8.2" rx="4.1" fill={arc.highColor} />
-          <text x="42.6" y="74.1" textLength={temperature(low).length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs" fill={temperatureInk(arc.lowColor)} filter={temperatureInk(arc.lowColor) === "#fff" ? outline : undefined} className={styles.extreme}>{temperature(low)}</text>
-          <text x="60.8" y="74.1" textLength={temperature(high).length > 3 ? 15 : undefined} lengthAdjust="spacingAndGlyphs" fill={temperatureInk(arc.highColor)} filter={temperatureInk(arc.highColor) === "#fff" ? outline : undefined} className={styles.extreme}>{temperature(high)}</text>
-          {moon ? <g filter={outline}><g transform={`translate(${CENTER_X} 89.7)`}>
-            <path d={moon} className={styles.moonLight} />
-          </g></g> : null}
         </svg>
       </button>
     </>
@@ -197,7 +195,7 @@ function WeatherTile({ onOpen }: { onOpen: MouseEventHandler<HTMLButtonElement> 
     };
   }, []);
 
-  return <WeatherDial data={data} onOpen={onOpen} />;
+  return <WeatherWidgetRadar><WeatherDial data={data} onOpen={onOpen} /></WeatherWidgetRadar>;
 }
 
 function subscribeToWeatherViewport(change: () => void) {

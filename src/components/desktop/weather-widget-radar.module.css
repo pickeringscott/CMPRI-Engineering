@@ -1,0 +1,65 @@
+.dock {
+  --radar-control-size: 24px;
+  --radar-travel-curve: cubic-bezier(.22, .75, .35, 1);
+  position: fixed;
+  right: env(safe-area-inset-right, 0px);
+  bottom: env(safe-area-inset-bottom, 0px);
+  z-index: 1;
+  inline-size: min(225px, 35vw, 55dvh);
+  aspect-ratio: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.dial,
+.radar {
+  position: absolute;
+  inset: 0;
+}
+
+.dial { clip-path: inset(0); }
+
+.radar {
+  transform: translateY(100%);
+  background: #1c261c;
+}
+
+.radar:not([inert]) { pointer-events: auto; }
+
+.frame {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  border: 0;
+}
+
+.toggle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  inline-size: var(--radar-control-size);
+  block-size: var(--radar-control-size);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #737766;
+  border-radius: 4px 0 0 0;
+  background: #192219e8;
+  color: #fff8e6;
+  pointer-events: auto;
+}
+
+.toggle:focus-visible { outline: 2px solid #ffcd00; outline-offset: -2px; }
+.dock[data-expanded="true"] .toggle { bottom: calc(100% - var(--radar-control-size)); border-radius: 0 0 0 4px; }
+.dock[data-expanded="true"] .radar { transform: translateY(0); }
+.dock[data-expanded="true"] .dial { clip-path: inset(0 0 100%); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .dial { transition: clip-path var(--radar-travel) var(--radar-travel-curve); }
+  .radar { transition: transform var(--radar-travel) var(--radar-travel-curve); }
+  .toggle { transition: bottom var(--radar-travel) var(--radar-travel-curve); }
+}
+
+:global(body:has([data-cmpri-weather-wallpaper])) .toggle { display: none; }
+:global(body:has([data-cmpri-weather-wallpaper])) .dock .radar { visibility: hidden; }
+:global(body:has([data-cmpri-weather-wallpaper])) .dock .dial { clip-path: inset(0); transition: none; }

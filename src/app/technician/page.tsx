@@ -7,6 +7,7 @@ import { subscribeResources } from "@/lib/events/browser";
 import { HOTEL_ID } from "@/lib/constants";
 import PoolStatus from "@/components/desktop/PoolStatus";
 import WeatherUtilities from "@/components/desktop/WeatherUtilities";
+import { useWeatherManualAlertHosts } from "@/components/WeatherManualAlertProvider";
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -60,6 +61,9 @@ export default function TechnicianDashboard() {
   const [orders, setOrders] = useState<AssignedWorkOrder[]>([]);
   const [newWorkQueue, setNewWorkQueue] = useState<AssignedWorkOrder[]>([]);
   const [menuSession, setMenuSession] = useState<CmpriClientSession | null>(null);
+  const [weatherBulletinHost, setWeatherBulletinHost] = useState<HTMLDivElement | null>(null);
+  const [weatherWallpaperHost, setWeatherWallpaperHost] = useState<HTMLDivElement | null>(null);
+  useWeatherManualAlertHosts(weatherBulletinHost, weatherWallpaperHost);
   const account = menuSession?.user;
   const [notificationError, setNotificationError] = useState("");
   const [notifications, setNotifications] = useState<WorkOrderNotification[]>([]);
@@ -287,7 +291,8 @@ export default function TechnicianDashboard() {
   }
 
   return (
-    <main className="min-h-[100svh] bg-slate-950 text-white">
+    <main className="min-h-[100svh] bg-slate-950 text-white has-[[data-cmpri-weather-wallpaper]]:isolate">
+      <div ref={setWeatherWallpaperHost} className="pointer-events-none fixed inset-0 -z-10" />
       {account && typeof window !== "undefined" && window.parent === window
         && new URLSearchParams(window.location.search).get("embedded") !== "1" && (
           <BeginnerGuide key={account.id + ":" + account.role} user={{
@@ -309,9 +314,10 @@ export default function TechnicianDashboard() {
           </div>
           <nav aria-label={t("Open dashboard windows")} className="cmpri-dashboard-menu-rail w-full min-w-0">
             <ApprovedDashboardMenus anchored askEnabled={!!account && isRecognizedChiefEngineer(account)} userId={account?.id || ""} hotelId={menuSession?.hotelId || HOTEL_ID} groups={dashboardMenuGroups("technician", menuActions)} onLaunch={launchMenuAction} />
+            <div data-weather-advisory-heading-host />
           </nav>
         </header>
-        <div data-weather-desktop-bulletin-host className="relative z-20 w-full" />
+        <div ref={setWeatherBulletinHost} data-weather-desktop-bulletin-host className="relative z-20 w-full" />
         <div data-cmpri-technician-window-anchor data-can-view-work-orders={canViewWorkOrders} />
 
         {message && <p role="status" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-3 text-sm text-red-100">{t(message)}</p>}

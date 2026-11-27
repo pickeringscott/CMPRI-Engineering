@@ -113,7 +113,7 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave, prese
   for(const action of group.items){
    const b=document.createElement('button');b.type='button';b.className='action';b.dataset.key=action.key;b.dataset.layoutKey=action.key+'::'+action.label.replace(/ \(\d+\)$/,'');b.dataset.control=action.label;b.textContent=translate(action.label);
    for(const [key,value]of Object.entries(action.style||{}))b.style.setProperty(key,value);
-   b.title=tooltip('Drag to reorder within {group} (touch: long press)',{group:translate(group.label)});b.oncontextmenu=e=>e.preventDefault();b.onpointerdown=e=>startDrag(e,b,buttons,true);
+   b.title=action.tooltip?translate(action.tooltip):tooltip('Drag to reorder within {group} (touch: long press)',{group:translate(group.label)});b.oncontextmenu=e=>e.preventDefault();b.onpointerdown=e=>startDrag(e,b,buttons,true);
    b.onclick=e=>{if(!shouldSuppress(b,e))onLaunch(action,Date.now())};
    b.onkeydown=e=>{if(e.altKey&&['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const other=e.key==='ArrowLeft'?b.previousElementSibling:b.nextElementSibling;if(other){if(e.key==='ArrowLeft')other.before(b);else other.after(b);emit();b.focus()}}};buttons.append(b);
   }
@@ -159,7 +159,7 @@ export function mountApprovedMenus(root, groups, onLaunch, layout, onSave, prese
    title.title=tooltip('Click or tap to collapse; drag to reorder (touch: long press)');
    title.setAttribute('aria-label',translate('{group}; click or tap to collapse, drag to reorder (touch: long press), or Alt + Left/Right',{group:translate(group.label)}));
    for(const b of buttons.children){const action=group.items.find(item=>item.key===b.dataset.key&&item.label===b.dataset.control);if(!action)continue;
-    b.textContent=translate(action.label);b.title=tooltip('Drag to reorder within {group} (touch: long press)',{group:translate(group.label)});delete b.dataset.staffNotesBaseTitle;
+    b.textContent=translate(action.label);b.title=action.tooltip?translate(action.tooltip):tooltip('Drag to reorder within {group} (touch: long press)',{group:translate(group.label)});delete b.dataset.staffNotesBaseTitle;
    }
    scroll.setAttribute('aria-label',translate('Scroll {group} buttons',{group:translate(group.label)}));
    edge.setAttribute('aria-label',translate('Resize {group}',{group:translate(group.label)}));edge.title=tooltip('Drag horizontally to resize');field.drawOutline();
